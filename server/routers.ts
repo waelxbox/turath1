@@ -814,6 +814,7 @@ import {
   getEntitiesByDocument,
   getEntityStats,
   getGraphData,
+  getEntityDetails,
 } from "./db";
 
 const entitiesRouter = router({
@@ -857,6 +858,20 @@ const entitiesRouter = router({
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       return getGraphData(input.projectId);
+    }),
+
+  /** Get full entity profile: core data, document mentions, co-occurring connections */
+  getDetails: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      entityId: z.number(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      const details = await getEntityDetails(input.projectId, input.entityId);
+      if (!details) throw new TRPCError({ code: "NOT_FOUND", message: "Entity not found" });
+      return details;
     }),
 
   /** Re-extract entities for all reviewed documents (backfill) */

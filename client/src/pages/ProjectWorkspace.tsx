@@ -2,7 +2,7 @@ import { useParams, useLocation, Router, Route, Switch } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { getLoginUrl } from "@/const";
-import { Loader2, BookOpen, Upload, Eye, Download, Settings, ArrowLeft, ChevronRight, MessageSquare, Search, Network } from "lucide-react";
+import { Loader2, BookOpen, Upload, Eye, Download, Settings, ArrowLeft, ChevronRight, MessageSquare, Search, Network, BookOpenText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import UploadPage from "./project/UploadPage";
 import ReviewPage from "./project/ReviewPage";
@@ -12,6 +12,7 @@ import ProjectOverview from "./project/ProjectOverview";
 import SemanticChatPage from "./project/SemanticChatPage";
 import SemanticSearchPage from "./project/SemanticSearchPage";
 import KnowledgeGraphPage from "./project/KnowledgeGraphPage";
+import EntityDirectoryPage from "./project/EntityDirectoryPage";
 
 const NAV_ITEMS = [
   { id: "overview", label: "Overview",    icon: BookOpen,      path: "/" },
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
   { id: "search",   label: "Search",      icon: Search,        path: "/search" },
   { id: "chat",     label: "Ask Archive", icon: MessageSquare, path: "/chat" },
   { id: "graph",    label: "Knowledge Graph", icon: Network,  path: "/graph" },
+  { id: "directory",label: "Entity Directory", icon: BookOpenText, path: "/directory" },
   { id: "export",   label: "Export",      icon: Download,      path: "/export" },
   { id: "settings", label: "Settings",    icon: Settings,      path: "/settings" },
 ];
@@ -165,6 +167,10 @@ function WorkspaceInner({
             {/* knowledge graph */}
             <Route path="/graph">
               <KnowledgeGraphPage projectId={projectId} />
+            </Route>
+            {/* entity directory */}
+            <Route path="/directory">
+              <EntityDirectoryPage projectId={projectId} />
             </Route>
             {/* default: overview */}
             <Route>

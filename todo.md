@@ -151,7 +151,7 @@
 - [x] Fix semanticSearch signature to pass queryText to searchEmbeddings
 - [x] Update SemanticSearchPage to show match type badge (Hybrid/Semantic/Keyword) and RRF-calibrated scores
 - [x] 21 tests passing, zero TypeScript errors
-- [ ] Push to GitHub
+- [x] Push to GitHub
 
 ## Features (Round 13) — NER + Knowledge Graph
 - [x] Create entities table in Supabase (id, projectId, name, type enum, normalizedName for dedup)
@@ -164,5 +164,14 @@
 - [x] Install react-force-graph-2d for interactive knowledge graph
 - [x] Build KnowledgeGraphPage — force-directed graph, type filtering, zoom controls, detail panel with connections
 - [x] Add Knowledge Graph nav item to project workspace sidebar
+- [x] 21 tests passing, zero TypeScript errors
+- [x] Push to GitHub
+
+## Features (Round 14) — Entity Directory
+- [x] Add entities.getDetails tRPC endpoint (entity data, document mentions with contextSnippet, co-occurring connections sorted by frequency)
+- [x] Add getEntityDetails db helper with document mentions join and co-occurrence query (using inArray for co-occurrence)
+- [x] Build EntityDirectoryPage.tsx with master-detail layout (left pane: search + filter + alphabetical list grouped by letter; right pane: entity profile, document mentions, clickable related entities)
+- [x] Add /directory route to ProjectWorkspace Switch block
+- [x] Add Entity Directory nav item (BookOpenText icon) to project workspace sidebar between Knowledge Graph and Export
 - [x] 21 tests passing, zero TypeScript errors
 - [ ] Push to GitHub

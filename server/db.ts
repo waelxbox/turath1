@@ -1,4 +1,4 @@
-import { and, eq, desc, sql, count, or } from "drizzle-orm";
+import { and, eq, desc, sql, count, or, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
@@ -540,4 +540,74 @@ export async function getGraphData(projectId: number) {
   }));
 
   return { nodes, edges };
+}
+
+// ─── Entity Details (for Entity Directory) ──────────────────────────────────
+
+export async function getEntityDetails(projectId: number, entityId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  // 1. Get the entity itself
+  const [entity] = await db
+    .select()
+    .from(entities)
+    .where(and(eq(entities.id, entityId), eq(entities.projectId, projectId)))
+    .limit(1);
+
+  if (!entity) return null;
+
+  // 2. Get document mentions with filenames
+  const mentions = await db
+    .select({
+      documentId: documentEntities.documentId,
+      contextSnippet: documentEntities.contextSnippet,
+      filename: documents.filename,
+    })
+    .from(documentEntities)
+    .innerJoin(documents, eq(documentEntities.documentId, documents.id))
+    .where(
+      and(
+        eq(documentEntities.entityId, entityId),
+        eq(documentEntities.projectId, projectId),
+      ),
+    )
+    .orderBy(documents.filename);
+
+  // 3. Co-occurring entities: other entities that appear in the same documents
+  // Get all document IDs this entity appears in
+  const docIds = mentions.map((m) => m.documentId);
+
+  let coOccurring: { id: number; name: string; type: string; frequency: number }[] = [];
+
+  if (docIds.length > 0) {
+    // Find other entities that share at least one document, count frequency
+    const coRows = await db
+      .select({
+        id: entities.id,
+        name: entities.name,
+        type: entities.type,
+        frequency: sql<number>`count(*)::int`,
+      })
+      .from(documentEntities)
+      .innerJoin(entities, eq(documentEntities.entityId, entities.id))
+      .where(
+        and(
+          eq(documentEntities.projectId, projectId),
+          inArray(documentEntities.documentId, docIds),
+          sql`${documentEntities.entityId} != ${entityId}`,
+        ),
+      )
+      .groupBy(entities.id, entities.name, entities.type)
+      .orderBy(sql`count(*) desc`)
+      .limit(50);
+
+    coOccurring = coRows;
+  }
+
+  return {
+    entity,
+    mentions,
+    coOccurring,
+  };
 }
