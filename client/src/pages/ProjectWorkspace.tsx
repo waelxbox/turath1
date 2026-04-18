@@ -135,48 +135,50 @@ function WorkspaceInner({
         </aside>
 
         {/* Main content — nested Switch relative to base */}
-        <main className="flex-1 overflow-auto">
-          <Switch>
-            <Route path="/upload">
-              <UploadPage projectId={projectId} project={project} />
-            </Route>
-            <Route path="/export">
-              <ExportPage projectId={projectId} project={project} />
-            </Route>
-            <Route path="/settings">
-              <ProjectSettings projectId={projectId} project={project} />
-            </Route>
-            {/* review with a specific document selected */}
-            <Route path="/review/:docId">
-              {(params) => (
-                <ReviewPage projectId={projectId} project={project} docId={params.docId} />
-              )}
-            </Route>
-            {/* review queue (no specific doc) */}
-            <Route path="/review">
-              <ReviewPage projectId={projectId} project={project} />
-            </Route>
-            {/* semantic search */}
-            <Route path="/search">
-              <SemanticSearchPage projectId={projectId} project={project} />
-            </Route>
-            {/* semantic chat */}
-            <Route path="/chat">
-              <SemanticChatPage projectId={projectId} project={project} />
-            </Route>
-            {/* knowledge graph */}
-            <Route path="/graph">
-              <KnowledgeGraphPage projectId={projectId} />
-            </Route>
-            {/* entity directory */}
-            <Route path="/directory">
-              <EntityDirectoryPage projectId={projectId} />
-            </Route>
-            {/* default: overview */}
-            <Route>
-              <ProjectOverview projectId={projectId} project={project} stats={stats} />
-            </Route>
-          </Switch>
+        <main className="flex-1 overflow-hidden relative">
+          <div className="absolute inset-0 overflow-auto">
+            <Switch>
+              <Route path="/upload">
+                <UploadPage projectId={projectId} project={project} />
+              </Route>
+              <Route path="/export">
+                <ExportPage projectId={projectId} project={project} />
+              </Route>
+              <Route path="/settings">
+                <ProjectSettings projectId={projectId} project={project} />
+              </Route>
+              {/* review with a specific document selected */}
+              <Route path="/review/:docId">
+                {(params) => (
+                  <ReviewPage projectId={projectId} project={project} docId={params.docId} />
+                )}
+              </Route>
+              {/* review queue (no specific doc) */}
+              <Route path="/review">
+                <ReviewPage projectId={projectId} project={project} />
+              </Route>
+              {/* semantic search */}
+              <Route path="/search">
+                <SemanticSearchPage projectId={projectId} project={project} />
+              </Route>
+              {/* semantic chat */}
+              <Route path="/chat">
+                <SemanticChatPage projectId={projectId} project={project} />
+              </Route>
+              {/* knowledge graph */}
+              <Route path="/graph">
+                <KnowledgeGraphPage projectId={projectId} />
+              </Route>
+              {/* entity directory */}
+              <Route path="/directory">
+                <EntityDirectoryPage projectId={projectId} />
+              </Route>
+              {/* default: overview */}
+              <Route>
+                <ProjectOverview projectId={projectId} project={project} stats={stats} />
+              </Route>
+            </Switch>
+          </div>
         </main>
       </div>
     </div>

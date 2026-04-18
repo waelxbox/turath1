@@ -178,3 +178,4 @@
 
 ## Bug Fixes (Round 15)
 - [x] Fix Entity Directory scroll layout — parent locked to screen height with overflow-hidden, left pane search/filters pinned with flex-1 overflow-y-auto list, right detail pane independently scrollable
+- [x] Fix Entity Directory scroll (attempt 2) — main wrapper changed to overflow-hidden relative, inner absolute inset-0 overflow-auto div wraps all routes, EntityDirectoryPage uses absolute inset-0 to fill space with independent scroll panes

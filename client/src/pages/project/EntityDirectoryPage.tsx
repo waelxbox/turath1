@@ -94,7 +94,7 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
   const sortedLetters = Object.keys(groupedEntities).sort((a, b) => a.localeCompare(b));
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="absolute inset-0 flex overflow-hidden">
       {/* ─── Left Pane: Master List ─────────────────────────────────────── */}
       <div className="w-80 flex-shrink-0 border-r border-border flex flex-col h-full bg-muted/20">
         {/* Header */}
