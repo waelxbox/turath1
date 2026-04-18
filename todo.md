@@ -175,3 +175,6 @@
 - [x] Add Entity Directory nav item (BookOpenText icon) to project workspace sidebar between Knowledge Graph and Export
 - [x] 21 tests passing, zero TypeScript errors
 - [ ] Push to GitHub
+
+## Bug Fixes (Round 15)
+- [x] Fix Entity Directory scroll layout — parent locked to screen height with overflow-hidden, left pane search/filters pinned with flex-1 overflow-y-auto list, right detail pane independently scrollable

@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Users,
   MapPin,
@@ -95,9 +94,9 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
   const sortedLetters = Object.keys(groupedEntities).sort((a, b) => a.localeCompare(b));
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full overflow-hidden">
       {/* ─── Left Pane: Master List ─────────────────────────────────────── */}
-      <div className="w-80 flex-shrink-0 border-r border-border flex flex-col bg-muted/20">
+      <div className="w-80 flex-shrink-0 border-r border-border flex flex-col h-full bg-muted/20">
         {/* Header */}
         <div className="p-4 border-b border-border space-y-3">
           <div className="flex items-center gap-2">
@@ -139,7 +138,7 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
         </div>
 
         {/* Entity list */}
-        <ScrollArea className="flex-1">
+        <div className="flex-1 overflow-y-auto">
           {listLoading ? (
             <div className="p-4 space-y-2">
               {Array.from({ length: 8 }).map((_, i) => (
@@ -187,11 +186,11 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
               ))}
             </div>
           )}
-        </ScrollArea>
+        </div>
       </div>
 
       {/* ─── Right Pane: Detail View ────────────────────────────────────── */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 h-full overflow-y-auto bg-muted/10">
         {!selectedEntityId ? (
           /* Empty state */
           <div className="flex flex-col items-center justify-center h-full text-center px-8">
