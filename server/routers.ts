@@ -24,6 +24,7 @@ import {
   createJob,
   getJobsByProjectId,
   updateJob,
+  deleteProject,
 } from "./db";
 import { generateProjectConfig, validateConfig, refineConfig } from "./onboardingAgent";
 import { processDocument } from "./transcriptionEngine";
@@ -220,6 +221,15 @@ const projectsRouter = router({
       }
 
       return { indexed };
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.id, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+      await deleteProject(input.id, ctx.user.id);
+      return { deleted: true };
     }),
 });
 

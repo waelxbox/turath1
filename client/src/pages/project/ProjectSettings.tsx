@@ -8,7 +8,18 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
-import { Loader2, Save, AlertTriangle, Sparkles, RefreshCw } from "lucide-react";
+import { Loader2, Save, AlertTriangle, Sparkles, RefreshCw, Trash2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface Props {
   projectId: number;
@@ -70,6 +81,14 @@ export default function ProjectSettings({ projectId, project }: Props) {
     onSuccess: () => {
       toast.success("Settings saved");
       utils.projects.get.invalidate({ id: projectId });
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const deleteProjectMutation = trpc.projects.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Project deleted");
+      window.location.href = "/dashboard";
     },
     onError: (err) => toast.error(err.message),
   });
@@ -335,6 +354,49 @@ export default function ProjectSettings({ projectId, project }: Props) {
             {updateProject.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             Save settings
           </Button>
+        </div>
+
+        {/* ─── Danger Zone ─────────────────────────────────────────────── */}
+        <div className="border-t border-red-500/30 pt-6 mt-8">
+          <h3 className="text-lg font-semibold text-red-400 mb-2">Danger Zone</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            Deleting this project will permanently remove all documents, transcriptions,
+            embeddings, entities, and associated data. This action cannot be undone.
+          </p>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" className="gap-2">
+                <Trash2 className="w-4 h-4" />
+                Delete project
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete "{project.name}"?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete the project and all of its data including
+                  documents, transcriptions, embeddings, entities, and export history.
+                  This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  onClick={() => {
+                    deleteProjectMutation.mutate({ id: projectId });
+                  }}
+                  disabled={deleteProjectMutation.isPending}
+                >
+                  {deleteProjectMutation.isPending ? (
+                    <><Loader2 className="w-4 h-4 animate-spin mr-2" />Deleting...</>
+                  ) : (
+                    "Yes, delete permanently"
+                  )}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
     </div>

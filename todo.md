@@ -179,3 +179,11 @@
 ## Bug Fixes (Round 15)
 - [x] Fix Entity Directory scroll layout — parent locked to screen height with overflow-hidden, left pane search/filters pinned with flex-1 overflow-y-auto list, right detail pane independently scrollable
 - [x] Fix Entity Directory scroll (attempt 2) — main wrapper changed to overflow-hidden relative, inner absolute inset-0 overflow-auto div wraps all routes, EntityDirectoryPage uses absolute inset-0 to fill space with independent scroll panes
+
+## Features (Round 16) — Delete Project
+- [x] Existing deleteProject db helper already handles cascade via ON DELETE CASCADE
+- [x] Add projects.delete tRPC mutation (protected, owner-verified)
+- [x] Add Danger Zone section to ProjectSettings with AlertDialog confirmation
+- [x] Redirects to /dashboard after successful deletion
+- [x] 21 tests passing, zero TypeScript errors
+- [ ] Push to GitHub
