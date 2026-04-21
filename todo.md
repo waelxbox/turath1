@@ -187,3 +187,14 @@
 - [x] Redirects to /dashboard after successful deletion
 - [x] 21 tests passing, zero TypeScript errors
 - [ ] Push to GitHub
+
+## Features (Round 17) — Google OAuth
+- [x] Store Google OAuth Client ID and Client Secret as secrets
+- [x] Build server-side Google OAuth flow (/api/auth/google + /api/auth/google/callback)
+- [x] Create own JWT session tokens with jose (no Manus SDK dependency)
+- [x] Update context.ts to verify sessions via our own verifySessionToken
+- [x] Update user upsert to work with Google profile data (openId = google_{id})
+- [x] Update frontend getLoginUrl() to point to /api/auth/google
+- [x] Remove Manus SDK imports from oauth.ts and context.ts
+- [x] 21 tests passing, zero TypeScript errors
+- [ ] Push to GitHub
