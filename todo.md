@@ -252,3 +252,12 @@
 - [x] Rewrite refine prompt to be explicit about preserving all existing config fields while making targeted edits
 - [x] Ensure refineConfig can edit JSON schema, glossary, AND system prompt (not just system prompt)
 - [x] Add explicit instruction: never delete/empty existing fields unless user explicitly asks
+
+## Features (Round 21) — Guided Tour + Demo Project
+- [x] Build guided tour component (tooltip walkthrough for first-time users)
+- [x] Tour covers: Welcome → Create project → Upload → Configure → Review (mentions processing) → Search → Ask Archive → Entities → Done
+- [x] Tour state persisted (localStorage) so it only shows once per user
+- [x] Create demo project seed endpoint that pre-loads a sample archive with real documents
+- [x] Demo project includes 4 real archival document images (Al Lataif Al Musawara 1923) with completed transcriptions
+- [x] Demo project shows all features working: reviewed docs, search results, entities, knowledge graph
+- [x] Add "Try demo project" button on Dashboard empty state and first-time experience

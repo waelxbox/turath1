@@ -33,6 +33,7 @@ import { TRPCError } from "@trpc/server";
 import { embedTranscription, semanticSearch } from "./embeddingService";
 import { extractAndStoreEntities } from "./nerService";
 import { invokeLLM } from "./_core/llm";
+import { seedDemoProject } from "./demoSeed";
 
 // ─── Auth Router ──────────────────────────────────────────────────────────────
 
@@ -50,6 +51,17 @@ const authRouter = router({
 const projectsRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
     return getProjectsByUserId(ctx.user.id);
+  }),
+
+  createDemo: protectedProcedure.mutation(async ({ ctx }) => {
+    // Check if user already has a demo project
+    const existing = await getProjectsByUserId(ctx.user.id);
+    const hasDemo = existing.some(p => p.name?.includes("Demo"));
+    if (hasDemo) {
+      throw new TRPCError({ code: "CONFLICT", message: "You already have a demo project" });
+    }
+    const { projectId } = await seedDemoProject(ctx.user.id);
+    return { projectId };
   }),
 
   get: protectedProcedure

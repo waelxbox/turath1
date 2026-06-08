@@ -178,10 +178,12 @@ function WorkspaceInner({
                       }
                       navigate(item.path);
                     };
+                    const tourMap: Record<string, string> = { upload: "upload", review: "review", search: "search", chat: "ask", entities: "entities", settings: "settings" };
                     return (
                       <button
                         key={item.id}
                         onClick={handleClick}
+                        data-tour={tourMap[item.id] || undefined}
                         className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors text-left
                           ${isActive
                             ? "bg-sidebar-accent text-sidebar-primary font-medium"

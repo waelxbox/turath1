@@ -3,13 +3,14 @@ import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { getLoginUrl } from "@/const";
 import { useLocation } from "wouter";
-import { Plus, FolderOpen, Clock, CheckCircle2, AlertCircle, Loader2, ArrowRight, BookOpen } from "lucide-react";
-import { useState } from "react";
+import { Plus, FolderOpen, Clock, CheckCircle2, AlertCircle, Loader2, ArrowRight, BookOpen, Sparkles, HelpCircle } from "lucide-react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import GuidedTour, { useTourState } from "@/components/GuidedTour";
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   onboarding: { label: "Setting up", color: "text-blue-400" },
@@ -113,9 +114,18 @@ export default function Dashboard() {
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
 
+  const { showTour, hasCompletedTour, startTour, endTour } = useTourState();
+
   const { data: projects, isLoading, refetch } = trpc.projects.list.useQuery(undefined, {
     enabled: isAuthenticated,
   });
+
+  // Auto-start tour for first-time users with no projects
+  useEffect(() => {
+    if (!hasCompletedTour && !isLoading && projects && projects.length === 0) {
+      startTour();
+    }
+  }, [hasCompletedTour, isLoading, projects, startTour]);
 
   const createProject = trpc.projects.create.useMutation({
     onSuccess: (project) => {
@@ -127,6 +137,21 @@ export default function Dashboard() {
       if (project) navigate(`/projects/${project.id}/onboarding`);
     },
     onError: (err) => toast.error(err.message),
+  });
+
+  const createDemo = trpc.projects.createDemo.useMutation({
+    onSuccess: (result) => {
+      toast.success("Demo project created! Explore it to see how TURATH works.");
+      refetch();
+      if (result) navigate(`/projects/${result.projectId}`);
+    },
+    onError: (err) => {
+      if (err.data?.code === "CONFLICT") {
+        toast.info("You already have a demo project.");
+      } else {
+        toast.error(err.message);
+      }
+    },
   });
 
   if (loading) {
@@ -171,9 +196,14 @@ export default function Dashboard() {
               Each project is a separate archive with its own AI reader trained on your documents.
             </p>
           </div>
-          <Button onClick={() => setShowCreate(true)} className="gap-2">
-            <Plus className="w-4 h-4" /> New project
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button onClick={() => setShowCreate(true)} className="gap-2" data-tour="new-project">
+              <Plus className="w-4 h-4" /> New project
+            </Button>
+            <Button variant="ghost" size="icon" onClick={startTour} title="Take a tour" className="h-9 w-9">
+              <HelpCircle className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
 
         {/* Projects grid */}
@@ -190,9 +220,21 @@ export default function Dashboard() {
             <p className="text-muted-foreground text-sm max-w-sm mb-6">
               Create your first project to start transcribing. You'll teach the AI how to read your documents by showing it a few examples.
             </p>
-            <Button onClick={() => setShowCreate(true)} className="gap-2">
-              <Plus className="w-4 h-4" /> Create your first project
-            </Button>
+            <div className="flex items-center gap-3">
+              <Button onClick={() => setShowCreate(true)} className="gap-2">
+                <Plus className="w-4 h-4" /> Create your first project
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => createDemo.mutate()}
+                disabled={createDemo.isPending}
+                className="gap-2 bg-transparent"
+              >
+                {createDemo.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                Try a demo project
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-3">The demo uses real 1923 Egyptian magazine pages so you can explore all features immediately.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -245,6 +287,9 @@ export default function Dashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Guided Tour */}
+      <GuidedTour isOpen={showTour} onClose={endTour} />
     </div>
   );
 }
