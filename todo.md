@@ -239,3 +239,10 @@
 - [x] Add meaningful success feedback (first upload, first approval, archive ready to search)
 - [x] Use helpful loading states explaining what AI is doing
 - [x] Improve accessibility: visible keyboard focus, proper links/buttons, screen-reader labels
+
+## Features (Round 19) — Natural Language Settings Refinement
+- [x] Add AI refinement chat to Settings page (natural language → edit JSON schema, system prompt, domain glossary)
+- [x] Wire to existing onboarding agent's refine logic (send feedback + current config, get updated config)
+- [x] Show reasoning/explanation of what changed (via assistant message in chat)
+- [ ] Add diff preview before auto-saving refined config (currently saves immediately)
+- [x] Allow iterative refinement (multiple rounds of feedback)

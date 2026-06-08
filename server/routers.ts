@@ -223,6 +223,77 @@ const projectsRouter = router({
       return { indexed };
     }),
 
+  /**
+   * Refine project configuration using natural language feedback.
+   * Uses the onboarding agent to update system prompt, JSON schema, glossary, etc.
+   * Works even if the project has no onboarding samples (uses config-only refinement).
+   */
+  refineWithAI: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      feedback: z.string().min(1).max(4000),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.id, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const currentConfig = {
+        pipelineType: project.pipelineType as "single_pass" | "two_pass",
+        modelName: project.modelName,
+        systemPrompt: project.systemPrompt ?? "",
+        pass2Prompt: project.pass2Prompt ?? undefined,
+        jsonSchema: project.jsonSchema as Record<string, { type: "string" | "boolean" | "array" | "number"; description: string; nullable: boolean; displayHint?: "short_text" | "long_text" | "tag_list" }>,
+        glossary: project.glossary as Record<string, string>,
+        postProcessing: (project.postProcessing as Array<{ type: string; field: string; marker?: string; format?: string }>) ?? [],
+        outputFormats: (project.outputFormats as string[]) ?? ["json", "csv"],
+        reasoning: project.onboardingReasoning ?? "",
+      };
+
+      // Try to load onboarding samples for richer context; fall back to empty array
+      let samplePairs: Array<{ imageBase64: string; mimeType: string; filename: string; manualTranscription: Record<string, unknown> }> = [];
+      try {
+        const samples = await getSamplesByProjectId(input.id);
+        if (samples.length > 0) {
+          const { storageGet: storageGetRefine } = await import("./storage");
+          samplePairs = await Promise.all(
+            samples.filter(s => !s.isHeldOut).slice(0, 3).map(async (s) => {
+              const { url } = await storageGetRefine(s.imagePath);
+              const resp = await fetch(url);
+              const buf = await resp.arrayBuffer();
+              const base64 = Buffer.from(buf).toString("base64");
+              return {
+                imageBase64: base64,
+                mimeType: "image/jpeg",
+                filename: s.filename ?? "document.jpg",
+                manualTranscription: s.manualTranscription as Record<string, unknown>,
+              };
+            })
+          );
+        }
+      } catch {
+        // Proceed without samples — the refine function works with config + feedback alone
+      }
+
+      const refined = await refineConfig(currentConfig, input.feedback, samplePairs);
+
+      await updateProject(input.id, ctx.user.id, {
+        systemPrompt: refined.systemPrompt,
+        pass2Prompt: refined.pass2Prompt ?? null,
+        jsonSchema: refined.jsonSchema,
+        glossary: refined.glossary,
+        postProcessing: refined.postProcessing,
+        outputFormats: refined.outputFormats,
+        modelName: refined.modelName,
+        pipelineType: refined.pipelineType,
+        onboardingReasoning: refined.reasoning,
+      });
+
+      return {
+        config: refined,
+        changes: refined.reasoning,
+      };
+    }),
+
   delete: protectedProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {

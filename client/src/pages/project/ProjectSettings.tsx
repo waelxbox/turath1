@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { Project } from "../../../../drizzle/schema";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
-import { Loader2, Save, Sparkles, RefreshCw, Trash2, ChevronDown, ChevronRight, Settings2 } from "lucide-react";
+import { Loader2, Save, Sparkles, RefreshCw, Trash2, ChevronDown, ChevronRight, Settings2, MessageSquare, Send, Bot, User } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,6 +24,12 @@ import {
 interface Props {
   projectId: number;
   project: Project;
+}
+
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  timestamp: Date;
 }
 
 export default function ProjectSettings({ projectId, project }: Props) {
@@ -46,6 +52,10 @@ export default function ProjectSettings({ projectId, project }: Props) {
   const [jsonSchemaValid, setJsonSchemaValid] = useState(true);
   const [glossaryValid, setGlossaryValid] = useState(true);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAIChat, setShowAIChat] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   const generateSchema = trpc.projects.generateSchema.useMutation({
     onSuccess: (data) => {
@@ -78,6 +88,39 @@ export default function ProjectSettings({ projectId, project }: Props) {
     onError: (err) => toast.error(`Indexing failed: ${err.message}`),
   });
 
+  const refineWithAI = trpc.projects.refineWithAI.useMutation({
+    onSuccess: (data) => {
+      // Update local state with refined config
+      setSystemPrompt(data.config.systemPrompt);
+      setPass2Prompt(data.config.pass2Prompt ?? "");
+      setModelName(data.config.modelName);
+      setPipelineType(data.config.pipelineType);
+      setJsonSchemaStr(JSON.stringify(data.config.jsonSchema, null, 2));
+      setJsonSchemaValid(true);
+      setGlossaryStr(JSON.stringify(data.config.glossary, null, 2));
+      setGlossaryValid(true);
+
+      // Add assistant message
+      setChatMessages(prev => [...prev, {
+        role: "assistant",
+        content: data.changes || "Done! I've updated the configuration based on your feedback. The changes are reflected in the fields below — review them and click Save when ready.",
+        timestamp: new Date(),
+      }]);
+
+      // Invalidate project data
+      utils.projects.get.invalidate({ id: projectId });
+      toast.success("Configuration updated — review changes below and save");
+    },
+    onError: (err) => {
+      setChatMessages(prev => [...prev, {
+        role: "assistant",
+        content: `Sorry, I couldn't process that request: ${err.message}. Please try rephrasing your feedback.`,
+        timestamp: new Date(),
+      }]);
+      toast.error("Refinement failed");
+    },
+  });
+
   const updateProject = trpc.projects.update.useMutation({
     onSuccess: () => {
       toast.success("Settings saved");
@@ -93,6 +136,10 @@ export default function ProjectSettings({ projectId, project }: Props) {
     },
     onError: (err) => toast.error(err.message),
   });
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
 
   const handleSave = () => {
     let jsonSchema: Record<string, unknown> | undefined;
@@ -131,6 +178,26 @@ export default function ProjectSettings({ projectId, project }: Props) {
     });
   };
 
+  const handleSendChat = () => {
+    const msg = chatInput.trim();
+    if (!msg || refineWithAI.isPending) return;
+
+    setChatMessages(prev => [...prev, {
+      role: "user",
+      content: msg,
+      timestamp: new Date(),
+    }]);
+    setChatInput("");
+    refineWithAI.mutate({ id: projectId, feedback: msg });
+  };
+
+  const handleChatKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendChat();
+    }
+  };
+
   return (
     <div className="p-8 max-w-3xl">
       <div className="mb-8">
@@ -139,6 +206,121 @@ export default function ProjectSettings({ projectId, project }: Props) {
           Configure how the AI reads and transcribes your documents.
         </p>
       </div>
+
+      {/* AI Refinement Chat */}
+      <section className="mb-8 border border-primary/30 rounded-xl overflow-hidden bg-primary/5">
+        <button
+          onClick={() => setShowAIChat(!showAIChat)}
+          className="flex items-center gap-3 w-full px-5 py-4 text-left hover:bg-primary/10 transition-colors"
+        >
+          <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
+            <MessageSquare className="w-4 h-4 text-primary" />
+          </div>
+          <div className="flex-1">
+            <span className="text-sm font-medium">Edit with AI</span>
+            <p className="text-xs text-muted-foreground">
+              Describe changes in plain English — the AI will update your schema, prompt, and glossary
+            </p>
+          </div>
+          {showAIChat
+            ? <ChevronDown className="w-4 h-4 text-muted-foreground" />
+            : <ChevronRight className="w-4 h-4 text-muted-foreground" />
+          }
+        </button>
+
+        {showAIChat && (
+          <div className="border-t border-primary/20">
+            {/* Chat messages */}
+            <div className="max-h-80 overflow-y-auto px-5 py-4 space-y-3">
+              {chatMessages.length === 0 && (
+                <div className="text-center py-6">
+                  <Bot className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-50" />
+                  <p className="text-sm text-muted-foreground">
+                    Tell me what to change. For example:
+                  </p>
+                  <div className="mt-3 space-y-1.5">
+                    {[
+                      "Add a field for the document's archive reference number",
+                      "Change the glossary to include Ottoman Turkish administrative titles",
+                      "Make the system prompt focus on 19th century Arabic correspondence",
+                      "Remove the 'notes' field and add 'condition' and 'ink_color' instead",
+                    ].map((example, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setChatInput(example)}
+                        className="block w-full text-left text-xs bg-background/50 border border-border/50 rounded-lg px-3 py-2 hover:bg-accent/50 transition-colors text-muted-foreground hover:text-foreground"
+                      >
+                        "{example}"
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {chatMessages.map((msg, i) => (
+                <div key={i} className={`flex gap-2.5 ${msg.role === "user" ? "justify-end" : ""}`}>
+                  {msg.role === "assistant" && (
+                    <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <Bot className="w-3.5 h-3.5 text-primary" />
+                    </div>
+                  )}
+                  <div className={`max-w-[80%] rounded-xl px-3.5 py-2.5 text-sm ${
+                    msg.role === "user"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-background border border-border"
+                  }`}>
+                    {msg.content}
+                  </div>
+                  {msg.role === "user" && (
+                    <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <User className="w-3.5 h-3.5 text-muted-foreground" />
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {refineWithAI.isPending && (
+                <div className="flex gap-2.5">
+                  <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <Bot className="w-3.5 h-3.5 text-primary" />
+                  </div>
+                  <div className="bg-background border border-border rounded-xl px-3.5 py-2.5 text-sm text-muted-foreground">
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Updating configuration…
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Input */}
+            <div className="border-t border-primary/20 px-4 py-3 flex gap-2">
+              <Textarea
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={handleChatKeyDown}
+                placeholder="Describe what you want to change…"
+                className="bg-background resize-none text-sm min-h-[40px] max-h-[100px]"
+                rows={1}
+              />
+              <Button
+                size="sm"
+                onClick={handleSendChat}
+                disabled={!chatInput.trim() || refineWithAI.isPending}
+                className="gap-1.5 self-end"
+              >
+                {refineWithAI.isPending
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <Send className="w-4 h-4" />
+                }
+              </Button>
+            </div>
+          </div>
+        )}
+      </section>
 
       <div className="space-y-8">
         {/* General */}
