@@ -211,11 +211,11 @@
 
 ### P1: Navigation & Structure
 - [x] Reorganize sidebar by workflow groups (Process: Overview/Upload/Review, Explore: Search/Ask/Entities, Output: Export, Project: Settings)
-- [ ] Combine Knowledge Graph and Entity Directory into one "Entities" section with tabs
+- [x] Combine Knowledge Graph and Entity Directory into one "Entities" section with toggle (List view / Graph view)
 - [x] Standardize names: "Ask Archive" (not Semantic Chat), "Search archive" (not Semantic Search), "Transcription method" (not Pipeline Configuration), "Fields to extract" (not Output JSON Schema)
 - [x] Add breadcrumb navigation (Projects / Archive Name / Current Page)
-- [ ] Make project cards fully clickable with keyboard focus and accessible labels
-- [ ] Add recommended action to each project card (Continue setup / Review N docs / Open archive)
+- [x] Make project cards fully clickable with keyboard focus and accessible labels
+- [x] Add recommended action to each project card (Continue setup / Review N docs / Open archive)
 
 ### P1: Review Experience
 - [x] Rename review actions to plain language: "Approve", "Re-read", "Flag for later"
@@ -226,16 +226,16 @@
 ### P1: Search & Chat
 - [x] Rename "Semantic Search" to "Search archive" with simpler empty state
 - [x] Rename "Semantic Chat" to "Ask Archive" with simpler empty state
-- [ ] Add source citations with "Open source" action in Ask Archive responses
+- [x] Add source citations with "Open source" action in Ask Archive responses
 - [x] Remove technical jargon from search/chat descriptions
 
 ### P1: Entities
-- [ ] Unify entity terminology: "People", "Places", "Organizations" consistently
+- [x] Unify entity terminology: "People", "Places", "Organizations" consistently
 - [x] Give entity pages useful empty states with route to required review step
 
 ### P1: Polish & Accessibility
-- [ ] Strengthen visual hierarchy: one primary button per page, quieter secondary actions
-- [ ] Reduce dashboard statistics: prioritize actionable items over zero-value metrics
+- [x] Strengthen visual hierarchy: one primary button per page, quieter secondary actions
+- [x] Reduce dashboard statistics: prioritize actionable items over zero-value metrics
 - [x] Add meaningful success feedback (first upload, first approval, archive ready to search)
 - [x] Use helpful loading states explaining what AI is doing
-- [ ] Improve accessibility: visible keyboard focus, proper links/buttons, screen-reader labels
+- [x] Improve accessibility: visible keyboard focus, proper links/buttons, screen-reader labels

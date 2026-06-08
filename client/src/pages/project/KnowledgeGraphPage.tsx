@@ -16,8 +16,10 @@ import {
   Loader2,
   FileText,
   Filter,
+  List,
 } from "lucide-react";
 import ForceGraph2D from "react-force-graph-2d";
+import { useLocation } from "wouter";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -57,6 +59,7 @@ const TYPE_ICONS: Record<string, typeof Users> = {
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export default function KnowledgeGraphPage({ projectId }: { projectId: number }) {
+  const [, navigate] = useLocation();
   const [activeFilter, setActiveFilter] = useState<string>("all");
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const graphRef = useRef<any>(null);
@@ -191,13 +194,22 @@ export default function KnowledgeGraphPage({ projectId }: { projectId: number })
         <div className="flex items-center gap-3">
           <Network className="h-5 w-5 text-indigo-400" />
           <div>
-            <h2 className="text-lg font-semibold">Knowledge Graph</h2>
+            <h2 className="text-lg font-semibold">Entity Graph</h2>
             <p className="text-sm text-muted-foreground">
-              Entity relationships extracted from reviewed documents
+              Visual connections between people, places, and organizations
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs text-muted-foreground hover:text-foreground gap-1.5"
+            onClick={() => navigate("/entities")}
+          >
+            <List className="w-3.5 h-3.5" />
+            List view
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -223,7 +235,7 @@ export default function KnowledgeGraphPage({ projectId }: { projectId: number })
           </div>
           <div className="flex items-center gap-1.5">
             <MapPin className="h-3.5 w-3.5 text-green-400" />
-            <span className="text-sm">{stats.locations} Locations</span>
+            <span className="text-sm">{stats.locations} Places</span>
           </div>
           <div className="flex items-center gap-1.5">
             <Building2 className="h-3.5 w-3.5 text-indigo-400" />

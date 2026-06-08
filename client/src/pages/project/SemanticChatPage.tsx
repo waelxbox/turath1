@@ -23,8 +23,10 @@ import {
   ChevronDown,
   ChevronUp,
   Info,
+  ArrowRight,
 } from "lucide-react";
 import type { Project } from "../../../../drizzle/schema";
+import { useLocation } from "wouter";
 
 interface ChatMessage {
   id: string;
@@ -46,6 +48,7 @@ interface Props {
 }
 
 export default function SemanticChatPage({ projectId, project }: Props) {
+  const [, navigate] = useLocation();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
@@ -248,6 +251,13 @@ export default function SemanticChatPage({ projectId, project }: Props) {
                               <p className="text-muted-foreground leading-relaxed line-clamp-3">
                                 {src.excerpt}
                               </p>
+                              <button
+                                onClick={() => navigate(`/review/${src.documentId}`)}
+                                className="mt-1.5 text-[11px] text-primary hover:text-primary/80 font-medium flex items-center gap-1 transition-colors"
+                              >
+                                Open source
+                                <ArrowRight className="w-3 h-3" />
+                              </button>
                             </div>
                           ))}
                         </div>
@@ -309,7 +319,7 @@ export default function SemanticChatPage({ projectId, project }: Props) {
           </Button>
         </div>
         <p className="text-[10px] text-muted-foreground/50 mt-1.5 text-center">
-          Answers are generated from your reviewed transcriptions only. Always verify against source documents.
+          Answers are generated from your approved transcriptions only. Always verify against source documents.
         </p>
       </div>
     </div>

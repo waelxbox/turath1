@@ -31,7 +31,7 @@ describe("UX Improvements - Sidebar Navigation", () => {
     const content = readFileSync(resolve(CLIENT_SRC, "pages/ProjectWorkspace.tsx"), "utf-8");
     expect(content).toContain("disabledReason");
     expect(content).toContain("Upload documents first");
-    expect(content).toContain("Review documents to enable search");
+    expect(content).toContain("Approve documents to enable search");
   });
 
   it("Sidebar includes breadcrumb navigation", () => {

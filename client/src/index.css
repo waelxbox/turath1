@@ -104,6 +104,14 @@
   input[type="radio"]:not(:disabled) {
     @apply cursor-pointer;
   }
+  /* Accessibility: visible keyboard focus ring on all interactive elements */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-primary;
+  }
+  /* Ensure links are distinguishable */
+  a[href]:not([class*="btn"]):not([class*="Button"]) {
+    @apply underline-offset-2;
+  }
 }
 
 @layer components {

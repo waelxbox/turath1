@@ -39,9 +39,9 @@ function similarityLabel(score: number): { label: string; className: string } {
 
 // Match type badge for hybrid/semantic/keyword
 function matchTypeBadge(matchType: string): { label: string; className: string } {
-  if (matchType === "hybrid")   return { label: "Hybrid",   className: "text-violet-400 bg-violet-400/10" };
-  if (matchType === "semantic") return { label: "Semantic",  className: "text-blue-400 bg-blue-400/10" };
-  return                               { label: "Keyword",   className: "text-amber-400 bg-amber-400/10" };
+  if (matchType === "hybrid")   return { label: "Best match",   className: "text-violet-400 bg-violet-400/10" };
+  if (matchType === "semantic") return { label: "Meaning match",  className: "text-blue-400 bg-blue-400/10" };
+  return                               { label: "Exact match",   className: "text-amber-400 bg-amber-400/10" };
 }
 
 const EXAMPLE_QUERIES = [
@@ -197,8 +197,6 @@ export default function SemanticSearchPage({ projectId, project }: Props) {
             <p className="text-xs text-muted-foreground mb-4">
               Found <strong>{results.length}</strong> result{results.length !== 1 ? "s" : ""} for{" "}
               <span className="font-medium text-foreground">"{submitted}"</span>
-              {" — "}
-              <span className="text-violet-400">Hybrid search</span> (semantic + keyword)
             </p>
 
             {results.map((result, i) => {

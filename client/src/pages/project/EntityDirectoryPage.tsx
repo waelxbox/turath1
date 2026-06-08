@@ -16,6 +16,8 @@ import {
   ArrowRight,
   Loader2,
   Link2,
+  Network,
+  List,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -25,6 +27,12 @@ const TYPE_COLORS: Record<string, string> = {
   person: "bg-orange-500/15 text-orange-400 border-orange-500/30",
   location: "bg-green-500/15 text-green-400 border-green-500/30",
   organization: "bg-indigo-500/15 text-indigo-400 border-indigo-500/30",
+};
+
+const TYPE_LABELS: Record<string, string> = {
+  person: "Person",
+  location: "Place",
+  organization: "Organization",
 };
 
 const TYPE_ICONS: Record<string, typeof Users> = {
@@ -99,9 +107,20 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
       <div className="w-80 flex-shrink-0 border-r border-border flex flex-col h-full bg-muted/20">
         {/* Header */}
         <div className="p-4 border-b border-border space-y-3">
-          <div className="flex items-center gap-2">
-            <BookOpenText className="h-5 w-5 text-amber-400" />
-            <h2 className="text-base font-semibold">Entity Directory</h2>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <BookOpenText className="h-5 w-5 text-amber-400" />
+              <h2 className="text-base font-semibold">Entities</h2>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs text-muted-foreground hover:text-foreground gap-1.5 h-7"
+              onClick={() => navigate("/graph")}
+            >
+              <Network className="w-3.5 h-3.5" />
+              Graph view
+            </Button>
           </div>
 
           {/* Search */}
@@ -126,7 +145,7 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
                 <MapPin className="h-3 w-3 mr-1" />Places
               </TabsTrigger>
               <TabsTrigger value="organization" className="text-xs h-7">
-                <Building2 className="h-3 w-3 mr-1" />Orgs
+                <Building2 className="h-3 w-3 mr-1" />Organizations
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -182,9 +201,9 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
                         </div>
                         <Badge
                           variant="outline"
-                          className={`text-[10px] capitalize flex-shrink-0 ${TYPE_COLORS[entity.type] || ""}`}
+                          className={`text-[10px] flex-shrink-0 ${TYPE_COLORS[entity.type] || ""}`}
                         >
-                          {entity.type}
+                          {TYPE_LABELS[entity.type] || entity.type}
                         </Badge>
                       </button>
                     );
@@ -235,9 +254,9 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
               </div>
               <Badge
                 variant="outline"
-                className={`capitalize ${TYPE_COLORS[details.entity.type] || ""}`}
+                className={`${TYPE_COLORS[details.entity.type] || ""}`}
               >
-                {details.entity.type}
+                {TYPE_LABELS[details.entity.type] || details.entity.type}
               </Badge>
               <p className="text-sm text-muted-foreground mt-2">
                 Appears in {details.mentions.length} {details.mentions.length === 1 ? "document" : "documents"}

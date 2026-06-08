@@ -27,9 +27,18 @@ function ProjectCard({ project }: { project: { id: number; name: string; descrip
     ? Math.round((stats.reviewed / stats.total) * 100)
     : 0;
 
+  // Determine recommended action text
+  const getRecommendedAction = () => {
+    if (project.status === "onboarding" || project.status === "validating") return "Continue setup";
+    if (stats && stats.needsReview > 0) return `Review ${stats.needsReview} doc${stats.needsReview !== 1 ? "s" : ""}`;
+    if (stats && stats.total === 0) return "Upload documents";
+    return "Open archive";
+  };
+
   return (
-    <div
-      className="bg-card border border-border rounded-xl p-5 hover:border-primary/40 transition-all cursor-pointer group"
+    <button
+      className="bg-card border border-border rounded-xl p-5 hover:border-primary/40 transition-all cursor-pointer group text-left w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      aria-label={`${project.name} — ${getRecommendedAction()}`}
       onClick={() => {
         if (project.status === "onboarding" || project.status === "validating") {
           navigate(`/projects/${project.id}/onboarding`);
@@ -64,7 +73,7 @@ function ProjectCard({ project }: { project: { id: number; name: string; descrip
         </div>
       )}
 
-      {stats && (
+      {stats && (stats.needsReview > 0 || stats.flagged > 0 || (stats.reviewed > 0 && stats.needsReview === 0)) && (
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           {stats.needsReview > 0 && (
             <span className="flex items-center gap-1 text-yellow-400">
@@ -88,9 +97,12 @@ function ProjectCard({ project }: { project: { id: number; name: string; descrip
         <span className="text-xs text-muted-foreground">
           {new Date(project.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
         </span>
-        <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+        <span className="text-xs font-medium text-primary flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">
+          {getRecommendedAction()}
+          <ArrowRight className="w-3.5 h-3.5" />
+        </span>
       </div>
-    </div>
+    </button>
   );
 }
 
