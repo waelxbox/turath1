@@ -246,3 +246,9 @@
 - [x] Show reasoning/explanation of what changed (via assistant message in chat)
 - [ ] Add diff preview before auto-saving refined config (currently saves immediately)
 - [x] Allow iterative refinement (multiple rounds of feedback)
+
+## Bug Fixes (Round 20) — AI Refinement Quality
+- [x] Fix refineConfig to use Gemini 3.1 Pro instead of default model
+- [x] Rewrite refine prompt to be explicit about preserving all existing config fields while making targeted edits
+- [x] Ensure refineConfig can edit JSON schema, glossary, AND system prompt (not just system prompt)
+- [x] Add explicit instruction: never delete/empty existing fields unless user explicitly asks

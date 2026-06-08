@@ -342,38 +342,72 @@ export async function validateConfig(
 
 /**
  * Refine a generated config based on natural language feedback.
+ * Uses Gemini 3.1 Pro for maximum intelligence and includes a safety merge
+ * to prevent accidental deletion of fields the model forgets to include.
  */
 export async function refineConfig(
   currentConfig: GeneratedConfig,
   feedback: string,
   samples: SamplePair[]
 ): Promise<GeneratedConfig> {
-  const sampleSummary = samples.map((s, i) => {
-    const t = s.manualTranscription;
-    const display = t.transcription_text
-      ? `Plain text: ${t.transcription_text}`
-      : JSON.stringify(t, null, 2);
-    return `Sample ${i + 1} (${s.filename}):\n${display}`;
-  }).join("\n\n");
+  const { invokeGemini } = await import("./geminiClient");
 
-  const refinePrompt = `You previously generated a project configuration for an archival transcription pipeline.
-The researcher has reviewed the validation results and provided the following feedback:
+  const sampleSummary = samples.length > 0
+    ? samples.map((s, i) => {
+        const t = s.manualTranscription;
+        const display = t.transcription_text
+          ? `Plain text: ${t.transcription_text}`
+          : JSON.stringify(t, null, 2);
+        return `Sample ${i + 1} (${s.filename}):\n${display}`;
+      }).join("\n\n")
+    : "(No samples available — use the current config as the sole reference.)";
 
-"${feedback}"
+  const REFINE_SYSTEM_PROMPT = `You are an expert AI configuration editor for archival document transcription pipelines.
 
-Here is the current configuration:
+Your job is to make TARGETED, SURGICAL edits to an existing project configuration based on the researcher's natural language instructions.
+
+CRITICAL RULES:
+1. PRESERVE EVERYTHING the user did NOT ask to change. Do NOT delete, empty, or simplify any field unless the user EXPLICITLY asks you to.
+2. You have FULL editing access to ALL configuration fields:
+   - systemPrompt: The AI's instructions for reading documents
+   - pass2Prompt: Second-pass instructions (for two_pass pipeline only)
+   - jsonSchema: The fields to extract from each document (each with type, description, nullable, displayHint)
+   - glossary: Domain-specific terms and their definitions/translations
+   - postProcessing: Rules for normalizing output (date formats, markers, etc.)
+   - pipelineType: "single_pass" or "two_pass"
+   - modelName: Which AI model to use
+   - outputFormats: Export formats
+3. When ADDING fields to jsonSchema, keep ALL existing fields and ADD the new ones.
+4. When ADDING terms to glossary, keep ALL existing terms and ADD the new ones.
+5. When EDITING the systemPrompt, preserve its overall structure and only modify the specific parts the user mentioned.
+6. The "reasoning" field should be a 1-2 sentence summary of EXACTLY what you changed (e.g., "Added 'archive_reference' field to jsonSchema and updated systemPrompt to mention it.").
+7. jsonSchema MUST have at least 3 fields. glossary MUST have at least 3 entries. NEVER return them empty.
+8. Return the COMPLETE configuration — every field must be present in your output, even if unchanged.
+
+Output ONLY a valid JSON object. No markdown fences, no explanation outside the JSON.`;
+
+  const refinePrompt = `Here is the CURRENT project configuration (preserve everything not explicitly changed):
+
 ${JSON.stringify(currentConfig, null, 2)}
 
-Here are the original sample transcriptions for reference:
+---
+
+Sample transcriptions for context:
 ${sampleSummary}
 
-Please update the configuration to address the feedback. Return the complete updated configuration JSON.
-Apply the same output format as before — a single valid JSON object matching the project_config schema.
-Remember: jsonSchema and glossary MUST be non-empty.`;
+---
 
-  const response = await invokeLLM({
+The researcher's instruction:
+"${feedback}"
+
+---
+
+Apply the researcher's instruction to the configuration above. Make ONLY the changes they asked for. Return the complete updated configuration as a JSON object with these fields: pipelineType, modelName, systemPrompt, pass2Prompt (or null), jsonSchema, glossary, postProcessing, outputFormats, reasoning.`;
+
+  const response = await invokeGemini({
+    model: "gemini-3.1-pro-preview",
     messages: [
-      { role: "system", content: META_PROMPT },
+      { role: "system", content: REFINE_SYSTEM_PROMPT },
       { role: "user", content: refinePrompt },
     ],
     response_format: {
@@ -399,10 +433,42 @@ Remember: jsonSchema and glossary MUST be non-empty.`;
         },
       },
     },
+    max_tokens: 32768,
   });
 
   const rawContent = response.choices[0]?.message?.content ?? "{}";
   const raw = typeof rawContent === "string" ? rawContent : "{}";
   const cleaned = raw.replace(/^```(?:json)?\s*/m, "").replace(/\s*```$/m, "").trim();
-  return JSON.parse(cleaned) as GeneratedConfig;
+  
+  let refined: GeneratedConfig;
+  try {
+    refined = JSON.parse(cleaned) as GeneratedConfig;
+  } catch {
+    throw new Error("AI returned invalid JSON. Please try rephrasing your request.");
+  }
+
+  // Safety merge: if the model accidentally emptied critical fields, restore from current config
+  if (!refined.jsonSchema || Object.keys(refined.jsonSchema).length === 0) {
+    refined.jsonSchema = currentConfig.jsonSchema;
+  }
+  if (!refined.glossary || Object.keys(refined.glossary).length === 0) {
+    refined.glossary = currentConfig.glossary;
+  }
+  if (!refined.systemPrompt || refined.systemPrompt.trim().length < 50) {
+    refined.systemPrompt = currentConfig.systemPrompt;
+  }
+  if (!refined.postProcessing) {
+    refined.postProcessing = currentConfig.postProcessing;
+  }
+  if (!refined.outputFormats || refined.outputFormats.length === 0) {
+    refined.outputFormats = currentConfig.outputFormats;
+  }
+  if (!refined.pipelineType) {
+    refined.pipelineType = currentConfig.pipelineType;
+  }
+  if (!refined.modelName) {
+    refined.modelName = currentConfig.modelName;
+  }
+
+  return refined;
 }
