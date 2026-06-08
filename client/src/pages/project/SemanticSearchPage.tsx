@@ -91,9 +91,9 @@ export default function SemanticSearchPage({ projectId, project }: Props) {
             <Search className="w-4 h-4 text-primary" />
           </div>
           <div>
-            <h1 className="text-sm font-semibold">Semantic Search</h1>
+            <h1 className="text-sm font-semibold">Search archive</h1>
             <p className="text-xs text-muted-foreground">
-              Search your reviewed documents using natural language
+              Find information across your approved documents
             </p>
           </div>
         </div>
@@ -136,18 +136,18 @@ export default function SemanticSearchPage({ projectId, project }: Props) {
               <Search className="w-8 h-8 text-primary/50" />
             </div>
             <div>
-              <h2 className="text-base font-semibold mb-1">Find documents by meaning</h2>
+              <h2 className="text-base font-semibold mb-1">Search your archive</h2>
               <p className="text-xs text-muted-foreground max-w-sm">
-                Hybrid search combines semantic understanding with exact keyword matching.
-                Find documents by concept <em>and</em> by specific reference numbers, names, or terms.
+                Search by meaning or by exact words. Describe what you're looking for
+                and the AI will find the most relevant documents.
               </p>
             </div>
 
             <div className="flex items-start gap-2 bg-muted/40 rounded-lg p-3 max-w-sm text-left">
               <Info className="w-3.5 h-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
               <p className="text-xs text-muted-foreground">
-                Only <strong>reviewed</strong> or <strong>flagged</strong> documents are
-                indexed. Embeddings are generated automatically when you save a review.
+                Only <strong>approved</strong> documents appear in search results.
+                Approve documents in the Review page to make them searchable.
               </p>
             </div>
 

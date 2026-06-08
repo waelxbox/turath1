@@ -156,7 +156,7 @@ export default function Dashboard() {
           <div>
             <h1 className="text-3xl font-serif font-semibold mb-1">Your projects</h1>
             <p className="text-muted-foreground text-sm">
-              Each project is an isolated transcription workspace with its own AI configuration.
+              Each project is a separate archive with its own AI reader trained on your documents.
             </p>
           </div>
           <Button onClick={() => setShowCreate(true)} className="gap-2">
@@ -176,7 +176,7 @@ export default function Dashboard() {
             </div>
             <h3 className="font-serif text-xl font-semibold mb-2">No projects yet</h3>
             <p className="text-muted-foreground text-sm max-w-sm mb-6">
-              Create your first project and let the AI onboarding agent build a custom transcription pipeline from your sample documents.
+              Create your first project to start transcribing. You'll teach the AI how to read your documents by showing it a few examples.
             </p>
             <Button onClick={() => setShowCreate(true)} className="gap-2">
               <Plus className="w-4 h-4" /> Create your first project

@@ -135,8 +135,12 @@ function ReviewDocPanel({
   });
 
   const saveReview = trpc.transcriptions.saveReview.useMutation({
-    onSuccess: () => {
-      toast.success("Saved");
+    onSuccess: (_, variables) => {
+      if (variables.status === "reviewed") {
+        toast.success("Approved — now available in Search, Ask Archive, and Entities");
+      } else {
+        toast.success("Flagged for later review");
+      }
       utils.documents.list.invalidate({ projectId });
       utils.projects.stats.invalidate({ id: projectId });
       // Auto-advance to next document
@@ -215,12 +219,12 @@ function ReviewDocPanel({
               className="gap-1.5 text-muted-foreground hover:text-foreground"
               onClick={handleTranscribe}
               disabled={isTranscribing || isSaving}
-              title="Re-run AI transcription on this document (overwrites current output)"
+              title="Ask the AI to re-read this document from scratch"
             >
               {isTranscribing
                 ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 : <RotateCcw className="w-3.5 h-3.5" />}
-              {isTranscribing ? "Transcribing…" : "Retranscribe"}
+              {isTranscribing ? "Reading…" : "Re-read"}
             </Button>
           )}
           {transcription && (
@@ -233,7 +237,7 @@ function ReviewDocPanel({
                 disabled={isSaving || isTranscribing}
               >
                 {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Flag className="w-3.5 h-3.5" />}
-                Flag
+                Flag for later
               </Button>
               <Button
                 size="sm"
@@ -242,7 +246,7 @@ function ReviewDocPanel({
                 disabled={isSaving || isTranscribing}
               >
                 {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                Mark reviewed
+                Approve
               </Button>
             </>
           )}
@@ -549,8 +553,9 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
         </div>
         <div className="flex-1 overflow-y-auto divide-y divide-border">
           {!documents || documents.length === 0 ? (
-            <div className="p-4 text-center text-xs text-muted-foreground">
-              No documents found
+            <div className="p-4 text-center">
+              <p className="text-xs text-muted-foreground mb-2">No documents yet</p>
+              <p className="text-[10px] text-muted-foreground/70">Upload documents first, then they'll appear here for review.</p>
             </div>
           ) : (
             documents.map(doc => (
@@ -574,9 +579,12 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
       <div className="flex-1 flex flex-col overflow-hidden">
         {!currentDocId || !documents || documents.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
+            <div className="text-center max-w-xs">
               <Eye className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-              <p className="text-muted-foreground text-sm">Select a document to review</p>
+              <p className="text-muted-foreground text-sm font-medium mb-1">Select a document to review</p>
+              <p className="text-xs text-muted-foreground">
+                Approving a document makes it available in Search, Ask Archive, and Entities.
+              </p>
             </div>
           </div>
         ) : (

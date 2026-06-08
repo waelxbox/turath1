@@ -216,10 +216,10 @@ export default function Onboarding() {
   if (!isAuthenticated) { window.location.href = getLoginUrl(); return null; }
 
   const STEPS = [
-    { id: "samples" as Step, label: "Upload samples" },
-    { id: "generating" as Step, label: "AI analysis" },
-    { id: "validation" as Step, label: "Validate" },
-    { id: "launch" as Step, label: "Launch" },
+    { id: "samples" as Step, label: "Teach the AI" },
+    { id: "generating" as Step, label: "Building config" },
+    { id: "validation" as Step, label: "Check accuracy" },
+    { id: "launch" as Step, label: "Start project" },
   ];
 
   return (
@@ -233,7 +233,7 @@ export default function Onboarding() {
             </Button>
             <div>
               <div className="text-sm font-medium">{project?.name ?? "New project"}</div>
-              <div className="text-xs text-muted-foreground">Onboarding wizard</div>
+              <div className="text-xs text-muted-foreground">Project setup</div>
             </div>
           </div>
           <StepIndicator current={step} steps={STEPS} />
@@ -246,10 +246,11 @@ export default function Onboarding() {
         {step === "samples" && (
           <div>
             <div className="mb-8">
-              <h1 className="text-2xl font-serif font-semibold mb-2">Upload sample documents</h1>
+              <h1 className="text-2xl font-serif font-semibold mb-2">Teach the AI how to read your documents</h1>
               <p className="text-muted-foreground text-sm leading-relaxed max-w-2xl">
-                Upload 3–5 representative document images alongside your ideal manual transcriptions.
-                These become the AI's training signal. Mark one as "held out" — the AI will test itself against it.
+                Upload 3–5 example documents with your ideal transcriptions. The AI learns from these
+                examples to read the rest of your archive. Optionally mark one as a "test" — the AI will
+                check its own accuracy against it.
               </p>
             </div>
 
@@ -296,7 +297,7 @@ export default function Onboarding() {
                           onClick={() => toggleHeldOut(sample.id)}
                         >
                           <Eye className="w-3 h-3 mr-1" />
-                          {sample.isHeldOut ? "Held out" : "Set as held out"}
+                          {sample.isHeldOut ? "Test sample" : "Use as test"}
                         </Button>
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => removeSample(sample.id)}>
                           <Trash2 className="w-3.5 h-3.5" />
@@ -357,7 +358,7 @@ export default function Onboarding() {
                 className="gap-2"
               >
                 <Wand2 className="w-4 h-4" />
-                Generate AI configuration
+                Build my AI reader
                 <ArrowRight className="w-4 h-4" />
               </Button>
             </div>
@@ -370,18 +371,18 @@ export default function Onboarding() {
             <div className="w-16 h-16 rounded-2xl bg-primary/15 border border-primary/30 flex items-center justify-center mb-6">
               <Wand2 className="w-8 h-8 text-primary animate-pulse" />
             </div>
-            <h2 className="text-2xl font-serif font-semibold mb-3">Analyzing your documents</h2>
+            <h2 className="text-2xl font-serif font-semibold mb-3">Building your custom AI reader</h2>
             <p className="text-muted-foreground text-sm max-w-md mb-8 leading-relaxed">
-              The onboarding agent is studying your sample pairs to generate a custom system prompt,
-              JSON schema, domain glossary, and pipeline configuration.
+              The AI is studying your examples to learn how to read your documents.
+              This usually takes 30–60 seconds.
             </p>
             <div className="space-y-2 text-sm text-muted-foreground">
               {[
-                "Uploading samples to secure storage...",
-                "Analyzing document structure and content...",
-                "Extracting domain terminology and glossary...",
-                "Generating system prompt and JSON schema...",
-                "Running validation against held-out sample...",
+                "Uploading your examples...",
+                "Analyzing document structure...",
+                "Learning domain-specific terms...",
+                "Building reading instructions...",
+                "Testing accuracy against your example...",
               ].map((msg, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <Loader2 className="w-3 h-3 animate-spin text-primary" />
@@ -410,7 +411,7 @@ export default function Onboarding() {
                 )}
               </div>
               <p className="text-muted-foreground text-sm">
-                The AI tested its generated config against your held-out sample. Review the field-by-field comparison below.
+                The AI tested itself against your example. See how closely its output matches yours below.
               </p>
             </div>
 

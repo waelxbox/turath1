@@ -134,9 +134,9 @@ export default function SemanticChatPage({ projectId, project }: Props) {
             <MessageSquare className="w-4 h-4 text-primary" />
           </div>
           <div>
-            <h1 className="text-sm font-semibold">Semantic Chat</h1>
+            <h1 className="text-sm font-semibold">Ask Archive</h1>
             <p className="text-xs text-muted-foreground">
-              Ask questions about your reviewed transcriptions using AI
+              Ask questions about your documents and get answers with sources
             </p>
           </div>
         </div>
@@ -163,8 +163,8 @@ export default function SemanticChatPage({ projectId, project }: Props) {
             <div className="flex items-start gap-2 bg-muted/40 rounded-lg p-3 max-w-sm text-left">
               <Info className="w-3.5 h-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
               <p className="text-xs text-muted-foreground">
-                Only documents with <strong>reviewed</strong> or <strong>flagged</strong> status
-                are indexed for search. Embeddings are generated automatically when you save a review.
+                Only <strong>approved</strong> documents are used to answer questions.
+                Approve documents in the Review page to include them here.
               </p>
             </div>
 

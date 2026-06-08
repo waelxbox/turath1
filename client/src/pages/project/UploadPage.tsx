@@ -3,7 +3,8 @@ import type { Project } from "../../../../drizzle/schema";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Upload, Loader2, CheckCircle2, XCircle, Play, Zap, FileImage } from "lucide-react";
+import { Upload, Loader2, CheckCircle2, XCircle, FileImage, ArrowRight } from "lucide-react";
+import { useLocation } from "wouter";
 
 interface Props {
   projectId: number;
@@ -17,7 +18,6 @@ interface QueuedFile {
   error?: string;
 }
 
-/** Read a File as a base64 string (data URL split) */
 function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -27,7 +27,6 @@ function readFileAsBase64(file: File): Promise<string> {
   });
 }
 
-/** Limit concurrency to `limit` simultaneous promises */
 async function runWithConcurrency<T>(
   tasks: (() => Promise<T>)[],
   limit: number
@@ -54,18 +53,13 @@ async function runWithConcurrency<T>(
 export default function UploadPage({ projectId, project }: Props) {
   const [queue, setQueue] = useState<QueuedFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const utils = trpc.useUtils();
+  const [, navigate] = useLocation();
 
   const uploadDoc = trpc.documents.upload.useMutation();
   const transcribeDoc = trpc.documents.transcribe.useMutation();
-  const batchTranscribe = trpc.documents.batchTranscribe.useMutation({
-    onSuccess: (data) => {
-      toast.success(data.message);
-      utils.projects.stats.invalidate({ id: projectId });
-    },
-    onError: (err) => toast.error(err.message),
-  });
 
   const handleFiles = useCallback((files: FileList | null) => {
     if (!files) return;
@@ -77,16 +71,13 @@ export default function UploadPage({ projectId, project }: Props) {
         status: "queued" as const,
       }));
     setQueue(prev => [...prev, ...entries]);
+    setShowSuccess(false);
   }, []);
 
   const updateStatus = useCallback((id: string, status: QueuedFile["status"], error?: string) => {
     setQueue(prev => prev.map(q => q.id === id ? { ...q, status, error } : q));
   }, []);
 
-  /**
-   * Process all queued files in parallel with a concurrency cap of 3.
-   * Each task: read base64 → upload → transcribe
-   */
   const processQueue = async () => {
     const pending = queue.filter(q => q.status === "queued");
     if (pending.length === 0) return;
@@ -113,10 +104,8 @@ export default function UploadPage({ projectId, project }: Props) {
       updateStatus(item.id, "done");
     });
 
-    // Run up to 3 files simultaneously
     const results = await runWithConcurrency(tasks, 3);
 
-    // Mark any failures
     results.forEach((result, i) => {
       if (result.status === "rejected") {
         const err = result.reason;
@@ -132,13 +121,12 @@ export default function UploadPage({ projectId, project }: Props) {
     utils.documents.list.invalidate({ projectId });
 
     if (failed === 0) {
-      toast.success(`${succeeded} document${succeeded !== 1 ? "s" : ""} transcribed successfully`);
+      setShowSuccess(true);
+      toast.success(`${succeeded} document${succeeded !== 1 ? "s" : ""} uploaded and transcribed`);
     } else {
       toast.warning(`${succeeded} succeeded, ${failed} failed`);
     }
   };
-
-  const clearDone = () => setQueue(prev => prev.filter(q => q.status !== "done"));
 
   const statusIcon = (status: QueuedFile["status"]) => {
     switch (status) {
@@ -152,23 +140,24 @@ export default function UploadPage({ projectId, project }: Props) {
 
   const statusLabel = (status: QueuedFile["status"]) => {
     switch (status) {
-      case "queued": return <span className="text-muted-foreground">Queued</span>;
-      case "uploading": return <span className="text-amber-400">Uploading…</span>;
-      case "transcribing": return <span className="text-primary">Transcribing…</span>;
-      case "done": return <span className="text-green-400">Done</span>;
-      case "error": return <span className="text-red-400">Error</span>;
+      case "queued": return "Ready";
+      case "uploading": return "Uploading…";
+      case "transcribing": return "AI reading…";
+      case "done": return "Complete";
+      case "error": return "Failed";
     }
   };
 
   const queuedCount = queue.filter(q => q.status === "queued").length;
+  const doneCount = queue.filter(q => q.status === "done").length;
   const processingCount = queue.filter(q => q.status === "uploading" || q.status === "transcribing").length;
 
   return (
-    <div className="p-8">
+    <div className="p-8 max-w-3xl mx-auto">
       <div className="mb-8">
         <h2 className="text-2xl font-serif font-semibold mb-1">Upload documents</h2>
         <p className="text-muted-foreground text-sm">
-          Upload scanned document images. Up to 3 files are transcribed simultaneously using your project's AI configuration.
+          Add scanned document images. The AI will read and transcribe each one automatically.
         </p>
       </div>
 
@@ -180,12 +169,12 @@ export default function UploadPage({ projectId, project }: Props) {
         onDrop={e => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
       >
         <Upload className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-        <p className="font-medium mb-1">Drop document images here or click to browse</p>
-        <p className="text-sm text-muted-foreground">JPEG, PNG, TIFF — multiple files supported</p>
+        <p className="font-medium mb-1">Drop images here or click to browse</p>
+        <p className="text-sm text-muted-foreground">JPEG, PNG, TIFF, or PDF — select multiple files at once</p>
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept="image/*,application/pdf"
           multiple
           className="hidden"
           onChange={e => handleFiles(e.target.files)}
@@ -196,86 +185,66 @@ export default function UploadPage({ projectId, project }: Props) {
       {queue.length > 0 && (
         <div className="bg-card border border-border rounded-xl overflow-hidden mb-6">
           <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-            <div className="flex items-center gap-3">
-              <h3 className="text-sm font-semibold">{queue.length} file{queue.length !== 1 ? "s" : ""} in queue</h3>
-              {processingCount > 0 && (
-                <span className="text-xs text-primary flex items-center gap-1">
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  {processingCount} processing in parallel
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              {queue.some(q => q.status === "done") && (
-                <Button variant="ghost" size="sm" className="text-xs h-7" onClick={clearDone}>
-                  Clear done
-                </Button>
-              )}
-            </div>
+            <h3 className="text-sm font-medium">
+              {isProcessing
+                ? `Processing… (${processingCount} active)`
+                : showSuccess
+                  ? `${doneCount} document${doneCount !== 1 ? "s" : ""} transcribed`
+                  : `${queue.length} file${queue.length !== 1 ? "s" : ""} selected`
+              }
+            </h3>
+            {showSuccess && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs h-7"
+                onClick={() => { setQueue([]); setShowSuccess(false); }}
+              >
+                Clear
+              </Button>
+            )}
           </div>
-          <div className="divide-y divide-border max-h-80 overflow-y-auto">
+          <div className="divide-y divide-border max-h-64 overflow-y-auto">
             {queue.map(item => (
-              <div key={item.id} className="flex items-center gap-3 px-5 py-3 text-sm">
+              <div key={item.id} className="flex items-center gap-3 px-5 py-2.5 text-sm">
                 <FileImage className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                 <span className="flex-1 truncate">{item.file.name}</span>
-                <span className="text-xs text-muted-foreground">{(item.file.size / 1024).toFixed(0)} KB</span>
                 <div className="flex items-center gap-1.5">
                   {statusIcon(item.status)}
-                  <span className="text-xs">{statusLabel(item.status)}</span>
+                  <span className={`text-xs ${item.status === "done" ? "text-green-400" : item.status === "error" ? "text-red-400" : "text-muted-foreground"}`}>
+                    {statusLabel(item.status)}
+                  </span>
                 </div>
-                {item.error && (
-                  <span className="text-xs text-red-400 max-w-32 truncate" title={item.error}>{item.error}</span>
-                )}
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Actions */}
-      <div className="flex items-center gap-3">
-        {queuedCount > 0 && (
-          <Button onClick={processQueue} disabled={isProcessing} className="gap-2">
-            {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            {isProcessing
-              ? `Processing… (${processingCount} active)`
-              : `Transcribe ${queuedCount} file${queuedCount !== 1 ? "s" : ""}`
-            }
-          </Button>
-        )}
-        <Button
-          variant="outline"
-          className="gap-2 bg-transparent"
-          onClick={() => batchTranscribe.mutate({ projectId })}
-          disabled={batchTranscribe.isPending}
-        >
-          {batchTranscribe.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-          Batch transcribe pending
+      {/* Primary action */}
+      {queuedCount > 0 && !isProcessing && (
+        <Button onClick={processQueue} size="lg" className="gap-2 w-full sm:w-auto">
+          <Upload className="w-4 h-4" />
+          Upload and transcribe {queuedCount} file{queuedCount !== 1 ? "s" : ""}
         </Button>
-      </div>
+      )}
 
-      {/* Config info */}
-      <div className="mt-8 bg-card border border-border rounded-xl p-5">
-        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Active configuration</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-          <div>
-            <div className="text-xs text-muted-foreground mb-0.5">Pipeline</div>
-            <div className="font-medium capitalize">{project.pipelineType.replace("_", " ")}</div>
+      {/* Success state — guide to next step */}
+      {showSuccess && doneCount > 0 && (
+        <div className="bg-green-500/5 border border-green-500/20 rounded-xl p-5 mt-6">
+          <div className="flex items-center gap-2 mb-2">
+            <CheckCircle2 className="w-4 h-4 text-green-400" />
+            <span className="text-sm font-medium text-green-400">Upload complete</span>
           </div>
-          <div>
-            <div className="text-xs text-muted-foreground mb-0.5">Model</div>
-            <div className="font-mono text-xs">{project.modelName}</div>
-          </div>
-          <div>
-            <div className="text-xs text-muted-foreground mb-0.5">Schema fields</div>
-            <div>{project.jsonSchema ? Object.keys(project.jsonSchema as object).length : 0}</div>
-          </div>
-          <div>
-            <div className="text-xs text-muted-foreground mb-0.5">Concurrency</div>
-            <div className="font-mono text-xs">3 parallel</div>
-          </div>
+          <p className="text-sm text-muted-foreground mb-4">
+            Your documents have been transcribed by the AI. Review them to check accuracy, then they'll be available in Search and Ask Archive.
+          </p>
+          <Button onClick={() => navigate("/review")} className="gap-2">
+            Review transcriptions
+            <ArrowRight className="w-4 h-4" />
+          </Button>
         </div>
-      </div>
+      )}
     </div>
   );
 }

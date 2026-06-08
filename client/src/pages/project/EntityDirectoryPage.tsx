@@ -146,8 +146,15 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
               ))}
             </div>
           ) : filteredEntities.length === 0 ? (
-            <div className="p-6 text-center text-sm text-muted-foreground">
-              {searchQuery ? "No entities match your search." : "No entities extracted yet."}
+            <div className="p-6 text-center">
+              <p className="text-sm text-muted-foreground mb-1">
+                {searchQuery ? "No entities match your search." : "No entities discovered yet"}
+              </p>
+              {!searchQuery && (
+                <p className="text-xs text-muted-foreground/70">
+                  Entities (people, places, organizations) are automatically extracted when you approve documents.
+                </p>
+              )}
             </div>
           ) : (
             <div className="py-1">
@@ -197,8 +204,8 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
             <BookOpenText className="h-16 w-16 text-muted-foreground/20 mb-4" />
             <h3 className="text-lg font-medium mb-2">Select an entity</h3>
             <p className="text-sm text-muted-foreground max-w-md">
-              Choose an entity from the directory to view its document mentions,
-              context snippets, and connections to other entities.
+              Click any person, place, or organization to see which documents mention them
+              and how they connect to other entities in your archive.
             </p>
           </div>
         ) : detailsLoading ? (

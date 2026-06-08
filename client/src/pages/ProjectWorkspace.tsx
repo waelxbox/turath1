@@ -2,7 +2,7 @@ import { useParams, useLocation, Router, Route, Switch } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { getLoginUrl } from "@/const";
-import { Loader2, BookOpen, Upload, Eye, Download, Settings, ArrowLeft, ChevronRight, MessageSquare, Search, Network, BookOpenText } from "lucide-react";
+import { Loader2, BookOpen, Upload, Eye, Download, Settings, ArrowLeft, ChevronRight, MessageSquare, Search, Network } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import UploadPage from "./project/UploadPage";
 import ReviewPage from "./project/ReviewPage";
@@ -13,18 +13,94 @@ import SemanticChatPage from "./project/SemanticChatPage";
 import SemanticSearchPage from "./project/SemanticSearchPage";
 import KnowledgeGraphPage from "./project/KnowledgeGraphPage";
 import EntityDirectoryPage from "./project/EntityDirectoryPage";
+import { toast } from "sonner";
 
-const NAV_ITEMS = [
-  { id: "overview", label: "Overview",    icon: BookOpen,      path: "/" },
-  { id: "upload",   label: "Upload",      icon: Upload,        path: "/upload" },
-  { id: "review",   label: "Review",      icon: Eye,           path: "/review" },
-  { id: "search",   label: "Search",      icon: Search,        path: "/search" },
-  { id: "chat",     label: "Ask Archive", icon: MessageSquare, path: "/chat" },
-  { id: "graph",    label: "Knowledge Graph", icon: Network,  path: "/graph" },
-  { id: "directory",label: "Entity Directory", icon: BookOpenText, path: "/directory" },
-  { id: "export",   label: "Export",      icon: Download,      path: "/export" },
-  { id: "settings", label: "Settings",    icon: Settings,      path: "/settings" },
-];
+type NavItem = {
+  id: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  path: string;
+  badge?: number;
+  disabled?: boolean;
+  disabledReason?: string;
+};
+
+type NavGroup = {
+  label: string;
+  items: NavItem[];
+};
+
+function buildNavGroups(stats: { total: number; reviewed: number; needsReview: number } | null | undefined): NavGroup[] {
+  const hasDocuments = (stats?.total ?? 0) > 0;
+  const hasReviewed = (stats?.reviewed ?? 0) > 0;
+
+  return [
+    {
+      label: "Process",
+      items: [
+        { id: "overview", label: "Overview", icon: BookOpen, path: "/" },
+        { id: "upload", label: "Upload", icon: Upload, path: "/upload" },
+        {
+          id: "review",
+          label: "Review",
+          icon: Eye,
+          path: "/review",
+          badge: stats?.needsReview ?? 0,
+          disabled: !hasDocuments,
+          disabledReason: "Upload documents first",
+        },
+      ],
+    },
+    {
+      label: "Explore",
+      items: [
+        {
+          id: "search",
+          label: "Search archive",
+          icon: Search,
+          path: "/search",
+          disabled: !hasReviewed,
+          disabledReason: "Review documents to enable search",
+        },
+        {
+          id: "chat",
+          label: "Ask Archive",
+          icon: MessageSquare,
+          path: "/chat",
+          disabled: !hasReviewed,
+          disabledReason: "Review documents to enable Ask Archive",
+        },
+        {
+          id: "entities",
+          label: "Entities",
+          icon: Network,
+          path: "/entities",
+          disabled: !hasReviewed,
+          disabledReason: "Review documents to discover entities",
+        },
+      ],
+    },
+    {
+      label: "Output",
+      items: [
+        {
+          id: "export",
+          label: "Export",
+          icon: Download,
+          path: "/export",
+          disabled: !hasReviewed,
+          disabledReason: "Review documents to enable export",
+        },
+      ],
+    },
+    {
+      label: "Project",
+      items: [
+        { id: "settings", label: "Settings", icon: Settings, path: "/settings" },
+      ],
+    },
+  ];
+}
 
 /**
  * Inner workspace rendered inside a <Router base="/projects/:id">.
@@ -40,14 +116,16 @@ function WorkspaceInner({
   stats: { total: number; reviewed: number; flagged: number; needsReview: number; processing: number; pending: number; errors: number } | null | undefined;
 }) {
   const [location, navigate] = useLocation();
+  const navGroups = buildNavGroups(stats);
 
   // Determine active nav from relative path
+  const allItems = navGroups.flatMap(g => g.items);
   const activeNav =
-    NAV_ITEMS.find(n => n.path !== "/" && location.startsWith(n.path))?.id ?? "overview";
+    allItems.find(n => n.path !== "/" && location.startsWith(n.path))?.id ?? "overview";
 
   return (
     <div className="flex flex-col min-h-0 flex-1">
-      {/* Top header */}
+      {/* Top header with breadcrumb */}
       <header className="border-b border-border bg-card/50 flex-shrink-0">
         <div className="container flex items-center justify-between h-14">
           <div className="flex items-center gap-2 text-sm">
@@ -57,14 +135,22 @@ function WorkspaceInner({
             <span className="text-muted-foreground">Projects</span>
             <ChevronRight className="w-3 h-3 text-border" />
             <span className="font-medium">{project.name}</span>
+            {activeNav !== "overview" && (
+              <>
+                <ChevronRight className="w-3 h-3 text-border" />
+                <span className="text-muted-foreground capitalize">
+                  {allItems.find(i => i.id === activeNav)?.label}
+                </span>
+              </>
+            )}
           </div>
           <div className="flex items-center gap-2">
-            {stats && (
+            {stats && stats.total > 0 && (
               <div className="flex items-center gap-3 text-xs text-muted-foreground">
                 <span>{stats.total} docs</span>
-                <span className="text-green-400">{stats.reviewed} reviewed</span>
+                <span className="text-green-400">{stats.reviewed} approved</span>
                 {stats.needsReview > 0 && (
-                  <span className="text-yellow-400">{stats.needsReview} pending review</span>
+                  <span className="text-yellow-400">{stats.needsReview} to review</span>
                 )}
               </div>
             )}
@@ -73,51 +159,53 @@ function WorkspaceInner({
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
+        {/* Sidebar with grouped navigation */}
         <aside className="w-52 border-r border-border bg-sidebar flex-shrink-0 flex flex-col">
-          <div className="p-4 border-b border-sidebar-border">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded bg-primary/20 flex items-center justify-center">
-                <BookOpen className="w-3.5 h-3.5 text-primary" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs font-semibold truncate">{project.name}</div>
-                <div className="text-[10px] text-sidebar-foreground/50 capitalize">
-                  {project.pipelineType.replace("_", " ")}
+          <nav className="flex-1 p-3 space-y-4 overflow-y-auto">
+            {navGroups.map(group => (
+              <div key={group.label}>
+                <div className="text-[10px] font-semibold text-sidebar-foreground/40 uppercase tracking-wider px-3 mb-1.5">
+                  {group.label}
+                </div>
+                <div className="space-y-0.5">
+                  {group.items.map(item => {
+                    const Icon = item.icon;
+                    const isActive = activeNav === item.id;
+                    const handleClick = () => {
+                      if (item.disabled) {
+                        toast.info(item.disabledReason ?? "Not available yet");
+                        return;
+                      }
+                      navigate(item.path);
+                    };
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={handleClick}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors text-left
+                          ${isActive
+                            ? "bg-sidebar-accent text-sidebar-primary font-medium"
+                            : item.disabled
+                              ? "text-sidebar-foreground/30 cursor-not-allowed"
+                              : "text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                          }`}
+                      >
+                        <Icon className="w-4 h-4 flex-shrink-0" />
+                        {item.label}
+                        {item.badge && item.badge > 0 ? (
+                          <span className="ml-auto text-[10px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded-full">
+                            {item.badge}
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-            </div>
-          </div>
-
-          <nav className="flex-1 p-2 space-y-0.5">
-            {NAV_ITEMS.map(item => {
-              const Icon = item.icon;
-              const isActive = activeNav === item.id;
-              // Navigate to the nav item's relative path (wouter will prepend the base)
-              const handleClick = () => navigate(item.path);
-              return (
-                <button
-                  key={item.id}
-                  onClick={handleClick}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors text-left
-                    ${isActive
-                      ? "bg-sidebar-accent text-sidebar-primary font-medium"
-                      : "text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                    }`}
-                >
-                  <Icon className="w-4 h-4 flex-shrink-0" />
-                  {item.label}
-                  {item.id === "review" && stats && stats.needsReview > 0 && (
-                    <span className="ml-auto text-[10px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded-full">
-                      {stats.needsReview}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+            ))}
           </nav>
 
-          {/* Progress */}
+          {/* Progress bar at bottom */}
           {stats && stats.total > 0 && (
             <div className="p-4 border-t border-sidebar-border">
               <div className="flex items-center justify-between text-[10px] text-sidebar-foreground/50 mb-1.5">
@@ -157,21 +245,20 @@ function WorkspaceInner({
               <Route path="/review">
                 <ReviewPage projectId={projectId} project={project} />
               </Route>
-              {/* semantic search */}
+              {/* search */}
               <Route path="/search">
                 <SemanticSearchPage projectId={projectId} project={project} />
               </Route>
-              {/* semantic chat */}
+              {/* ask archive */}
               <Route path="/chat">
                 <SemanticChatPage projectId={projectId} project={project} />
               </Route>
-              {/* knowledge graph */}
+              {/* entities — combined graph + directory */}
+              <Route path="/entities">
+                <EntityDirectoryPage projectId={projectId} />
+              </Route>
               <Route path="/graph">
                 <KnowledgeGraphPage projectId={projectId} />
-              </Route>
-              {/* entity directory */}
-              <Route path="/directory">
-                <EntityDirectoryPage projectId={projectId} />
               </Route>
               {/* default: overview */}
               <Route>
@@ -220,11 +307,6 @@ export default function ProjectWorkspace() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      {/*
-        Wrap the entire workspace in a nested Router with base="/projects/:id".
-        This makes all child Route, useLocation, and useRoute calls relative to this base,
-        so "/review/:docId" correctly matches "/projects/30001/review/90016".
-      */}
       <Router base={basePath}>
         <WorkspaceInner projectId={projectId} project={project} stats={stats} />
       </Router>

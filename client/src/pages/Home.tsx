@@ -51,14 +51,14 @@ export default function Home() {
               <br />Your workflow.
             </h1>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed">
-              Upload 3–5 sample documents, and TURATH's onboarding agent builds a custom AI transcription
-              pipeline for your archive — complete with your schema, glossary, and post-processing rules.
+              Show the AI a few examples of your documents, and it learns to read the rest.
+              Search, ask questions, and discover connections across your entire archive.
               No infrastructure. No code.
             </p>
             <div className="flex items-center justify-center gap-4 flex-wrap">
               <Button size="lg" className="gap-2 text-base px-8" asChild>
                 <a href={getLoginUrl()}>
-                  Fork your own project <ArrowRight className="w-4 h-4" />
+                  Start transcribing <ArrowRight className="w-4 h-4" />
                 </a>
               </Button>
               <Button size="lg" variant="outline" className="gap-2 text-base px-8 bg-transparent" asChild>
@@ -132,9 +132,9 @@ export default function Home() {
       <section id="how-it-works" className="py-24 border-t border-border/50">
         <div className="container">
           <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-serif font-semibold mb-4">From samples to pipeline in minutes</h2>
+            <h2 className="text-3xl sm:text-4xl font-serif font-semibold mb-4">From examples to a working reader in minutes</h2>
             <p className="text-muted-foreground max-w-xl mx-auto">
-              TURATH's onboarding agent analyzes your documents and builds a production-ready AI configuration — no prompt engineering required.
+              Show the AI how you want your documents read, and it builds itself. No programming required.
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
@@ -143,19 +143,19 @@ export default function Home() {
                 icon: Layers,
                 step: "01",
                 title: "Upload 3–5 samples",
-                desc: "Provide a handful of document images paired with your ideal manual transcriptions. These become the AI's training signal.",
+                desc: "Upload a few document images with your ideal transcriptions. The AI learns your style from these examples.",
               },
               {
                 icon: Wand2,
                 step: "02",
                 title: "AI builds your config",
-                desc: "The onboarding agent analyzes your samples and generates a system prompt, JSON schema, domain glossary, and pipeline type — automatically.",
+                desc: "The AI studies your examples and builds a custom reader — it figures out the language, structure, and terminology automatically.",
               },
               {
                 icon: CheckCircle2,
                 step: "03",
                 title: "Validate & refine",
-                desc: "The AI tests its own config against a held-out sample. If it misses fields, you give natural language feedback and it self-corrects.",
+                desc: "The AI tests itself against one of your examples. If something's off, just tell it what to fix in plain language.",
               },
             ].map(({ icon: Icon, step, title, desc }) => (
               <div key={step} className="relative">
@@ -181,12 +181,12 @@ export default function Home() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
             {[
-              { icon: FileText, title: "Dynamic review interface", desc: "Form fields render from your custom schema — toggles, text areas, tag inputs — exactly as your data model requires." },
-              { icon: Wand2, title: "Single & two-pass pipelines", desc: "Single-pass for direct transcription. Two-pass for documents requiring verbatim transcription followed by translation and extraction." },
-              { icon: Users, title: "Multi-tenant isolation", desc: "Every project is strictly isolated at the database level. Your data, prompts, and configurations are never shared." },
-              { icon: Layers, title: "Domain glossary injection", desc: "Specialized historical titles, place names, and technical terms are extracted from your samples and injected into every prompt." },
-              { icon: Download, title: "Flexible export", desc: "Export reviewed transcriptions as CSV with dynamic columns or JSON ZIP for downstream processing and academic publishing." },
-              { icon: CheckCircle2, title: "Status workflow", desc: "Full document lifecycle: pending → processing → needs review → reviewed / flagged / error, with filtering and progress tracking." },
+              { icon: FileText, title: "Smart review interface", desc: "Review AI transcriptions side-by-side with the original document. Edit fields, approve, or flag for later." },
+              { icon: Wand2, title: "Flexible reading modes", desc: "Direct extraction for simple documents. Two-step reading for complex handwriting or multi-language materials." },
+              { icon: Users, title: "Private by design", desc: "Each project is completely isolated. Your documents, AI settings, and data are never shared between projects." },
+              { icon: Layers, title: "Learns your terminology", desc: "The AI picks up specialized names, places, and terms from your examples and uses them consistently." },
+              { icon: Download, title: "Export anywhere", desc: "Download your transcriptions as CSV or JSON for use in databases, publications, or other tools." },
+              { icon: CheckCircle2, title: "Track your progress", desc: "See which documents are done, which need review, and how far along your project is at a glance." },
             ].map(({ icon: Icon, title, desc }) => (
               <div key={title} className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 transition-colors">
                 <Icon className="w-5 h-5 text-primary mb-3" />
