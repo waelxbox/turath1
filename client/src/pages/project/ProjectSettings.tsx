@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import MembersSection from "./MembersSection";
 import type { Project } from "../../../../drizzle/schema";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -547,6 +548,9 @@ export default function ProjectSettings({ projectId, project }: Props) {
             Save settings
           </Button>
         </div>
+
+        {/* Team Members */}
+        <MembersSection projectId={projectId} />
 
         {/* Danger Zone */}
         <div className="border-t border-red-500/30 pt-6 mt-8">

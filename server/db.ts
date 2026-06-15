@@ -11,6 +11,8 @@ import {
   documentEmbeddings, InsertDocumentEmbedding,
   entities, Entity,
   documentEntities, DocumentEntity,
+  projectMembers, InsertProjectMember, ProjectMember,
+  projectInvites, InsertProjectInvite, ProjectInvite,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -78,16 +80,62 @@ export async function getUserByOpenId(openId: string) {
 export async function getProjectsByUserId(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(projects).where(eq(projects.userId, userId)).orderBy(desc(projects.createdAt));
+  // Get owned projects
+  const owned = await db.select().from(projects).where(eq(projects.userId, userId)).orderBy(desc(projects.createdAt));
+  // Get shared projects (where user is a member)
+  const memberships = await db
+    .select({ projectId: projectMembers.projectId, role: projectMembers.role })
+    .from(projectMembers)
+    .where(eq(projectMembers.userId, userId));
+  const sharedIds = memberships.map(m => m.projectId);
+  let shared: typeof owned = [];
+  if (sharedIds.length > 0) {
+    shared = await db.select().from(projects).where(inArray(projects.id, sharedIds)).orderBy(desc(projects.createdAt));
+  }
+  // Annotate with role info
+  const ownedWithRole = owned.map(p => ({ ...p, _memberRole: "owner" as const }));
+  const sharedWithRole = shared.map(p => {
+    const m = memberships.find(m => m.projectId === p.id);
+    return { ...p, _memberRole: (m?.role ?? "viewer") as "owner" | "editor" | "viewer" };
+  });
+  return [...ownedWithRole, ...sharedWithRole];
 }
 
 export async function getProjectById(id: number, userId: number) {
   const db = await getDb();
   if (!db) return undefined;
+  // Check if user is the owner
   const result = await db.select().from(projects)
     .where(and(eq(projects.id, id), eq(projects.userId, userId)))
     .limit(1);
-  return result[0];
+  if (result[0]) return result[0];
+  // Check if user is a member
+  const membership = await db.select().from(projectMembers)
+    .where(and(eq(projectMembers.projectId, id), eq(projectMembers.userId, userId)))
+    .limit(1);
+  if (membership[0]) {
+    const proj = await db.select().from(projects).where(eq(projects.id, id)).limit(1);
+    return proj[0];
+  }
+  return undefined;
+}
+
+/**
+ * Get the user's role for a project: 'owner' | 'editor' | 'viewer' | null (no access)
+ */
+export async function getProjectRole(projectId: number, userId: number): Promise<"owner" | "editor" | "viewer" | null> {
+  const db = await getDb();
+  if (!db) return null;
+  // Check ownership
+  const proj = await db.select({ userId: projects.userId }).from(projects).where(eq(projects.id, projectId)).limit(1);
+  if (!proj[0]) return null;
+  if (proj[0].userId === userId) return "owner";
+  // Check membership
+  const membership = await db.select({ role: projectMembers.role }).from(projectMembers)
+    .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)))
+    .limit(1);
+  if (membership[0]) return membership[0].role;
+  return null;
 }
 
 export async function createProject(data: InsertProject) {
@@ -610,4 +658,133 @@ export async function getEntityDetails(projectId: number, entityId: number) {
     mentions,
     coOccurring,
   };
+}
+
+// ─── Project Members & Invites ──────────────────────────────────────────────
+
+/** Get all members of a project (includes owner info from projects table) */
+export async function getProjectMembers(projectId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      id: projectMembers.id,
+      userId: projectMembers.userId,
+      role: projectMembers.role,
+      addedAt: projectMembers.addedAt,
+      userName: users.name,
+      userEmail: users.email,
+    })
+    .from(projectMembers)
+    .innerJoin(users, eq(users.id, projectMembers.userId))
+    .where(eq(projectMembers.projectId, projectId))
+    .orderBy(projectMembers.addedAt);
+}
+
+/** Add a member to a project */
+export async function addProjectMember(data: { projectId: number; userId: number; role: "owner" | "editor" | "viewer" }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // Check if already a member
+  const existing = await db.select().from(projectMembers)
+    .where(and(eq(projectMembers.projectId, data.projectId), eq(projectMembers.userId, data.userId)))
+    .limit(1);
+  if (existing[0]) return existing[0];
+  const result = await db.insert(projectMembers).values({
+    projectId: data.projectId,
+    userId: data.userId,
+    role: data.role,
+  }).returning();
+  return result[0];
+}
+
+/** Remove a member from a project */
+export async function removeProjectMember(projectId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(projectMembers)
+    .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)));
+}
+
+/** Update a member's role */
+export async function updateMemberRole(projectId: number, userId: number, role: "editor" | "viewer") {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(projectMembers)
+    .set({ role })
+    .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)));
+}
+
+/** Create a project invite */
+export async function createProjectInvite(data: InsertProjectInvite) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(projectInvites).values(data).returning();
+  return result[0];
+}
+
+/** Get all pending invites for a project */
+export async function getProjectInvites(projectId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(projectInvites)
+    .where(and(eq(projectInvites.projectId, projectId), eq(projectInvites.status, "pending")))
+    .orderBy(desc(projectInvites.createdAt));
+}
+
+/** Get an invite by token */
+export async function getInviteByToken(token: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(projectInvites)
+    .where(eq(projectInvites.token, token))
+    .limit(1);
+  return result[0];
+}
+
+/** Get pending invites for an email address */
+export async function getPendingInvitesByEmail(email: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(projectInvites)
+    .where(and(
+      eq(projectInvites.email, email.toLowerCase()),
+      eq(projectInvites.status, "pending"),
+    ));
+}
+
+/** Accept an invite: mark as accepted and add user as member */
+export async function acceptInvite(inviteId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const invite = await db.select().from(projectInvites).where(eq(projectInvites.id, inviteId)).limit(1);
+  if (!invite[0]) throw new Error("Invite not found");
+  if (invite[0].status !== "pending") throw new Error("Invite already used or expired");
+  if (new Date() > invite[0].expiresAt) {
+    await db.update(projectInvites).set({ status: "expired" }).where(eq(projectInvites.id, inviteId));
+    throw new Error("Invite has expired");
+  }
+  // Mark invite as accepted
+  await db.update(projectInvites).set({ status: "accepted" }).where(eq(projectInvites.id, inviteId));
+  // Add as member
+  await addProjectMember({ projectId: invite[0].projectId, userId, role: invite[0].role });
+  return invite[0];
+}
+
+/** Cancel/delete a pending invite */
+export async function cancelInvite(inviteId: number, projectId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(projectInvites)
+    .where(and(eq(projectInvites.id, inviteId), eq(projectInvites.projectId, projectId)));
+}
+
+/** Find a user by email */
+export async function getUserByEmail(email: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users)
+    .where(eq(users.email, email.toLowerCase()))
+    .limit(1);
+  return result[0];
 }

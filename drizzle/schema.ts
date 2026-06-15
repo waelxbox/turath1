@@ -35,6 +35,8 @@ export const vector = customType<{ data: number[]; driverData: string; config: {
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
 export const roleEnum = pgEnum("role", ["user", "admin"]);
+export const memberRoleEnum = pgEnum("member_role", ["owner", "editor", "viewer"]);
+export const inviteStatusEnum = pgEnum("invite_status", ["pending", "accepted", "expired"]);
 export const projectStatusEnum = pgEnum("project_status", ["onboarding", "validating", "active", "archived"]);
 export const pipelineTypeEnum = pgEnum("pipeline_type", ["single_pass", "two_pass"]);
 export const documentStatusEnum = pgEnum("document_status", [
@@ -247,3 +249,43 @@ export const documentEntities = pgTable("document_entities", {
 
 export type DocumentEntity = typeof documentEntities.$inferSelect;
 export type InsertDocumentEntity = typeof documentEntities.$inferInsert;
+
+// ─── Project Members ────────────────────────────────────────────────────────
+// Tracks who has access to a project and with what role.
+
+export const projectMembers = pgTable("project_members", {
+  id: serial("id").primaryKey(),
+  projectId: integer("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  userId: integer("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: memberRoleEnum("role").default("viewer").notNull(),
+  addedAt: timestamp("addedAt").defaultNow().notNull(),
+}, (t) => [
+  index("pm_projectId_idx").on(t.projectId),
+  index("pm_userId_idx").on(t.userId),
+  index("pm_project_user_idx").on(t.projectId, t.userId),
+]);
+
+export type ProjectMember = typeof projectMembers.$inferSelect;
+export type InsertProjectMember = typeof projectMembers.$inferInsert;
+
+// ─── Project Invites ────────────────────────────────────────────────────────
+// Pending invitations sent by project owner to collaborators via email.
+
+export const projectInvites = pgTable("project_invites", {
+  id: serial("id").primaryKey(),
+  projectId: integer("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  invitedByUserId: integer("invitedByUserId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  email: varchar("email", { length: 320 }).notNull(),
+  role: memberRoleEnum("role").default("editor").notNull(),
+  token: varchar("token", { length: 64 }).notNull().unique(),
+  status: inviteStatusEnum("status").default("pending").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+}, (t) => [
+  index("pi_projectId_idx").on(t.projectId),
+  index("pi_email_idx").on(t.email),
+  index("pi_token_idx").on(t.token),
+]);
+
+export type ProjectInvite = typeof projectInvites.$inferSelect;
+export type InsertProjectInvite = typeof projectInvites.$inferInsert;

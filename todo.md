@@ -261,3 +261,16 @@
 - [x] Demo project includes 4 real archival document images (Al Lataif Al Musawara 1923) with completed transcriptions
 - [x] Demo project shows all features working: reviewed docs, search results, entities, knowledge graph
 - [x] Add "Try demo project" button on Dashboard empty state and first-time experience
+
+## Features (Round 22) — Collaborator Invites & Shared Projects
+- [x] Add project_members table (id, projectId, userId, role: owner/editor/viewer, addedAt)
+- [x] Add project_invites table (id, projectId, invitedByUserId, email, role, token, status: pending/accepted/expired, createdAt, expiresAt)
+- [x] Run database migration for new tables (drizzle-kit push to Supabase)
+- [x] Add tRPC endpoints: members.list, members.invite, members.remove, members.updateRole, members.acceptByToken, members.cancelInvite, members.leave, members.myRole
+- [x] Update project access checks: owner OR member with appropriate role can access project (getProjectById, getProjectsByUserId, getProjectRole)
+- [x] Role-based permissions: owner (full control + delete + manage members), editor (upload, transcribe, review, search, ask, export), viewer (search, ask, read documents, export)
+- [x] Build MembersSection in Project Settings UI (invite form with email + role picker, member list with role dropdown, remove button, pending invites with cancel)
+- [x] Invite acceptance flow: user signs in with Google → if matching pending invite exists → auto-accept and grant access (wired in oauth.ts callback)
+- [x] Show shared projects on Dashboard (with role badge: "Editor" / "Viewer")
+- [x] Write vitest tests for invite and permission logic (13 tests passing)
+- [x] Auto-accept invites for existing users (if email already in system, skip pending state)

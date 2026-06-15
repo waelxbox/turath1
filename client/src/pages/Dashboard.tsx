@@ -19,7 +19,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   archived: { label: "Archived", color: "text-muted-foreground" },
 };
 
-function ProjectCard({ project }: { project: { id: number; name: string; description: string | null; status: string; createdAt: Date } }) {
+function ProjectCard({ project }: { project: { id: number; name: string; description: string | null; status: string; createdAt: Date; _memberRole?: "owner" | "editor" | "viewer" } }) {
   const [, navigate] = useLocation();
   const { data: stats } = trpc.projects.stats.useQuery({ id: project.id });
   const statusInfo = STATUS_LABELS[project.status] ?? { label: project.status, color: "text-muted-foreground" };
@@ -52,7 +52,14 @@ function ProjectCard({ project }: { project: { id: number; name: string; descrip
         <div className="w-9 h-9 rounded-lg bg-primary/15 border border-primary/30 flex items-center justify-center">
           <BookOpen className="w-4 h-4 text-primary" />
         </div>
-        <span className={`text-xs font-medium ${statusInfo.color}`}>{statusInfo.label}</span>
+        <div className="flex items-center gap-2">
+          {project._memberRole && project._memberRole !== "owner" && (
+            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
+              {project._memberRole === "editor" ? "Editor" : "Viewer"}
+            </span>
+          )}
+          <span className={`text-xs font-medium ${statusInfo.color}`}>{statusInfo.label}</span>
+        </div>
       </div>
       <h3 className="font-semibold text-base mb-1 font-sans group-hover:text-primary transition-colors">{project.name}</h3>
       {project.description && (

@@ -6,6 +6,7 @@ import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   getProjectsByUserId,
   getProjectById,
+  getProjectRole,
   createProject,
   updateProject,
   getProjectStats,
@@ -25,7 +26,19 @@ import {
   getJobsByProjectId,
   updateJob,
   deleteProject,
+  getProjectMembers,
+  addProjectMember,
+  removeProjectMember,
+  updateMemberRole,
+  createProjectInvite,
+  getProjectInvites,
+  getInviteByToken,
+  getPendingInvitesByEmail,
+  acceptInvite,
+  cancelInvite,
+  getUserByEmail,
 } from "./db";
+import crypto from "crypto";
 import { generateProjectConfig, validateConfig, refineConfig } from "./onboardingAgent";
 import { processDocument } from "./transcriptionEngine";
 import { storagePut } from "./storage";
@@ -105,6 +118,9 @@ const projectsRouter = router({
       status: z.enum(["onboarding", "validating", "active", "archived"]).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.id, ctx.user.id);
+      if (!role) throw new TRPCError({ code: "NOT_FOUND" });
+      if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN", message: "Viewers cannot modify project settings" });
       const { id, ...data } = input;
       await updateProject(id, ctx.user.id, data as Parameters<typeof updateProject>[2]);
       return getProjectById(id, ctx.user.id);
@@ -309,8 +325,8 @@ const projectsRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
-      const project = await getProjectById(input.id, ctx.user.id);
-      if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+      const role = await getProjectRole(input.id, ctx.user.id);
+      if (role !== "owner") throw new TRPCError({ code: "FORBIDDEN", message: "Only the project owner can delete a project" });
       await deleteProject(input.id, ctx.user.id);
       return { deleted: true };
     }),
@@ -551,6 +567,9 @@ const documentsRouter = router({
       fileSizeBytes: z.number().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role) throw new TRPCError({ code: "NOT_FOUND" });
+      if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN", message: "Viewers cannot upload documents" });
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       if (project.status !== "active") {
@@ -719,6 +738,9 @@ const transcriptionsRouter = router({
       status: z.enum(["reviewed", "flagged"]),
     }))
     .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role) throw new TRPCError({ code: "NOT_FOUND" });
+      if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN", message: "Viewers cannot review documents" });
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -997,6 +1019,136 @@ const entitiesRouter = router({
     }),
 });
 
+// ─── Members Router ──────────────────────────────────────────────────────────
+
+const membersRouter = router({
+  /** List all members + pending invites for a project (owner only) */
+  list: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role) throw new TRPCError({ code: "NOT_FOUND" });
+      const members = await getProjectMembers(input.projectId);
+      const invites = await getProjectInvites(input.projectId);
+      // Get owner info from the project
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      return { members, invites, currentUserRole: role, ownerId: project?.userId };
+    }),
+
+  /** Invite a collaborator by email (owner only) */
+  invite: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      email: z.string().email(),
+      role: z.enum(["editor", "viewer"]).default("editor"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = await getProjectRole(input.projectId, ctx.user.id);
+      if (userRole !== "owner") throw new TRPCError({ code: "FORBIDDEN", message: "Only the project owner can invite collaborators" });
+
+      // Check if email is already a member
+      const existingUser = await getUserByEmail(input.email);
+      if (existingUser) {
+        const existingRole = await getProjectRole(input.projectId, existingUser.id);
+        if (existingRole) throw new TRPCError({ code: "CONFLICT", message: "This user already has access to this project" });
+      }
+
+      // Check if there's already a pending invite for this email
+      const existingInvites = await getProjectInvites(input.projectId);
+      const alreadyInvited = existingInvites.find(i => i.email.toLowerCase() === input.email.toLowerCase());
+      if (alreadyInvited) throw new TRPCError({ code: "CONFLICT", message: "An invite is already pending for this email" });
+
+      // Generate a secure token
+      const token = crypto.randomBytes(32).toString("hex");
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+      const invite = await createProjectInvite({
+        projectId: input.projectId,
+        invitedByUserId: ctx.user.id,
+        email: input.email.toLowerCase(),
+        role: input.role,
+        token,
+        status: "pending",
+        expiresAt,
+      });
+
+      // If the user already exists in our system, auto-accept the invite
+      if (existingUser) {
+        await acceptInvite(invite.id, existingUser.id);
+        return { invite: { ...invite, status: "accepted" as const }, autoAccepted: true };
+      }
+
+      return { invite, autoAccepted: false };
+    }),
+
+  /** Accept an invite by token (any authenticated user) */
+  acceptByToken: protectedProcedure
+    .input(z.object({ token: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const invite = await getInviteByToken(input.token);
+      if (!invite) throw new TRPCError({ code: "NOT_FOUND", message: "Invite not found or expired" });
+      if (invite.status !== "pending") throw new TRPCError({ code: "BAD_REQUEST", message: "This invite has already been used" });
+      if (new Date() > invite.expiresAt) throw new TRPCError({ code: "BAD_REQUEST", message: "This invite has expired" });
+
+      await acceptInvite(invite.id, ctx.user.id);
+      return { projectId: invite.projectId, role: invite.role };
+    }),
+
+  /** Remove a member from a project (owner only, cannot remove self) */
+  remove: protectedProcedure
+    .input(z.object({ projectId: z.number(), userId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = await getProjectRole(input.projectId, ctx.user.id);
+      if (userRole !== "owner") throw new TRPCError({ code: "FORBIDDEN", message: "Only the project owner can remove members" });
+      if (input.userId === ctx.user.id) throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot remove yourself" });
+      await removeProjectMember(input.projectId, input.userId);
+      return { success: true };
+    }),
+
+  /** Update a member's role (owner only) */
+  updateRole: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      userId: z.number(),
+      role: z.enum(["editor", "viewer"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = await getProjectRole(input.projectId, ctx.user.id);
+      if (userRole !== "owner") throw new TRPCError({ code: "FORBIDDEN", message: "Only the project owner can change roles" });
+      await updateMemberRole(input.projectId, input.userId, input.role);
+      return { success: true };
+    }),
+
+  /** Cancel a pending invite (owner only) */
+  cancelInvite: protectedProcedure
+    .input(z.object({ projectId: z.number(), inviteId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = await getProjectRole(input.projectId, ctx.user.id);
+      if (userRole !== "owner") throw new TRPCError({ code: "FORBIDDEN", message: "Only the project owner can cancel invites" });
+      await cancelInvite(input.inviteId, input.projectId);
+      return { success: true };
+    }),
+
+  /** Leave a project (any member except owner) */
+  leave: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = await getProjectRole(input.projectId, ctx.user.id);
+      if (!userRole) throw new TRPCError({ code: "NOT_FOUND" });
+      if (userRole === "owner") throw new TRPCError({ code: "BAD_REQUEST", message: "The owner cannot leave their own project. Transfer ownership or delete the project instead." });
+      await removeProjectMember(input.projectId, ctx.user.id);
+      return { success: true };
+    }),
+
+  /** Get current user's role for a project */
+  myRole: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      return { role };
+    }),
+});
+
 // ─── App Router ───────────────────────────────────────────────────────────────
 
 export const appRouter = router({
@@ -1010,6 +1162,7 @@ export const appRouter = router({
   jobs: jobsRouter,
   rag: ragRouter,
   entities: entitiesRouter,
+  members: membersRouter,
 });
 
 export type AppRouter = typeof appRouter;
