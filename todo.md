@@ -274,3 +274,6 @@
 - [x] Show shared projects on Dashboard (with role badge: "Editor" / "Viewer")
 - [x] Write vitest tests for invite and permission logic (13 tests passing)
 - [x] Auto-accept invites for existing users (if email already in system, skip pending state)
+
+## Bug Fixes (Round 23) — Semantic Search Broken
+- [x] Fix semantic search query failure — root cause: content_tsv column stored as text type but ts_rank() requires tsvector; fixed by adding ::tsvector cast in the hybrid search SQL

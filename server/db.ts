@@ -380,13 +380,13 @@ export async function searchEmbeddings(
           de."transcriptionId",
           de.content,
           de.metadata,
-          ts_rank(de.content_tsv, websearch_to_tsquery('simple', ${queryText})) AS fts_score,
+          ts_rank(de.content_tsv::tsvector, websearch_to_tsquery('simple', ${queryText})) AS fts_score,
           ROW_NUMBER() OVER (
-            ORDER BY ts_rank(de.content_tsv, websearch_to_tsquery('simple', ${queryText})) DESC
+            ORDER BY ts_rank(de.content_tsv::tsvector, websearch_to_tsquery('simple', ${queryText})) DESC
           ) AS fts_rank
         FROM document_embeddings de
         WHERE de."projectId" = ${projectId}
-          AND de.content_tsv @@ websearch_to_tsquery('simple', ${queryText})
+          AND de.content_tsv::tsvector @@ websearch_to_tsquery('simple', ${queryText})
         LIMIT 20
       ),
       -- Merge both result sets
