@@ -147,24 +147,27 @@ export function registerOAuthRoutes(app: Express) {
         lastSignedIn: new Date(),
       });
 
-      // Auto-accept any pending invites for this user's email
+      // Auto-accept any pending invites for this user's email (fire-and-forget, never blocks login)
       if (googleUser.email) {
-        try {
-          const { getPendingInvitesByEmail, acceptInvite } = await import("../db");
-          const user = await db.getUserByOpenId(openId);
-          if (user) {
-            const pendingInvites = await getPendingInvitesByEmail(googleUser.email);
-            for (const invite of pendingInvites) {
-              try {
-                await acceptInvite(invite.id, user.id);
-              } catch (e) {
-                console.warn(`[OAuth] Failed to auto-accept invite ${invite.id}:`, e);
+        const email = googleUser.email;
+        setImmediate(async () => {
+          try {
+            const { getPendingInvitesByEmail, acceptInvite } = await import("../db");
+            const user = await db.getUserByOpenId(openId);
+            if (user) {
+              const pendingInvites = await getPendingInvitesByEmail(email);
+              for (const invite of pendingInvites) {
+                try {
+                  await acceptInvite(invite.id, user.id);
+                } catch (e) {
+                  console.warn(`[OAuth] Failed to auto-accept invite ${invite.id}:`, e);
+                }
               }
             }
+          } catch (e) {
+            console.warn("[OAuth] Failed to auto-accept invites:", e);
           }
-        } catch (e) {
-          console.warn("[OAuth] Failed to auto-accept invites:", e);
-        }
+        });
       }
 
       // Create our own JWT session token

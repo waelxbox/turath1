@@ -19,6 +19,13 @@ import { getDb } from "./db";
 import { entities, mergeSuggestions, documentEntities, entityAliases } from "../drizzle/schema";
 import { eq, and, inArray, sql } from "drizzle-orm";
 
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/** Yield the event loop so other requests (like OAuth) can be processed */
+function yieldEventLoop(): Promise<void> {
+  return new Promise(resolve => setImmediate(resolve));
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface EntityRow {
@@ -134,14 +141,15 @@ function computeSimilarity(a: string, b: string): number {
  * Group entities into clusters based on fuzzy similarity.
  * Uses a simple greedy approach: for each entity, find all entities within threshold.
  */
-function clusterEntities(entityList: EntityRow[], threshold = 0.65): EntityRow[][] {
+async function clusterEntities(entityList: EntityRow[], threshold = 0.65): Promise<EntityRow[][]> {
   const clusters: EntityRow[][] = [];
   const assigned = new Set<number>();
 
   // Sort by name for deterministic results
   const sorted = [...entityList].sort((a, b) => a.name.localeCompare(b.name));
 
-  for (const entity of sorted) {
+  for (let i = 0; i < sorted.length; i++) {
+    const entity = sorted[i];
     if (assigned.has(entity.id)) continue;
 
     const cluster: EntityRow[] = [entity];
@@ -161,6 +169,9 @@ function clusterEntities(entityList: EntityRow[], threshold = 0.65): EntityRow[]
     if (cluster.length >= 2) {
       clusters.push(cluster);
     }
+
+    // Yield every 20 entities to let other requests through
+    if (i % 20 === 0) await yieldEventLoop();
   }
 
   return clusters;
@@ -530,7 +541,7 @@ export async function generateMergeSuggestions(
     if (typeEntities.length < 2) continue;
 
     // Same-script fuzzy clusters
-    const fuzzyClusters = clusterEntities(typeEntities, 0.65);
+    const fuzzyClusters = await clusterEntities(typeEntities, 0.65);
     if (fuzzyClusters.length > 0) {
       const confirmed = await confirmClustersWithLLM(fuzzyClusters, type);
       for (const cluster of confirmed) {
