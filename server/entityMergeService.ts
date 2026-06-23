@@ -425,10 +425,55 @@ Rules:
 // ─── Main Pipeline ───────────────────────────────────────────────────────────
 
 /**
- * Generate merge suggestions for a project.
- * This is the main entry point — call it from a tRPC endpoint.
+ * Progress callback type for real-time updates during merge generation.
  */
-export async function generateMergeSuggestions(projectId: number): Promise<{
+export type MergeProgressCallback = (update: {
+  phase: string;
+  completed: number;
+  total: number;
+  suggestionsCreated: number;
+}) => Promise<void> | void;
+
+/**
+ * Helper to insert a single merge cluster as a suggestion immediately.
+ */
+async function insertSuggestion(
+  db: any,
+  projectId: number,
+  cluster: MergeCluster,
+  existingEntityIds: Set<number>,
+): Promise<boolean> {
+  if (cluster.entityIds.length < 2) return false;
+
+  // Deduplicate: skip if all entities already covered
+  const newIds = cluster.entityIds.filter(id => !existingEntityIds.has(id));
+  if (newIds.length === 0) return false;
+
+  // Mark all entity IDs as used
+  for (const id of cluster.entityIds) {
+    existingEntityIds.add(id);
+  }
+
+  await db.insert(mergeSuggestions).values({
+    projectId,
+    status: "pending",
+    suggestedCanonical: cluster.suggestedCanonical,
+    confidence: cluster.confidence,
+    entityIds: cluster.entityIds,
+    reasoning: cluster.reasoning,
+  });
+  return true;
+}
+
+/**
+ * Generate merge suggestions for a project.
+ * Inserts suggestions incrementally so the UI can show them as they arrive.
+ * Accepts an optional progress callback for real-time job updates.
+ */
+export async function generateMergeSuggestions(
+  projectId: number,
+  onProgress?: MergeProgressCallback,
+): Promise<{
   clustersFound: number;
   suggestionsCreated: number;
 }> {
@@ -465,10 +510,21 @@ export async function generateMergeSuggestions(projectId: number): Promise<{
       ),
     );
 
-  const allClusters: MergeCluster[] = [];
+  // Track which entity IDs have already been assigned to a suggestion
+  const usedEntityIds = new Set<number>();
+  let suggestionsCreated = 0;
+  let clustersFound = 0;
 
-  // Step 1: Fuzzy clustering within same script
+  // Calculate total steps for progress
   const entityTypes = ["person", "location", "organization"] as const;
+  const typeCounts = entityTypes.map(type => {
+    const typeEntities = allEntities.filter(e => e.type === type);
+    return { type, count: typeEntities.length };
+  }).filter(t => t.count >= 2);
+  const totalSteps = typeCounts.length * 2; // fuzzy + cross-script per type
+  let completedSteps = 0;
+
+  // Process each type and insert suggestions incrementally
   for (const type of entityTypes) {
     const typeEntities = allEntities.filter(e => e.type === type) as EntityRow[];
     if (typeEntities.length < 2) continue;
@@ -477,63 +533,35 @@ export async function generateMergeSuggestions(projectId: number): Promise<{
     const fuzzyClusters = clusterEntities(typeEntities, 0.65);
     if (fuzzyClusters.length > 0) {
       const confirmed = await confirmClustersWithLLM(fuzzyClusters, type);
-      allClusters.push(...confirmed);
+      for (const cluster of confirmed) {
+        const inserted = await insertSuggestion(db, projectId, cluster, usedEntityIds);
+        if (inserted) suggestionsCreated++;
+        clustersFound++;
+      }
+    }
+    completedSteps++;
+    if (onProgress) {
+      await onProgress({ phase: `${type} (fuzzy)`, completed: completedSteps, total: totalSteps, suggestionsCreated });
     }
 
     // Cross-script matching
-    const arabicEntities = typeEntities.filter(e => isArabic(e.name));
-    const latinEntities = typeEntities.filter(e => !isArabic(e.name));
-    if (arabicEntities.length > 0 && latinEntities.length > 0) {
-      const crossMatches = await findCrossScriptMatches(arabicEntities, latinEntities, type);
-      allClusters.push(...crossMatches);
+    const arabicEnts = typeEntities.filter(e => isArabic(e.name));
+    const latinEnts = typeEntities.filter(e => !isArabic(e.name));
+    if (arabicEnts.length > 0 && latinEnts.length > 0) {
+      const crossMatches = await findCrossScriptMatches(arabicEnts, latinEnts, type);
+      for (const cluster of crossMatches) {
+        const inserted = await insertSuggestion(db, projectId, cluster, usedEntityIds);
+        if (inserted) suggestionsCreated++;
+        clustersFound++;
+      }
+    }
+    completedSteps++;
+    if (onProgress) {
+      await onProgress({ phase: `${type} (cross-script)`, completed: completedSteps, total: totalSteps, suggestionsCreated });
     }
   }
 
-  // Step 2: Deduplicate clusters (an entity might appear in multiple clusters)
-  const entityToCluster = new Map<number, number>(); // entityId → cluster index
-  const finalClusters: MergeCluster[] = [];
-
-  for (const cluster of allClusters) {
-    // Check if any entity in this cluster is already in another cluster
-    const existingClusterIdx = cluster.entityIds.find((id: number) => entityToCluster.has(id));
-    if (existingClusterIdx !== undefined) {
-      // Merge into existing cluster
-      const targetIdx = entityToCluster.get(existingClusterIdx)!;
-      const target = finalClusters[targetIdx];
-      for (const id of cluster.entityIds) {
-        if (!target.entityIds.includes(id)) {
-          target.entityIds.push(id);
-          const name = cluster.names[cluster.entityIds.indexOf(id)];
-          if (name) target.names.push(name);
-        }
-        entityToCluster.set(id, targetIdx);
-      }
-    } else {
-      const idx = finalClusters.length;
-      finalClusters.push(cluster);
-      for (const id of cluster.entityIds) {
-        entityToCluster.set(id, idx);
-      }
-    }
-  }
-
-  // Step 3: Store as merge_suggestions
-  let suggestionsCreated = 0;
-  for (const cluster of finalClusters) {
-    if (cluster.entityIds.length < 2) continue;
-
-    await db.insert(mergeSuggestions).values({
-      projectId,
-      status: "pending",
-      suggestedCanonical: cluster.suggestedCanonical,
-      confidence: cluster.confidence,
-      entityIds: cluster.entityIds,
-      reasoning: cluster.reasoning,
-    });
-    suggestionsCreated++;
-  }
-
-  return { clustersFound: finalClusters.length, suggestionsCreated };
+  return { clustersFound, suggestionsCreated };
 }
 
 // ─── Merge Execution ─────────────────────────────────────────────────────────

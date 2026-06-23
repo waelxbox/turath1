@@ -1238,7 +1238,7 @@ const mergeRouter = router({
         metadata: {},
       });
 
-      // Fire and forget — process in background
+      // Fire and forget — process in background with progress updates
       (async () => {
         const jobsList = await getJobsByProjectId(input.projectId);
         const job = jobsList.find(j => j.type === "entity_merge" && j.status === "queued");
@@ -1246,7 +1246,19 @@ const mergeRouter = router({
 
         await updateJob(job.id, { status: "running" });
         try {
-          const result = await generateMergeSuggestions(input.projectId);
+          const result = await generateMergeSuggestions(input.projectId, async (progress) => {
+            // Update job progress so the frontend can poll and see real-time updates
+            const pct = Math.round((progress.completed / progress.total) * 100);
+            await updateJob(job.id, {
+              progress: pct,
+              metadata: {
+                phase: progress.phase,
+                completed: progress.completed,
+                total: progress.total,
+                suggestionsCreated: progress.suggestionsCreated,
+              },
+            });
+          });
           await updateJob(job.id, {
             status: "completed",
             progress: 100,

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -51,25 +51,35 @@ export default function EntityMergePage({ projectId }: { projectId: number }) {
 
   const [editingCanonical, setEditingCanonical] = useState<number | null>(null);
   const [editedName, setEditedName] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const prevSuggestionsCount = useRef(0);
 
   const utils = trpc.useUtils();
 
-  const [isGenerating, setIsGenerating] = useState(false);
+  // Fetch merge suggestions — poll every 3s while generating to show new ones as they arrive
+  const { data: suggestions, isLoading } = trpc.merge.list.useQuery(
+    { projectId, status: "pending" },
+    { refetchInterval: isGenerating ? 3000 : false },
+  );
 
-  // Fetch merge suggestions
-  const { data: suggestions, isLoading } = trpc.merge.list.useQuery({
-    projectId,
-    status: "pending",
-  });
-
-  // Fetch stats
-  const { data: stats } = trpc.merge.stats.useQuery({ projectId });
+  // Fetch stats — also poll while generating
+  const { data: stats } = trpc.merge.stats.useQuery(
+    { projectId },
+    { refetchInterval: isGenerating ? 3000 : false },
+  );
 
   // Poll job status while generating
   const { data: jobStatus } = trpc.merge.jobStatus.useQuery(
     { projectId },
-    { refetchInterval: isGenerating ? 3000 : false },
+    { refetchInterval: isGenerating ? 2000 : false },
   );
+
+  // Detect when new suggestions appear during generation
+  useEffect(() => {
+    if (isGenerating && suggestions && suggestions.length > prevSuggestionsCount.current) {
+      prevSuggestionsCount.current = suggestions.length;
+    }
+  }, [suggestions?.length, isGenerating]);
 
   // Watch job status for completion
   useEffect(() => {
@@ -77,20 +87,28 @@ export default function EntityMergePage({ projectId }: { projectId: number }) {
     if (jobStatus.status === "completed") {
       setIsGenerating(false);
       const meta = jobStatus.metadata as any;
-      toast.success(`Found ${meta?.clustersFound || 0} clusters, created ${meta?.suggestionsCreated || 0} suggestions.`);
+      toast.success(`Done! Found ${meta?.suggestionsCreated || 0} potential duplicates to review.`);
       utils.merge.list.invalidate();
       utils.merge.stats.invalidate();
     } else if (jobStatus.status === "failed") {
       setIsGenerating(false);
       toast.error(`Generation failed: ${jobStatus.errorMessage || "Unknown error"}`);
     }
-  }, [jobStatus?.status]);
+  }, [jobStatus?.status, jobStatus?.updatedAt]);
+
+  // Check if there's already a running job on mount
+  useEffect(() => {
+    if (jobStatus && (jobStatus.status === "running" || jobStatus.status === "queued")) {
+      setIsGenerating(true);
+    }
+  }, [jobStatus?.id]);
 
   // Generate mutation
   const generateMutation = trpc.merge.generate.useMutation({
     onSuccess: () => {
       setIsGenerating(true);
-      toast.info("Analyzing entities for duplicates... This may take a minute.");
+      prevSuggestionsCount.current = suggestions?.length || 0;
+      toast.info("Analyzing entities for duplicates...");
     },
     onError: (err) => {
       toast.error(`Generation failed: ${err.message}`);
@@ -113,7 +131,7 @@ export default function EntityMergePage({ projectId }: { projectId: number }) {
   // Reject mutation
   const rejectMutation = trpc.merge.reject.useMutation({
     onSuccess: () => {
-      toast.success("Suggestion rejected");
+      toast.success("Marked as different entities");
       utils.merge.list.invalidate();
       utils.merge.stats.invalidate();
     },
@@ -143,7 +161,13 @@ export default function EntityMergePage({ projectId }: { projectId: number }) {
 
   const totalReviewed = (stats?.accepted || 0) + (stats?.rejected || 0);
   const totalAll = (stats?.total || 0);
-  const progress = totalAll > 0 ? (totalReviewed / totalAll) * 100 : 0;
+  const reviewProgress = totalAll > 0 ? (totalReviewed / totalAll) * 100 : 0;
+
+  // Job progress info
+  const jobMeta = jobStatus?.metadata as any;
+  const jobProgress = jobStatus?.progress || 0;
+  const jobPhase = jobMeta?.phase || "";
+  const jobSuggestionsFound = jobMeta?.suggestionsCreated || 0;
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -184,8 +208,31 @@ export default function EntityMergePage({ projectId }: { projectId: number }) {
           </Button>
         </div>
 
-        {/* Progress bar */}
-        {stats && totalAll > 0 && (
+        {/* Generation progress banner */}
+        {isGenerating && (
+          <div className="mt-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-sm text-amber-300">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>
+                  {jobPhase
+                    ? `Analyzing ${jobPhase}...`
+                    : "Starting analysis..."}
+                </span>
+              </div>
+              <span className="text-xs text-amber-400/70">
+                {jobSuggestionsFound > 0 && `${jobSuggestionsFound} duplicates found so far`}
+              </span>
+            </div>
+            <Progress value={jobProgress} className="h-1.5" />
+            <p className="text-xs text-muted-foreground mt-1.5">
+              Suggestions appear below as they're found. You can start reviewing while analysis continues.
+            </p>
+          </div>
+        )}
+
+        {/* Review progress bar */}
+        {!isGenerating && stats && totalAll > 0 && (
           <div className="mt-4 space-y-2">
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <span>{totalReviewed} of {totalAll} reviewed</span>
@@ -204,7 +251,7 @@ export default function EntityMergePage({ projectId }: { projectId: number }) {
                 </span>
               </span>
             </div>
-            <Progress value={progress} className="h-1.5" />
+            <Progress value={reviewProgress} className="h-1.5" />
           </div>
         )}
       </div>
