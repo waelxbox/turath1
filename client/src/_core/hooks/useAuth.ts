@@ -67,12 +67,23 @@ export function useAuth(options?: UseAuthOptions) {
     if (typeof window === "undefined") return;
     if (window.location.pathname === redirectPath) return;
 
-    window.location.href = redirectPath
+    // Only redirect if auth.me returned UNAUTHORIZED (not logged in)
+    // Don't redirect on transient errors (DB pool timeout, network issues)
+    const isAuthError = meQuery.error instanceof TRPCClientError &&
+      meQuery.error.data?.code === "UNAUTHORIZED";
+    
+    // If there's an error but it's NOT an auth error, it's transient — don't redirect
+    if (meQuery.error && !isAuthError) return;
+    
+    // If no error and no user and not loading, the query returned null (genuinely not logged in)
+    // OR if it's specifically an UNAUTHORIZED error — redirect
+    window.location.href = redirectPath;
   }, [
     redirectOnUnauthenticated,
     redirectPath,
     logoutMutation.isPending,
     meQuery.isLoading,
+    meQuery.error,
     state.user,
   ]);
 

@@ -1183,38 +1183,49 @@ const mergeRouter = router({
 
       const suggestions = await query;
 
-      // Enrich each suggestion with entity details and document mentions
-      const enriched = await Promise.all(
-        suggestions.map(async (s) => {
-          const entityIds = s.entityIds as number[];
-          const entityDetails = await dbConn
-            .select({
-              id: entitiesTable.id,
-              name: entitiesTable.name,
-              type: entitiesTable.type,
-            })
-            .from(entitiesTable)
-            .where(sql`${entitiesTable.id} IN (${sql.raw(entityIds.join(","))})`);
+      if (suggestions.length === 0) return [];
 
-          // Get document mentions for each entity
-          const mentions = await dbConn
-            .select({
-              entityId: docEntTable.entityId,
-              documentId: docEntTable.documentId,
-              contextSnippet: docEntTable.contextSnippet,
-              documentFilename: documents.filename,
-            })
-            .from(docEntTable)
-            .innerJoin(documents, eq(documents.id, docEntTable.documentId))
-            .where(sql`${docEntTable.entityId} IN (${sql.raw(entityIds.join(","))})`);
+      // Collect all entity IDs across all suggestions in one pass
+      const allEntityIds = Array.from(new Set(suggestions.flatMap((s) => s.entityIds as number[])));
+      if (allEntityIds.length === 0) return suggestions.map(s => ({ ...s, entities: [], mentions: [] }));
 
-          return {
-            ...s,
-            entities: entityDetails,
-            mentions,
-          };
-        }),
-      );
+      // Single batch query for all entity details
+      const allEntities = await dbConn
+        .select({
+          id: entitiesTable.id,
+          name: entitiesTable.name,
+          type: entitiesTable.type,
+        })
+        .from(entitiesTable)
+        .where(sql`${entitiesTable.id} IN (${sql.raw(allEntityIds.join(","))})`);
+
+      // Single batch query for all document mentions
+      const allMentions = await dbConn
+        .select({
+          entityId: docEntTable.entityId,
+          documentId: docEntTable.documentId,
+          contextSnippet: docEntTable.contextSnippet,
+          documentFilename: documents.filename,
+        })
+        .from(docEntTable)
+        .innerJoin(documents, eq(documents.id, docEntTable.documentId))
+        .where(sql`${docEntTable.entityId} IN (${sql.raw(allEntityIds.join(","))})`);
+
+      // Index by entity ID for fast lookup
+      const entityMap = new Map(allEntities.map(e => [e.id, e]));
+      const mentionsByEntity = new Map<number, typeof allMentions>();
+      for (const m of allMentions) {
+        if (!mentionsByEntity.has(m.entityId)) mentionsByEntity.set(m.entityId, []);
+        mentionsByEntity.get(m.entityId)!.push(m);
+      }
+
+      // Assemble enriched results in memory (no more DB calls)
+      const enriched = suggestions.map((s) => {
+        const entityIds = s.entityIds as number[];
+        const entities = entityIds.map(id => entityMap.get(id)).filter(Boolean);
+        const mentions = entityIds.flatMap(id => mentionsByEntity.get(id) || []);
+        return { ...s, entities, mentions };
+      });
 
       return enriched;
     }),
