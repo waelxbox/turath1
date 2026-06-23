@@ -221,11 +221,13 @@ export const entities = pgTable("entities", {
   name: varchar("name", { length: 512 }).notNull(),
   type: entityTypeEnum("type").notNull(),
   normalizedName: varchar("normalizedName", { length: 512 }),  // lowercased / stripped for dedup
+  canonicalId: integer("canonicalId"),  // self-ref FK: points to the master/canonical entity (null = is canonical)
   metadata: jsonb("metadata"),  // optional extra info (e.g., alternate spellings, notes)
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (t) => [
   index("entities_projectId_idx").on(t.projectId),
   index("entities_name_type_idx").on(t.projectId, t.normalizedName, t.type),
+  index("entities_canonicalId_idx").on(t.canonicalId),
 ]);
 
 export type Entity = typeof entities.$inferSelect;
@@ -289,3 +291,44 @@ export const projectInvites = pgTable("project_invites", {
 
 export type ProjectInvite = typeof projectInvites.$inferSelect;
 export type InsertProjectInvite = typeof projectInvites.$inferInsert;
+
+// ─── Entity Aliases ──────────────────────────────────────────────────────────
+// Stores alternate surface forms for a canonical entity (for search matching).
+
+export const entityAliases = pgTable("entity_aliases", {
+  id: serial("id").primaryKey(),
+  entityId: integer("entityId").notNull().references(() => entities.id, { onDelete: "cascade" }),
+  alias: varchar("alias", { length: 512 }).notNull(),
+  normalizedAlias: varchar("normalizedAlias", { length: 512 }),
+  language: varchar("language", { length: 32 }),  // e.g., "ar", "fr", "en"
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("ea_entityId_idx").on(t.entityId),
+  index("ea_normalizedAlias_idx").on(t.normalizedAlias),
+]);
+
+export type EntityAlias = typeof entityAliases.$inferSelect;
+export type InsertEntityAlias = typeof entityAliases.$inferInsert;
+
+// ─── Merge Suggestions ───────────────────────────────────────────────────────
+// LLM-generated proposals for merging duplicate entities. Reviewed by humans.
+
+export const mergeSuggestionStatusEnum = pgEnum("merge_suggestion_status", ["pending", "accepted", "rejected", "skipped"]);
+
+export const mergeSuggestions = pgTable("merge_suggestions", {
+  id: serial("id").primaryKey(),
+  projectId: integer("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  status: mergeSuggestionStatusEnum("status").default("pending").notNull(),
+  suggestedCanonical: varchar("suggestedCanonical", { length: 512 }).notNull(),
+  confidence: varchar("confidence", { length: 16 }).notNull(),  // "high", "medium", "low"
+  entityIds: jsonb("entityIds").notNull(),  // number[] — IDs of entities in this cluster
+  reasoning: text("reasoning"),  // LLM's explanation for why these are the same
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  reviewedAt: timestamp("reviewedAt"),
+}, (t) => [
+  index("ms_projectId_idx").on(t.projectId),
+  index("ms_status_idx").on(t.status),
+]);
+
+export type MergeSuggestion = typeof mergeSuggestions.$inferSelect;
+export type InsertMergeSuggestion = typeof mergeSuggestions.$inferInsert;

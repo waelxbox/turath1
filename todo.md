@@ -277,3 +277,17 @@
 
 ## Bug Fixes (Round 23) — Semantic Search Broken
 - [x] Fix semantic search query failure — root cause: content_tsv column stored as text type but ts_rank() requires tsvector; fixed by adding ::tsvector cast in the hybrid search SQL
+
+## Features (Round 24) — Entity Merge Review System
+- [x] Add entity_aliases table (id, entityId, alias, normalizedAlias, language, createdAt)
+- [x] Add canonical_id column to entities table (self-referencing FK, nullable — points to master entity)
+- [x] Add merge_suggestions table (id, projectId, status: pending/accepted/rejected/skipped, suggestedCanonical, confidence, entityIds JSON array, createdAt, reviewedAt)
+- [x] Backend: fuzzy clustering algorithm (Levenshtein + phonetic + cross-script grouping)
+- [x] Backend: LLM-powered merge candidate generation (batch job that proposes clusters with canonical names)
+- [x] Backend: tRPC endpoints — merge.list, merge.generate, merge.accept, merge.reject, merge.skip, merge.stats
+- [x] Backend: merge execution logic (reassign document_entities links, create aliases, set canonical_id)
+- [x] Backend: update NER extraction to check existing canonicals + aliases + merged entities before creating new entities
+- [x] Frontend: Entity Merge Review page with cluster cards showing entities, document mentions, context snippets
+- [x] Frontend: merge/split/skip actions with editable canonical name
+- [x] Frontend: document mentions with filename + context snippet shown in merge cards
+- [x] Wire merge review page into project navigation (Merge button in Entity Directory header + /entities/merge route)

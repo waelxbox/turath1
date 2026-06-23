@@ -13,6 +13,7 @@ import SemanticChatPage from "./project/SemanticChatPage";
 import SemanticSearchPage from "./project/SemanticSearchPage";
 import KnowledgeGraphPage from "./project/KnowledgeGraphPage";
 import EntityDirectoryPage from "./project/EntityDirectoryPage";
+import EntityMergePage from "./project/EntityMergePage";
 import { toast } from "sonner";
 
 type NavItem = {
@@ -258,6 +259,9 @@ function WorkspaceInner({
               {/* entities — combined graph + directory */}
               <Route path="/entities">
                 <EntityDirectoryPage projectId={projectId} />
+              </Route>
+              <Route path="/entities/merge">
+                <EntityMergePage projectId={projectId} />
               </Route>
               <Route path="/graph">
                 <KnowledgeGraphPage projectId={projectId} />

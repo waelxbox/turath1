@@ -45,6 +45,7 @@ import { storagePut } from "./storage";
 import { TRPCError } from "@trpc/server";
 import { embedTranscription, semanticSearch } from "./embeddingService";
 import { extractAndStoreEntities } from "./nerService";
+import { generateMergeSuggestions, executeMerge, rejectMerge, skipMerge } from "./entityMergeService";
 import { invokeLLM } from "./_core/llm";
 import { seedDemoProject } from "./demoSeed";
 
@@ -1149,6 +1150,154 @@ const membersRouter = router({
     }),
 });
 
+// ─── Entity Merge Router ─────────────────────────────────────────────────────
+
+const mergeRouter = router({
+  /** List merge suggestions for a project */
+  list: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      status: z.enum(["pending", "accepted", "rejected", "skipped"]).optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role) throw new TRPCError({ code: "FORBIDDEN" });
+
+      const db = (await import("./db")).getDb();
+      const { mergeSuggestions, entities: entitiesTable, documentEntities: docEntTable, documents } = await import("../drizzle/schema");
+      const { eq, and, sql } = await import("drizzle-orm");
+      const dbConn = (await db)!;
+
+      let query = dbConn
+        .select()
+        .from(mergeSuggestions)
+        .where(
+          input.status
+            ? and(
+                eq(mergeSuggestions.projectId, input.projectId),
+                eq(mergeSuggestions.status, input.status),
+              )
+            : eq(mergeSuggestions.projectId, input.projectId),
+        )
+        .orderBy(mergeSuggestions.createdAt);
+
+      const suggestions = await query;
+
+      // Enrich each suggestion with entity details and document mentions
+      const enriched = await Promise.all(
+        suggestions.map(async (s) => {
+          const entityIds = s.entityIds as number[];
+          const entityDetails = await dbConn
+            .select({
+              id: entitiesTable.id,
+              name: entitiesTable.name,
+              type: entitiesTable.type,
+            })
+            .from(entitiesTable)
+            .where(sql`${entitiesTable.id} IN (${sql.raw(entityIds.join(","))})`);
+
+          // Get document mentions for each entity
+          const mentions = await dbConn
+            .select({
+              entityId: docEntTable.entityId,
+              documentId: docEntTable.documentId,
+              contextSnippet: docEntTable.contextSnippet,
+              documentFilename: documents.filename,
+            })
+            .from(docEntTable)
+            .innerJoin(documents, eq(documents.id, docEntTable.documentId))
+            .where(sql`${docEntTable.entityId} IN (${sql.raw(entityIds.join(","))})`);
+
+          return {
+            ...s,
+            entities: entityDetails,
+            mentions,
+          };
+        }),
+      );
+
+      return enriched;
+    }),
+
+  /** Generate merge suggestions (LLM-powered clustering) */
+  generate: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role || role === "viewer") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only owners and editors can generate merge suggestions" });
+      }
+      return generateMergeSuggestions(input.projectId);
+    }),
+
+  /** Accept a merge suggestion — merge entities into one canonical */
+  accept: protectedProcedure
+    .input(z.object({
+      suggestionId: z.number(),
+      canonicalName: z.string().min(1),
+      entityIds: z.array(z.number()).min(2),
+      projectId: z.number(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role || role === "viewer") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only owners and editors can merge entities" });
+      }
+      await executeMerge(input.suggestionId, input.canonicalName, input.entityIds);
+      return { success: true };
+    }),
+
+  /** Reject a merge suggestion — mark as definitely different */
+  reject: protectedProcedure
+    .input(z.object({ suggestionId: z.number(), projectId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role || role === "viewer") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      await rejectMerge(input.suggestionId);
+      return { success: true };
+    }),
+
+  /** Skip a merge suggestion — come back later */
+  skip: protectedProcedure
+    .input(z.object({ suggestionId: z.number(), projectId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role || role === "viewer") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      await skipMerge(input.suggestionId);
+      return { success: true };
+    }),
+
+  /** Get stats about merge progress */
+  stats: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role) throw new TRPCError({ code: "FORBIDDEN" });
+
+      const db = (await import("./db")).getDb();
+      const { mergeSuggestions } = await import("../drizzle/schema");
+      const { eq, and, sql } = await import("drizzle-orm");
+      const dbConn = (await db)!;
+
+      const [stats] = await dbConn
+        .select({
+          total: sql<number>`count(*)`,
+          pending: sql<number>`count(*) filter (where ${mergeSuggestions.status} = 'pending')`,
+          accepted: sql<number>`count(*) filter (where ${mergeSuggestions.status} = 'accepted')`,
+          rejected: sql<number>`count(*) filter (where ${mergeSuggestions.status} = 'rejected')`,
+          skipped: sql<number>`count(*) filter (where ${mergeSuggestions.status} = 'skipped')`,
+        })
+        .from(mergeSuggestions)
+        .where(eq(mergeSuggestions.projectId, input.projectId));
+
+      return stats;
+    }),
+});
+
 // ─── App Router ───────────────────────────────────────────────────────────────
 
 export const appRouter = router({
@@ -1163,6 +1312,7 @@ export const appRouter = router({
   rag: ragRouter,
   entities: entitiesRouter,
   members: membersRouter,
+  merge: mergeRouter,
 });
 
 export type AppRouter = typeof appRouter;

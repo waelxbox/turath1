@@ -15,6 +15,13 @@
       "when": 1781527582083,
       "tag": "0001_overconfident_clea",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782205370003,
+      "tag": "0002_misty_argent",
+      "breakpoints": true
     }
   ]
 }

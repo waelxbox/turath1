@@ -8,8 +8,8 @@
 
 import { invokeLLM } from "./_core/llm";
 import { getDb } from "./db";
-import { entities, documentEntities } from "../drizzle/schema";
-import { eq, and } from "drizzle-orm";
+import { entities, documentEntities, entityAliases } from "../drizzle/schema";
+import { eq, and, sql } from "drizzle-orm";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -106,7 +106,7 @@ Rules:
   }
 }
 
-// ─── Upsert entity (dedup by project + normalizedName + type) ───────────────
+// ─── Upsert entity (dedup by project + normalizedName + type + alias matching) ─
 
 async function upsertEntity(
   projectId: number,
@@ -116,7 +116,7 @@ async function upsertEntity(
   const db = (await getDb())!;
   const normalized = normalizeEntityName(name);
 
-  // Check if entity already exists for this project
+  // 1. Check exact normalizedName match (existing behavior)
   const existing = await db
     .select({ id: entities.id })
     .from(entities)
@@ -125,6 +125,7 @@ async function upsertEntity(
         eq(entities.projectId, projectId),
         eq(entities.normalizedName, normalized),
         eq(entities.type, type),
+        sql`${entities.canonicalId} IS NULL`,  // only match canonical entities
       ),
     )
     .limit(1);
@@ -133,7 +134,44 @@ async function upsertEntity(
     return existing[0].id;
   }
 
-  // Insert new entity
+  // 2. Check if this matches any existing alias
+  const aliasMatch = await db
+    .select({ entityId: entityAliases.entityId })
+    .from(entityAliases)
+    .innerJoin(entities, eq(entities.id, entityAliases.entityId))
+    .where(
+      and(
+        eq(entities.projectId, projectId),
+        eq(entities.type, type),
+        eq(entityAliases.normalizedAlias, normalized),
+      ),
+    )
+    .limit(1);
+
+  if (aliasMatch.length > 0) {
+    return aliasMatch[0].entityId;
+  }
+
+  // 3. Check merged entities (those with canonicalId set) — if the new name matches
+  //    a merged entity's normalizedName, redirect to its canonical
+  const mergedMatch = await db
+    .select({ canonicalId: entities.canonicalId })
+    .from(entities)
+    .where(
+      and(
+        eq(entities.projectId, projectId),
+        eq(entities.normalizedName, normalized),
+        eq(entities.type, type),
+        sql`${entities.canonicalId} IS NOT NULL`,
+      ),
+    )
+    .limit(1);
+
+  if (mergedMatch.length > 0 && mergedMatch[0].canonicalId) {
+    return mergedMatch[0].canonicalId;
+  }
+
+  // 4. No match found — insert new entity
   const [inserted] = await db
     .insert(entities)
     .values({

@@ -18,6 +18,7 @@ import {
   Link2,
   Network,
   List,
+  Merge,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -112,15 +113,26 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
               <BookOpenText className="h-5 w-5 text-amber-400" />
               <h2 className="text-base font-semibold">Entities</h2>
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-xs text-muted-foreground hover:text-foreground gap-1.5 h-7"
-              onClick={() => navigate("/graph")}
-            >
-              <Network className="w-3.5 h-3.5" />
-              Graph view
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-muted-foreground hover:text-foreground gap-1.5 h-7"
+                onClick={() => navigate("/entities/merge")}
+              >
+                <Merge className="w-3.5 h-3.5" />
+                Merge
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-muted-foreground hover:text-foreground gap-1.5 h-7"
+                onClick={() => navigate("/graph")}
+              >
+                <Network className="w-3.5 h-3.5" />
+                Graph
+              </Button>
+            </div>
           </div>
 
           {/* Search */}
