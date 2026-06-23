@@ -1219,7 +1219,7 @@ const mergeRouter = router({
       return enriched;
     }),
 
-  /** Generate merge suggestions (LLM-powered clustering) */
+  /** Generate merge suggestions (LLM-powered clustering) — runs as background job */
   generate: protectedProcedure
     .input(z.object({ projectId: z.number() }))
     .mutation(async ({ ctx, input }) => {
@@ -1227,7 +1227,53 @@ const mergeRouter = router({
       if (!role || role === "viewer") {
         throw new TRPCError({ code: "FORBIDDEN", message: "Only owners and editors can generate merge suggestions" });
       }
-      return generateMergeSuggestions(input.projectId);
+
+      // Create a job record and process in background
+      await createJob({
+        projectId: input.projectId,
+        type: "entity_merge",
+        status: "queued",
+        totalItems: 1,
+        completedItems: 0,
+        metadata: {},
+      });
+
+      // Fire and forget — process in background
+      (async () => {
+        const jobsList = await getJobsByProjectId(input.projectId);
+        const job = jobsList.find(j => j.type === "entity_merge" && j.status === "queued");
+        if (!job) return;
+
+        await updateJob(job.id, { status: "running" });
+        try {
+          const result = await generateMergeSuggestions(input.projectId);
+          await updateJob(job.id, {
+            status: "completed",
+            progress: 100,
+            completedItems: 1,
+            metadata: { clustersFound: result.clustersFound, suggestionsCreated: result.suggestionsCreated },
+          });
+        } catch (err) {
+          await updateJob(job.id, {
+            status: "failed",
+            errorMessage: String(err),
+          });
+        }
+      })().catch(console.error);
+
+      return { started: true, message: "Analyzing entities for duplicates..." };
+    }),
+
+  /** Get the status of the merge generation job */
+  jobStatus: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role) throw new TRPCError({ code: "FORBIDDEN" });
+
+      const jobsList = await getJobsByProjectId(input.projectId);
+      const mergeJob = jobsList.find(j => j.type === "entity_merge");
+      return mergeJob || null;
     }),
 
   /** Accept a merge suggestion — merge entities into one canonical */

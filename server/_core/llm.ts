@@ -328,5 +328,14 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     );
   }
 
+  // Validate content type before parsing to avoid "Unexpected token '<'" errors
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    const body = await response.text();
+    throw new Error(
+      `LLM invoke returned non-JSON response (content-type: ${contentType}). Body starts with: ${body.slice(0, 200)}`
+    );
+  }
+
   return (await response.json()) as InvokeResult;
 }

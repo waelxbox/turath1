@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -54,6 +54,8 @@ export default function EntityMergePage({ projectId }: { projectId: number }) {
 
   const utils = trpc.useUtils();
 
+  const [isGenerating, setIsGenerating] = useState(false);
+
   // Fetch merge suggestions
   const { data: suggestions, isLoading } = trpc.merge.list.useQuery({
     projectId,
@@ -63,12 +65,32 @@ export default function EntityMergePage({ projectId }: { projectId: number }) {
   // Fetch stats
   const { data: stats } = trpc.merge.stats.useQuery({ projectId });
 
-  // Generate mutation
-  const generateMutation = trpc.merge.generate.useMutation({
-    onSuccess: (data) => {
-      toast.success(`Found ${data.clustersFound} clusters, created ${data.suggestionsCreated} suggestions.`);
+  // Poll job status while generating
+  const { data: jobStatus } = trpc.merge.jobStatus.useQuery(
+    { projectId },
+    { refetchInterval: isGenerating ? 3000 : false },
+  );
+
+  // Watch job status for completion
+  useEffect(() => {
+    if (!jobStatus || !isGenerating) return;
+    if (jobStatus.status === "completed") {
+      setIsGenerating(false);
+      const meta = jobStatus.metadata as any;
+      toast.success(`Found ${meta?.clustersFound || 0} clusters, created ${meta?.suggestionsCreated || 0} suggestions.`);
       utils.merge.list.invalidate();
       utils.merge.stats.invalidate();
+    } else if (jobStatus.status === "failed") {
+      setIsGenerating(false);
+      toast.error(`Generation failed: ${jobStatus.errorMessage || "Unknown error"}`);
+    }
+  }, [jobStatus?.status]);
+
+  // Generate mutation
+  const generateMutation = trpc.merge.generate.useMutation({
+    onSuccess: () => {
+      setIsGenerating(true);
+      toast.info("Analyzing entities for duplicates... This may take a minute.");
     },
     onError: (err) => {
       toast.error(`Generation failed: ${err.message}`);
@@ -150,15 +172,15 @@ export default function EntityMergePage({ projectId }: { projectId: number }) {
 
           <Button
             onClick={() => generateMutation.mutate({ projectId })}
-            disabled={generateMutation.isPending}
+            disabled={generateMutation.isPending || isGenerating}
             className="gap-2"
           >
-            {generateMutation.isPending ? (
+            {(generateMutation.isPending || isGenerating) ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Sparkles className="h-4 w-4" />
             )}
-            {generateMutation.isPending ? "Analyzing..." : "Find Duplicates"}
+            {isGenerating ? "Analyzing..." : "Find Duplicates"}
           </Button>
         </div>
 

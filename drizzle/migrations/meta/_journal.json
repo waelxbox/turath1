@@ -22,6 +22,13 @@
       "when": 1782205370003,
       "tag": "0002_misty_argent",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1782206596640,
+      "tag": "0003_watery_rawhide_kid",
+      "breakpoints": true
     }
   ]
 }

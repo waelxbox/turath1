@@ -42,7 +42,7 @@ export const pipelineTypeEnum = pgEnum("pipeline_type", ["single_pass", "two_pas
 export const documentStatusEnum = pgEnum("document_status", [
   "pending", "processing", "needs_review", "reviewed", "flagged", "error",
 ]);
-export const jobTypeEnum = pgEnum("job_type", ["transcribe", "batch_transcribe", "validate_config"]);
+export const jobTypeEnum = pgEnum("job_type", ["transcribe", "batch_transcribe", "validate_config", "entity_merge"]);
 export const jobStatusEnum = pgEnum("job_status", ["queued", "running", "completed", "failed"]);
 
 // ─── Users ────────────────────────────────────────────────────────────────────

@@ -204,8 +204,8 @@ async function confirmClustersWithLLM(
 ): Promise<MergeCluster[]> {
   if (clusters.length === 0) return [];
 
-  // Process in batches of up to 10 clusters per LLM call
-  const batchSize = 10;
+  // Process in batches of up to 5 clusters per LLM call (smaller to avoid timeouts)
+  const batchSize = 5;
   const results: MergeCluster[] = [];
 
   for (let i = 0; i < clusters.length; i += batchSize) {
@@ -215,6 +215,8 @@ async function confirmClustersWithLLM(
       return `Cluster ${idx + 1}: [${names}]`;
     }).join("\n");
 
+    // Retry up to 2 times on failure
+    for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const response = await invokeLLM({
         messages: [
@@ -298,7 +300,14 @@ Rules:
         });
       }
     } catch (err) {
-      console.error("[EntityMerge] LLM cluster confirmation failed:", err);
+      console.error(`[EntityMerge] LLM cluster confirmation failed (attempt ${attempt + 1}):`, err);
+      if (attempt < 1) {
+        // Wait 2 seconds before retry
+        await new Promise(r => setTimeout(r, 2000));
+        continue;
+      }
+    }
+    break; // Success, exit retry loop
     }
   }
 
@@ -315,9 +324,9 @@ async function findCrossScriptMatches(
 ): Promise<MergeCluster[]> {
   if (arabicEntities.length === 0 || latinEntities.length === 0) return [];
 
-  // Limit to avoid huge prompts — take up to 50 of each
-  const arabicSlice = arabicEntities.slice(0, 50);
-  const latinSlice = latinEntities.slice(0, 50);
+  // Limit to avoid huge prompts — take up to 30 of each to prevent timeouts
+  const arabicSlice = arabicEntities.slice(0, 30);
+  const latinSlice = latinEntities.slice(0, 30);
 
   const arabicList = arabicSlice.map(e => `[id:${e.id}] "${e.name}"`).join("\n");
   const latinList = latinSlice.map(e => `[id:${e.id}] "${e.name}"`).join("\n");
