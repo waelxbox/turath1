@@ -1,4 +1,4 @@
-import { and, eq, desc, sql, count, or, inArray } from "drizzle-orm";
+import { and, eq, desc, sql, count, or, inArray, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
@@ -482,10 +482,12 @@ export async function getReviewedDocsWithoutEmbeddings(projectId: number) {
 export async function getEntitiesByProject(
   projectId: number,
   type?: "person" | "location" | "organization",
+  includeMerged = false,
 ) {
   const db = (await getDb())!;
   const conditions = [eq(entities.projectId, projectId)];
   if (type) conditions.push(eq(entities.type, type));
+  if (!includeMerged) conditions.push(isNull(entities.canonicalId));
 
   return db
     .select()
@@ -510,7 +512,7 @@ export async function getEntitiesByDocument(documentId: number) {
     .orderBy(entities.type, entities.name);
 }
 
-/** Get entity counts by type for a project */
+/** Get entity counts by type for a project (excludes merged entities) */
 export async function getEntityStats(projectId: number) {
   const db = (await getDb())!;
   const results = await db
@@ -519,7 +521,7 @@ export async function getEntityStats(projectId: number) {
       count: count(entities.id),
     })
     .from(entities)
-    .where(eq(entities.projectId, projectId))
+    .where(and(eq(entities.projectId, projectId), isNull(entities.canonicalId)))
     .groupBy(entities.type);
 
   return {
@@ -534,7 +536,7 @@ export async function getEntityStats(projectId: number) {
 export async function getGraphData(projectId: number) {
   const db = (await getDb())!;
 
-  // Get all entities for this project
+  // Get all entities for this project (exclude merged/secondary entities)
   const allEntities = await db
     .select({
       id: entities.id,
@@ -542,7 +544,7 @@ export async function getGraphData(projectId: number) {
       type: entities.type,
     })
     .from(entities)
-    .where(eq(entities.projectId, projectId));
+    .where(and(eq(entities.projectId, projectId), isNull(entities.canonicalId)));
 
   // Get all document-entity links for this project
   const links = await db
@@ -646,6 +648,7 @@ export async function getEntityDetails(projectId: number, entityId: number) {
           eq(documentEntities.projectId, projectId),
           inArray(documentEntities.documentId, docIds),
           sql`${documentEntities.entityId} != ${entityId}`,
+          isNull(entities.canonicalId),
         ),
       )
       .groupBy(entities.id, entities.name, entities.type)

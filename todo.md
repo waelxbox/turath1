@@ -291,3 +291,6 @@
 - [x] Frontend: merge/split/skip actions with editable canonical name
 - [x] Frontend: document mentions with filename + context snippet shown in merge cards
 - [x] Wire merge review page into project navigation (Merge button in Entity Directory header + /entities/merge route)
+
+## Bug Fixes (Round 25) — Entity Merge Cleanup
+- [x] Filter out merged entities (canonical_id IS NOT NULL) from entity directory list and knowledge graph
