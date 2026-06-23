@@ -31,9 +31,11 @@ export async function getDb() {
     try {
       const isPgBouncer = url.includes("pgbouncer=true");
       _client = postgres(url, {
-        max: isPgBouncer ? 10 : 5,
+        max: isPgBouncer ? 5 : 3,
         prepare: !isPgBouncer,
-        connect_timeout: 15,
+        connect_timeout: 10,
+        idle_timeout: 20,
+        max_lifetime: 60 * 5,
       });
       _db = drizzle(_client);
     } catch (error) {

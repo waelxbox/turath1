@@ -31,12 +31,33 @@ export async function createContext(
     if (sessionCookie) {
       const session = await verifySessionToken(sessionCookie);
       if (session) {
-        const dbUser = await db.getUserByOpenId(session.openId);
-        user = dbUser ?? null;
+        // Try to get user from DB with a short timeout
+        // If DB is overloaded, we retry once before giving up
+        let dbUser: User | null = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const result = await db.getUserByOpenId(session.openId);
+            dbUser = result ?? null;
+            break;
+          } catch (dbErr: any) {
+            const isPoolExhausted = dbErr?.message?.includes("ECHECKOUTTIMEOUT") ||
+              dbErr?.message?.includes("pool") ||
+              dbErr?.message?.includes("timeout");
+            if (isPoolExhausted && attempt === 0) {
+              // Wait briefly and retry once
+              await new Promise(r => setTimeout(r, 500));
+              continue;
+            }
+            // On second failure or non-pool error, log but don't crash
+            console.warn("[Context] DB lookup failed:", dbErr?.message?.slice(0, 100));
+            break;
+          }
+        }
+        user = dbUser;
       }
     }
   } catch {
-    // Authentication is optional for public procedures.
+    // JWT verification failed or no cookie — genuinely not authenticated
     user = null;
   }
 
