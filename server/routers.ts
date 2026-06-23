@@ -1228,6 +1228,20 @@ const mergeRouter = router({
         throw new TRPCError({ code: "FORBIDDEN", message: "Only owners and editors can generate merge suggestions" });
       }
 
+      // Mark any stale running/queued jobs as failed (older than 10 minutes)
+      const jobsList = await getJobsByProjectId(input.projectId);
+      for (const j of jobsList) {
+        if (j.type === "entity_merge" && (j.status === "running" || j.status === "queued")) {
+          const age = Date.now() - new Date(j.createdAt).getTime();
+          if (age > 10 * 60 * 1000) {
+            await updateJob(j.id, { status: "failed", errorMessage: "Timed out" });
+          } else {
+            // A recent job is still running — don't start another
+            return { started: false, message: "Analysis already in progress..." };
+          }
+        }
+      }
+
       // Create a job record and process in background
       await createJob({
         projectId: input.projectId,

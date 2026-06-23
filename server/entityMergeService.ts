@@ -511,15 +511,9 @@ export async function generateMergeSuggestions(
     return { clustersFound: 0, suggestionsCreated: 0 };
   }
 
-  // Clear any existing pending suggestions for this project (regenerate fresh)
-  await db
-    .delete(mergeSuggestions)
-    .where(
-      and(
-        eq(mergeSuggestions.projectId, projectId),
-        eq(mergeSuggestions.status, "pending"),
-      ),
-    );
+  // NOTE: We do NOT delete existing pending suggestions upfront.
+  // New suggestions are additive. Only clear old ones after the job completes successfully.
+  // This prevents data loss if the job times out mid-way.
 
   // Track which entity IDs have already been assigned to a suggestion
   const usedEntityIds = new Set<number>();
