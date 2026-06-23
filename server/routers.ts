@@ -45,7 +45,7 @@ import { storagePut } from "./storage";
 import { TRPCError } from "@trpc/server";
 import { embedTranscription, semanticSearch } from "./embeddingService";
 import { extractAndStoreEntities } from "./nerService";
-import { generateMergeSuggestions, executeMerge, rejectMerge, skipMerge } from "./entityMergeService";
+import { generateMergeSuggestions, executeMerge, rejectMerge, skipMerge, processMergeStep } from "./entityMergeService";
 import { invokeLLM } from "./_core/llm";
 import { seedDemoProject } from "./demoSeed";
 
@@ -1219,87 +1219,19 @@ const mergeRouter = router({
       return enriched;
     }),
 
-  /** Generate merge suggestions (LLM-powered clustering) — runs as background job */
-  generate: protectedProcedure
-    .input(z.object({ projectId: z.number() }))
+  /** Process a single step of merge analysis — called sequentially by the frontend */
+  processStep: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      step: z.enum(["person_fuzzy", "person_cross", "location_fuzzy", "location_cross", "organization_fuzzy", "organization_cross"]),
+    }))
     .mutation(async ({ ctx, input }) => {
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (!role || role === "viewer") {
         throw new TRPCError({ code: "FORBIDDEN", message: "Only owners and editors can generate merge suggestions" });
       }
-
-      // Mark any stale running/queued jobs as failed (older than 10 minutes)
-      const jobsList = await getJobsByProjectId(input.projectId);
-      for (const j of jobsList) {
-        if (j.type === "entity_merge" && (j.status === "running" || j.status === "queued")) {
-          const age = Date.now() - new Date(j.createdAt).getTime();
-          if (age > 10 * 60 * 1000) {
-            await updateJob(j.id, { status: "failed", errorMessage: "Timed out" });
-          } else {
-            // A recent job is still running — don't start another
-            return { started: false, message: "Analysis already in progress..." };
-          }
-        }
-      }
-
-      // Create a job record and process in background
-      await createJob({
-        projectId: input.projectId,
-        type: "entity_merge",
-        status: "queued",
-        totalItems: 1,
-        completedItems: 0,
-        metadata: {},
-      });
-
-      // Fire and forget — process in background with progress updates
-      (async () => {
-        const jobsList = await getJobsByProjectId(input.projectId);
-        const job = jobsList.find(j => j.type === "entity_merge" && j.status === "queued");
-        if (!job) return;
-
-        await updateJob(job.id, { status: "running" });
-        try {
-          const result = await generateMergeSuggestions(input.projectId, async (progress) => {
-            // Update job progress so the frontend can poll and see real-time updates
-            const pct = Math.round((progress.completed / progress.total) * 100);
-            await updateJob(job.id, {
-              progress: pct,
-              metadata: {
-                phase: progress.phase,
-                completed: progress.completed,
-                total: progress.total,
-                suggestionsCreated: progress.suggestionsCreated,
-              },
-            });
-          });
-          await updateJob(job.id, {
-            status: "completed",
-            progress: 100,
-            completedItems: 1,
-            metadata: { clustersFound: result.clustersFound, suggestionsCreated: result.suggestionsCreated },
-          });
-        } catch (err) {
-          await updateJob(job.id, {
-            status: "failed",
-            errorMessage: String(err),
-          });
-        }
-      })().catch(console.error);
-
-      return { started: true, message: "Analyzing entities for duplicates..." };
-    }),
-
-  /** Get the status of the merge generation job */
-  jobStatus: protectedProcedure
-    .input(z.object({ projectId: z.number() }))
-    .query(async ({ ctx, input }) => {
-      const role = await getProjectRole(input.projectId, ctx.user.id);
-      if (!role) throw new TRPCError({ code: "FORBIDDEN" });
-
-      const jobsList = await getJobsByProjectId(input.projectId);
-      const mergeJob = jobsList.find(j => j.type === "entity_merge");
-      return mergeJob || null;
+      const result = await processMergeStep(input.projectId, input.step);
+      return result;
     }),
 
   /** Accept a merge suggestion — merge entities into one canonical */

@@ -44,6 +44,15 @@ const CONFIDENCE_COLORS: Record<string, string> = {
   low: "bg-red-500/15 text-red-400 border-red-500/30",
 };
 
+const ALL_STEPS = [
+  { id: "person_fuzzy" as const, label: "People (spelling variants)" },
+  { id: "person_cross" as const, label: "People (Arabic ↔ Latin)" },
+  { id: "location_fuzzy" as const, label: "Locations (spelling variants)" },
+  { id: "location_cross" as const, label: "Locations (Arabic ↔ Latin)" },
+  { id: "organization_fuzzy" as const, label: "Organizations (spelling variants)" },
+  { id: "organization_cross" as const, label: "Organizations (Arabic ↔ Latin)" },
+];
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export default function EntityMergePage({ projectId }: { projectId: number }) {
@@ -52,68 +61,63 @@ export default function EntityMergePage({ projectId }: { projectId: number }) {
   const [editingCanonical, setEditingCanonical] = useState<number | null>(null);
   const [editedName, setEditedName] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
-  const prevSuggestionsCount = useRef(0);
+  const [currentStepIdx, setCurrentStepIdx] = useState(0);
+  const [totalFound, setTotalFound] = useState(0);
+  const abortRef = useRef(false);
 
   const utils = trpc.useUtils();
 
-  // Fetch merge suggestions — poll every 3s while generating to show new ones as they arrive
+  // Fetch merge suggestions
   const { data: suggestions, isLoading } = trpc.merge.list.useQuery(
     { projectId, status: "pending" },
-    { refetchInterval: isGenerating ? 3000 : false },
+    { refetchInterval: isGenerating ? 5000 : false },
   );
 
-  // Fetch stats — also poll while generating
+  // Fetch stats
   const { data: stats } = trpc.merge.stats.useQuery(
     { projectId },
-    { refetchInterval: isGenerating ? 3000 : false },
+    { refetchInterval: isGenerating ? 5000 : false },
   );
 
-  // Poll job status while generating
-  const { data: jobStatus } = trpc.merge.jobStatus.useQuery(
-    { projectId },
-    { refetchInterval: isGenerating ? 2000 : false },
-  );
+  // Process step mutation
+  const processStepMutation = trpc.merge.processStep.useMutation();
 
-  // Detect when new suggestions appear during generation
-  useEffect(() => {
-    if (isGenerating && suggestions && suggestions.length > prevSuggestionsCount.current) {
-      prevSuggestionsCount.current = suggestions.length;
+  // Run all steps sequentially — each step is its own HTTP request
+  const runAllSteps = async () => {
+    setIsGenerating(true);
+    setCurrentStepIdx(0);
+    setTotalFound(0);
+    abortRef.current = false;
+
+    let found = 0;
+    for (let i = 0; i < ALL_STEPS.length; i++) {
+      if (abortRef.current) break;
+      setCurrentStepIdx(i);
+      try {
+        const result = await processStepMutation.mutateAsync({
+          projectId,
+          step: ALL_STEPS[i].id,
+        });
+        found += result.suggestionsCreated;
+        setTotalFound(found);
+        // Refresh the list after each step so new suggestions appear
+        utils.merge.list.invalidate();
+        utils.merge.stats.invalidate();
+      } catch (err: any) {
+        toast.error(`Step "${ALL_STEPS[i].label}" failed: ${err.message}`);
+        // Continue with next step instead of stopping entirely
+      }
     }
-  }, [suggestions?.length, isGenerating]);
 
-  // Watch job status for completion
-  useEffect(() => {
-    if (!jobStatus || !isGenerating) return;
-    if (jobStatus.status === "completed") {
-      setIsGenerating(false);
-      const meta = jobStatus.metadata as any;
-      toast.success(`Done! Found ${meta?.suggestionsCreated || 0} potential duplicates to review.`);
-      utils.merge.list.invalidate();
-      utils.merge.stats.invalidate();
-    } else if (jobStatus.status === "failed") {
-      setIsGenerating(false);
-      toast.error(`Generation failed: ${jobStatus.errorMessage || "Unknown error"}`);
+    setIsGenerating(false);
+    if (found > 0) {
+      toast.success(`Done! Found ${found} new potential duplicates to review.`);
+    } else {
+      toast.info("Analysis complete — no new duplicates found.");
     }
-  }, [jobStatus?.status, jobStatus?.updatedAt]);
-
-  // Check if there's already a running job on mount
-  useEffect(() => {
-    if (jobStatus && (jobStatus.status === "running" || jobStatus.status === "queued")) {
-      setIsGenerating(true);
-    }
-  }, [jobStatus?.id]);
-
-  // Generate mutation
-  const generateMutation = trpc.merge.generate.useMutation({
-    onSuccess: () => {
-      setIsGenerating(true);
-      prevSuggestionsCount.current = suggestions?.length || 0;
-      toast.info("Analyzing entities for duplicates...");
-    },
-    onError: (err) => {
-      toast.error(`Generation failed: ${err.message}`);
-    },
-  });
+    utils.merge.list.invalidate();
+    utils.merge.stats.invalidate();
+  };
 
   // Accept mutation
   const acceptMutation = trpc.merge.accept.useMutation({
@@ -121,9 +125,8 @@ export default function EntityMergePage({ projectId }: { projectId: number }) {
       toast.success("Entities merged successfully");
       utils.merge.list.invalidate();
       utils.merge.stats.invalidate();
-      utils.entities.list.invalidate();
     },
-    onError: (err) => {
+    onError: (err: any) => {
       toast.error(`Merge failed: ${err.message}`);
     },
   });
@@ -163,11 +166,7 @@ export default function EntityMergePage({ projectId }: { projectId: number }) {
   const totalAll = (stats?.total || 0);
   const reviewProgress = totalAll > 0 ? (totalReviewed / totalAll) * 100 : 0;
 
-  // Job progress info
-  const jobMeta = jobStatus?.metadata as any;
-  const jobProgress = jobStatus?.progress || 0;
-  const jobPhase = jobMeta?.phase || "";
-  const jobSuggestionsFound = jobMeta?.suggestionsCreated || 0;
+  const stepProgress = isGenerating ? ((currentStepIdx + 1) / ALL_STEPS.length) * 100 : 0;
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -195,11 +194,11 @@ export default function EntityMergePage({ projectId }: { projectId: number }) {
           </div>
 
           <Button
-            onClick={() => generateMutation.mutate({ projectId })}
-            disabled={generateMutation.isPending || isGenerating}
+            onClick={runAllSteps}
+            disabled={isGenerating}
             className="gap-2"
           >
-            {(generateMutation.isPending || isGenerating) ? (
+            {isGenerating ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Sparkles className="h-4 w-4" />
@@ -215,18 +214,17 @@ export default function EntityMergePage({ projectId }: { projectId: number }) {
               <div className="flex items-center gap-2 text-sm text-amber-300">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 <span>
-                  {jobPhase
-                    ? `Analyzing ${jobPhase}...`
-                    : "Starting analysis..."}
+                  {ALL_STEPS[currentStepIdx]?.label || "Starting..."}
                 </span>
               </div>
               <span className="text-xs text-amber-400/70">
-                {jobSuggestionsFound > 0 && `${jobSuggestionsFound} duplicates found so far`}
+                Step {currentStepIdx + 1} of {ALL_STEPS.length}
+                {totalFound > 0 && ` · ${totalFound} found`}
               </span>
             </div>
-            <Progress value={jobProgress} className="h-1.5" />
+            <Progress value={stepProgress} className="h-1.5" />
             <p className="text-xs text-muted-foreground mt-1.5">
-              Suggestions appear below as they're found. You can start reviewing while analysis continues.
+              Suggestions appear below as each step completes. You can start reviewing now.
             </p>
           </div>
         )}
@@ -258,7 +256,7 @@ export default function EntityMergePage({ projectId }: { projectId: number }) {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
-        {isLoading ? (
+        {isLoading && !suggestions ? (
           <div className="space-y-4">
             {[1, 2, 3].map((i) => (
               <Skeleton key={i} className="h-48 w-full" />
@@ -288,7 +286,7 @@ export default function EntityMergePage({ projectId }: { projectId: number }) {
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center gap-2">
                       <TypeIcon className={`h-4 w-4 ${typeColor}`} />
-                      <Badge variant="outline" className={CONFIDENCE_COLORS[suggestion.confidence]}>
+                      <Badge variant="outline" className={CONFIDENCE_COLORS[suggestion.confidence] || ""}>
                         {suggestion.confidence} confidence
                       </Badge>
                     </div>

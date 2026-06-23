@@ -569,6 +569,90 @@ export async function generateMergeSuggestions(
   return { clustersFound, suggestionsCreated };
 }
 
+// ─── Chunked Step Processing ────────────────────────────────────────────────
+
+/**
+ * Process a single step of the merge pipeline.
+ * Each step is small enough to complete within Cloud Run's 180s timeout.
+ * Steps: "person_fuzzy", "person_cross", "location_fuzzy", "location_cross",
+ *        "organization_fuzzy", "organization_cross"
+ */
+export async function processMergeStep(
+  projectId: number,
+  step: string,
+): Promise<{ suggestionsCreated: number; clustersFound: number }> {
+  const db = (await getDb())!;
+
+  // Load all canonical entities
+  const allEntities = await db
+    .select({
+      id: entities.id,
+      name: entities.name,
+      type: entities.type,
+      normalizedName: entities.normalizedName,
+      canonicalId: entities.canonicalId,
+    })
+    .from(entities)
+    .where(
+      and(
+        eq(entities.projectId, projectId),
+        sql`${entities.canonicalId} IS NULL`,
+      ),
+    );
+
+  // Load existing suggestion entity IDs to avoid duplicates
+  const existingSuggestions = await db
+    .select({ entityIds: mergeSuggestions.entityIds })
+    .from(mergeSuggestions)
+    .where(
+      and(
+        eq(mergeSuggestions.projectId, projectId),
+        eq(mergeSuggestions.status, "pending"),
+      ),
+    );
+  const usedEntityIds = new Set<number>();
+  for (const s of existingSuggestions) {
+    for (const id of (s.entityIds as number[])) {
+      usedEntityIds.add(id);
+    }
+  }
+
+  const [entityType, method] = step.split("_") as ["person" | "location" | "organization", "fuzzy" | "cross"];
+  const typeEntities = allEntities.filter(e => e.type === entityType) as EntityRow[];
+
+  if (typeEntities.length < 2) {
+    return { suggestionsCreated: 0, clustersFound: 0 };
+  }
+
+  let suggestionsCreated = 0;
+  let clustersFound = 0;
+
+  if (method === "fuzzy") {
+    const fuzzyClusters = await clusterEntities(typeEntities, 0.65);
+    if (fuzzyClusters.length > 0) {
+      const confirmed = await confirmClustersWithLLM(fuzzyClusters, entityType);
+      for (const cluster of confirmed) {
+        const inserted = await insertSuggestion(db, projectId, cluster, usedEntityIds);
+        if (inserted) suggestionsCreated++;
+        clustersFound++;
+      }
+    }
+  } else if (method === "cross") {
+    const arabicEnts = typeEntities.filter(e => isArabic(e.name));
+    const latinEnts = typeEntities.filter(e => !isArabic(e.name));
+    if (arabicEnts.length > 0 && latinEnts.length > 0) {
+      const crossMatches = await findCrossScriptMatches(arabicEnts, latinEnts, entityType);
+      for (const cluster of crossMatches) {
+        const inserted = await insertSuggestion(db, projectId, cluster, usedEntityIds);
+        if (inserted) suggestionsCreated++;
+        clustersFound++;
+      }
+    }
+  }
+
+  return { suggestionsCreated, clustersFound };
+}
+
 // ─── Merge Execution ─────────────────────────────────────────────────────────
 
 /**
