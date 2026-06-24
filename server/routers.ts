@@ -51,7 +51,7 @@ import { processDocument } from "./transcriptionEngine";
 import { storagePut } from "./storage";
 import { TRPCError } from "@trpc/server";
 import { embedTranscription, semanticSearch } from "./embeddingService";
-import { extractAndStoreEntities } from "./nerService";
+import { extractAndStoreEntities, reconcileDocumentEntities } from "./nerService";
 import { generateMergeSuggestions, executeMerge, rejectMerge, skipMerge, processMergeStep, manualMerge } from "./entityMergeService";
 import { invokeLLM } from "./_core/llm";
 import { seedDemoProject } from "./demoSeed";
@@ -811,13 +811,13 @@ const transcriptionsRouter = router({
         }).catch((err) => console.warn("[Embedding] Failed:", err));
       }
 
-      // Fire-and-forget: extract named entities (NER) via Gemini
+      // Fire-and-forget: reconcile entities — remove stale ones and re-extract from updated text
       const textForNER = Object.values(input.reviewedJson)
         .filter((v): v is string => typeof v === "string")
         .join("\n");
       if (textForNER.length > 10) {
-        extractAndStoreEntities(input.projectId, input.documentId, textForNER)
-          .catch((err) => console.warn("[NER] Failed:", err));
+        reconcileDocumentEntities(input.projectId, input.documentId, textForNER)
+          .catch((err) => console.warn("[NER-Reconcile] Failed:", err));
       }
 
       // Fire-and-forget: sync entity name edits from transcription fields

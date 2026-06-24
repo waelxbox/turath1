@@ -330,3 +330,8 @@
 - [x] Show entity ID tags [#42] next to recognized entity names in the transcription review panel
 - [x] Fetch document-linked entities and highlight matching text in field values
 - [x] Make entity tags clickable (navigate to entity detail)
+
+## Features (Round 32) — Entity Validation on Review
+- [x] On save/approve, check if extracted entities still appear in the transcription text
+- [x] If entities are stale (name not found in transcription), re-run entity extraction on the updated text
+- [x] Remove stale document_entities links for entities no longer mentioned

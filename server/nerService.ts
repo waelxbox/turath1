@@ -216,6 +216,98 @@ async function linkDocumentEntity(
   });
 }
 
+// ─── Reconcile: validate existing entities against updated text, remove stale ones ─
+
+export async function reconcileDocumentEntities(
+  projectId: number,
+  documentId: number,
+  text: string,
+): Promise<{ removed: number; added: number }> {
+  const db = (await getDb())!;
+
+  // Get current linked entities for this document
+  const currentLinks = await db
+    .select({
+      linkId: documentEntities.id,
+      entityId: documentEntities.entityId,
+      entityName: entities.name,
+      entityType: entities.type,
+    })
+    .from(documentEntities)
+    .innerJoin(entities, eq(entities.id, documentEntities.entityId))
+    .where(eq(documentEntities.documentId, documentId));
+
+  if (currentLinks.length === 0) {
+    // No existing entities — just do a fresh extraction
+    const result = await extractAndStoreEntities(projectId, documentId, text);
+    return { removed: 0, added: result.entityCount };
+  }
+
+  // Check which entities are still mentioned in the text
+  const normalizedText = text.toLowerCase();
+  const staleLinks: number[] = [];
+
+  for (const link of currentLinks) {
+    const entityNameLower = link.entityName.toLowerCase();
+    // Entity is stale if its name doesn't appear anywhere in the text
+    if (!normalizedText.includes(entityNameLower)) {
+      // Also check normalized version (without diacritics etc)
+      const normalizedEntityName = normalizeEntityName(link.entityName);
+      if (!normalizedText.includes(normalizedEntityName)) {
+        staleLinks.push(link.linkId);
+      }
+    }
+  }
+
+  // Remove stale links
+  let removed = 0;
+  for (const linkId of staleLinks) {
+    await db.delete(documentEntities).where(eq(documentEntities.id, linkId));
+    removed++;
+  }
+
+  if (removed > 0) {
+    console.log(`[NER-Reconcile] Removed ${removed} stale entity links for document ${documentId}`);
+  }
+
+  // Re-extract to find any new entities in the updated text
+  const freshExtracted = await extractEntities(text);
+  let added = 0;
+  for (const entity of freshExtracted) {
+    try {
+      const entityId = await upsertEntity(projectId, entity.name, entity.type);
+      // linkDocumentEntity already skips duplicates
+      const existing = await db
+        .select({ id: documentEntities.id })
+        .from(documentEntities)
+        .where(
+          and(
+            eq(documentEntities.documentId, documentId),
+            eq(documentEntities.entityId, entityId),
+          ),
+        )
+        .limit(1);
+      if (existing.length === 0) {
+        await db.insert(documentEntities).values({
+          documentId,
+          entityId,
+          projectId,
+          contextSnippet: entity.context || null,
+        });
+        added++;
+      }
+    } catch (err) {
+      console.error(`[NER-Reconcile] Failed to store entity "${entity.name}":`, err);
+    }
+  }
+
+  if (added > 0) {
+    console.log(`[NER-Reconcile] Added ${added} new entity links for document ${documentId}`);
+  }
+
+  return { removed, added };
+}
+
 // ─── Main: extract and store entities for a reviewed document ───────────────
 
 export async function extractAndStoreEntities(
