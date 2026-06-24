@@ -28,6 +28,7 @@ import {
   deleteProject,
   deleteDocument,
   renameDocument,
+  getDocumentsPaginated,
   getProjectMembers,
   addProjectMember,
   removeProjectMember,
@@ -546,6 +547,26 @@ const documentsRouter = router({
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       return getDocumentsByProjectId(input.projectId, input.status);
+    }),
+
+  listPaginated: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      status: z.enum(["pending", "processing", "needs_review", "reviewed", "flagged", "error"]).optional(),
+      search: z.string().optional(),
+      cursor: z.number().optional(),
+      limit: z.number().min(1).max(100).optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      return getDocumentsPaginated({
+        projectId: input.projectId,
+        status: input.status,
+        search: input.search,
+        cursor: input.cursor,
+        limit: input.limit,
+      });
     }),
 
   // Returns a fresh presigned URL for viewing a document image (stored URLs expire)

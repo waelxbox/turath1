@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useLocation } from "wouter";
 import type { Project } from "../../../../drizzle/schema";
 import { trpc } from "@/lib/trpc";
@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import {
   CheckCircle2, Flag, ChevronLeft, ChevronRight, Loader2,
   Eye, Filter, Zap, AlertCircle, ImageOff, RotateCcw,
-  MoreVertical, Trash2, Pencil
+  MoreVertical, Trash2, Pencil, Search
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -514,28 +514,88 @@ function DynamicField({
 export default function ReviewPage({ projectId, project, docId: docIdProp }: Props) {
   const [, navigate] = useLocation();
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [renameDoc, setRenameDoc] = useState<{ id: number; filename: string } | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteDoc, setDeleteDoc] = useState<{ id: number; filename: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
   const utils = trpc.useUtils();
 
-  const { data: documents } = trpc.documents.list.useQuery({
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Use paginated query with infinite loading
+  const paginatedInput = useMemo(() => ({
     projectId,
     status: statusFilter === "all"
       ? undefined
       : statusFilter as "needs_review" | "reviewed" | "flagged" | "pending" | "processing" | "error",
-  });
+    search: debouncedSearch || undefined,
+    limit: 50,
+  }), [projectId, statusFilter, debouncedSearch]);
+
+  const { data: firstPage, isLoading: isLoadingFirst } = trpc.documents.listPaginated.useQuery(paginatedInput);
+
+  // Track loaded pages for infinite scroll
+  const [pages, setPages] = useState<Array<{ documents: any[]; nextCursor: number | null }>>([]);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  // Reset pages when filter/search changes
+  useEffect(() => {
+    if (firstPage) {
+      setPages([firstPage]);
+    }
+  }, [firstPage]);
+
+  // Flatten all loaded documents
+  const documents = useMemo(() => {
+    return pages.flatMap(p => p.documents);
+  }, [pages]);
+
+  const totalCount = firstPage?.total ?? 0;
+  const hasMore = pages.length > 0 && pages[pages.length - 1].nextCursor !== null;
+
+  // Load more documents
+  const loadMore = useCallback(async () => {
+    if (isLoadingMore || !hasMore) return;
+    const lastPage = pages[pages.length - 1];
+    if (!lastPage?.nextCursor) return;
+    setIsLoadingMore(true);
+    try {
+      const nextPage = await utils.documents.listPaginated.fetch({
+        ...paginatedInput,
+        cursor: lastPage.nextCursor,
+      });
+      setPages(prev => [...prev, nextPage]);
+    } catch (err) {
+      console.error("Failed to load more documents", err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [isLoadingMore, hasMore, pages, paginatedInput, utils]);
+
+  // Infinite scroll handler
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
+      loadMore();
+    }
+  }, [loadMore]);
 
   const deleteMutation = trpc.documents.delete.useMutation({
     onSuccess: () => {
       toast.success("Document deleted");
+      utils.documents.listPaginated.invalidate();
       utils.documents.list.invalidate({ projectId });
       utils.projects.stats.invalidate({ id: projectId });
       setDeleteDoc(null);
       setIsDeleting(false);
-      // Navigate to first remaining doc
       navigate("/review");
     },
     onError: (err) => {
@@ -547,6 +607,7 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
   const renameMutation = trpc.documents.rename.useMutation({
     onSuccess: () => {
       toast.success("Document renamed");
+      utils.documents.listPaginated.invalidate();
       utils.documents.list.invalidate({ projectId });
       setRenameDoc(null);
       setIsRenaming(false);
@@ -564,8 +625,6 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
 
   const currentIndex = documents?.findIndex(d => d.id === currentDocId) ?? 0;
 
-  // Navigate using a relative path — ReviewPage is rendered inside
-  // <Router base="/projects/:id">, so useLocation's navigate is relative.
   const handleNavigate = (docId: number) => {
     navigate(`/review/${docId}`);
   };
@@ -574,7 +633,17 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
     <div className="flex h-full">
       {/* Document list sidebar */}
       <div className="w-64 border-r border-border flex flex-col flex-shrink-0">
-        <div className="p-3 border-b border-border">
+        {/* Search + Filter header */}
+        <div className="p-3 border-b border-border space-y-2">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search documents..."
+              className="h-8 text-xs pl-7 bg-background"
+            />
+          </div>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="h-8 text-xs bg-background">
               <Filter className="w-3 h-3 mr-1.5" />
@@ -590,44 +659,60 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
             </SelectContent>
           </Select>
         </div>
-        <div className="flex-1 overflow-y-auto divide-y divide-border">
-          {!documents || documents.length === 0 ? (
+        <div ref={listRef} className="flex-1 overflow-y-auto divide-y divide-border" onScroll={handleScroll}>
+          {isLoadingFirst ? (
             <div className="p-4 text-center">
-              <p className="text-xs text-muted-foreground mb-2">No documents yet</p>
-              <p className="text-[10px] text-muted-foreground/70">Upload documents first, then they'll appear here for review.</p>
+              <Loader2 className="w-4 h-4 animate-spin mx-auto mb-2 text-muted-foreground" />
+              <p className="text-xs text-muted-foreground">Loading documents...</p>
+            </div>
+          ) : !documents || documents.length === 0 ? (
+            <div className="p-4 text-center">
+              <p className="text-xs text-muted-foreground mb-2">
+                {debouncedSearch ? "No matching documents" : "No documents yet"}
+              </p>
+              <p className="text-[10px] text-muted-foreground/70">
+                {debouncedSearch ? "Try a different search term." : "Upload documents first, then they'll appear here for review."}
+              </p>
             </div>
           ) : (
-            documents.map(doc => (
-              <div
-                key={doc.id}
-                className={`group flex items-center justify-between px-3 py-2.5 hover:bg-secondary/50 transition-colors cursor-pointer ${doc.id === currentDocId ? "bg-secondary" : ""}`}
-                onClick={() => handleNavigate(doc.id)}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-medium truncate mb-1">{doc.filename}</div>
-                  <StatusBadge status={doc.status} />
+            <>
+              {documents.map(doc => (
+                <div
+                  key={doc.id}
+                  className={`group flex items-center justify-between px-3 py-2.5 hover:bg-secondary/50 transition-colors cursor-pointer ${doc.id === currentDocId ? "bg-secondary" : ""}`}
+                  onClick={() => handleNavigate(doc.id)}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium truncate mb-1">{doc.filename}</div>
+                    <StatusBadge status={doc.status} />
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                      <button className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-background/50 transition-opacity">
+                        <MoreVertical className="w-3.5 h-3.5 text-muted-foreground" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenuItem onClick={() => { setRenameDoc({ id: doc.id, filename: doc.filename }); setRenameValue(doc.filename); }}>
+                        <Pencil className="w-3.5 h-3.5 mr-2" /> Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteDoc({ id: doc.id, filename: doc.filename })}>
+                        <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                    <button className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-background/50 transition-opacity">
-                      <MoreVertical className="w-3.5 h-3.5 text-muted-foreground" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenuItem onClick={() => { setRenameDoc({ id: doc.id, filename: doc.filename }); setRenameValue(doc.filename); }}>
-                      <Pencil className="w-3.5 h-3.5 mr-2" /> Rename
-                    </DropdownMenuItem>
-                    <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteDoc({ id: doc.id, filename: doc.filename })}>
-                      <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            ))
+              ))}
+              {isLoadingMore && (
+                <div className="p-3 text-center">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin mx-auto text-muted-foreground" />
+                </div>
+              )}
+            </>
           )}
         </div>
         <div className="p-3 border-t border-border text-xs text-muted-foreground">
-          {documents?.length ?? 0} documents
+          {documents.length}{hasMore ? "+" : ""} of {totalCount} documents
         </div>
       </div>
 

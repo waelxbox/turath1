@@ -1,4 +1,4 @@
-import { and, eq, desc, sql, count, or, inArray, isNull } from "drizzle-orm";
+import { and, eq, desc, sql, count, or, inArray, isNull, ilike, gt, lt, asc } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
@@ -222,6 +222,56 @@ export async function getDocumentsByProjectId(projectId: number, status?: Docume
   const conditions = [eq(documents.projectId, projectId)];
   if (status) conditions.push(eq(documents.status, status));
   return db.select().from(documents).where(and(...conditions)).orderBy(desc(documents.uploadedAt));
+}
+
+/** Paginated document list with optional search and status filter */
+export async function getDocumentsPaginated(opts: {
+  projectId: number;
+  status?: Document["status"];
+  search?: string;
+  cursor?: number; // document ID to paginate after
+  limit?: number;
+  sortBy?: "filename" | "uploadedAt" | "status";
+  sortDir?: "asc" | "desc";
+}) {
+  const db = await getDb();
+  if (!db) return { documents: [], nextCursor: null, total: 0 };
+  const { projectId, status, search, cursor, limit = 50, sortBy = "uploadedAt", sortDir = "desc" } = opts;
+
+  const conditions = [eq(documents.projectId, projectId)];
+  if (status) conditions.push(eq(documents.status, status));
+  if (search && search.trim()) {
+    conditions.push(ilike(documents.filename, `%${search.trim()}%`));
+  }
+
+  // Get total count
+  const [{ total }] = await db
+    .select({ total: count(documents.id) })
+    .from(documents)
+    .where(and(...conditions));
+
+  // Build sort order
+  const orderCol = sortBy === "filename" ? documents.filename : sortBy === "status" ? documents.status : documents.uploadedAt;
+  const orderFn = sortDir === "asc" ? asc : desc;
+
+  // If cursor provided, add cursor condition
+  if (cursor) {
+    // Use id-based cursor for stable pagination
+    conditions.push(sortDir === "desc" ? lt(documents.id, cursor) : gt(documents.id, cursor));
+  }
+
+  const rows = await db
+    .select()
+    .from(documents)
+    .where(and(...conditions))
+    .orderBy(orderFn(orderCol), desc(documents.id))
+    .limit(limit + 1); // fetch one extra to determine if there's a next page
+
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const nextCursor = hasMore ? pageRows[pageRows.length - 1].id : null;
+
+  return { documents: pageRows, nextCursor, total };
 }
 
 export async function getDocumentById(id: number, projectId: number) {

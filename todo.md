@@ -299,3 +299,9 @@
 - [x] Add delete document tRPC mutation (cascade delete transcriptions, embeddings, document_entities)
 - [x] Add rename document tRPC mutation
 - [x] Add delete/rename UI actions to document list (context menu or action buttons)
+
+## Features (Round 27) — Pagination for 2000+ Documents
+- [x] Add paginated documents.list endpoint (cursor-based, 50 per page, search by filename)
+- [x] Update document sidebar with infinite scroll (load more on scroll to bottom)
+- [x] Add document search/filter input in sidebar header
+- [x] Batch transcribe already processes in chunks of 3 concurrently (works fine for 2000 docs)
