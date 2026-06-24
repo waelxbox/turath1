@@ -80,6 +80,38 @@ function buildJsonSchema(projectSchema: Record<string, SchemaField>) {
 }
 
 /**
+ * Build a runtime system prompt by appending glossary and schema description
+ * to the user-authored instructions. This keeps the three fields separate in the UI
+ * but assembles them at transcription time for optimal LLM performance.
+ */
+function buildRuntimePrompt(project: Project): string {
+  let prompt = project.systemPrompt ?? "You are an expert document transcriber. Output valid JSON only.";
+
+  // Append glossary if available and not already embedded in the prompt
+  const glossary = project.glossary as Record<string, string> | null;
+  if (glossary && Object.keys(glossary).length > 0) {
+    const alreadyHasGlossary = prompt.toLowerCase().includes("glossary");
+    if (!alreadyHasGlossary) {
+      prompt += "\n\nGlossary of terms and preferred transcriptions:\n";
+      for (const [term, definition] of Object.entries(glossary)) {
+        prompt += `– ${term}: ${definition}\n`;
+      }
+    }
+  }
+
+  // Append schema field descriptions if not already embedded
+  const schema = project.jsonSchema as Record<string, SchemaField> | null;
+  if (schema && Object.keys(schema).length > 0) {
+    const alreadyHasSchema = prompt.toLowerCase().includes("output only valid json");
+    if (!alreadyHasSchema) {
+      prompt += "\nOutput ONLY valid JSON. No markdown fences, no prose.";
+    }
+  }
+
+  return prompt;
+}
+
+/**
  * Single-pass pipeline: image → structured JSON directly.
  * Used for projects like Brovarski (index cards, no translation needed).
  */
@@ -88,7 +120,7 @@ async function runSinglePass(
   imageBase64: string,
   mimeType: string
 ): Promise<Record<string, unknown>> {
-  const systemPrompt = project.systemPrompt ?? "You are an expert document transcriber. Output valid JSON only.";
+  const systemPrompt = buildRuntimePrompt(project);
   const schema = project.jsonSchema as Record<string, SchemaField> | null;
 
   const messages: Parameters<typeof invokeLLM>[0]["messages"] = [
@@ -134,9 +166,8 @@ async function runTwoPass(
   imageBase64: string,
   mimeType: string
 ): Promise<{ result: Record<string, unknown>; originalText: string }> {
-  const pass1Prompt = project.systemPrompt ?? `You are an expert archival palaeographer.
-Your ONLY task is to provide a highly accurate, verbatim transcription of the provided document.
-Output ONLY the raw transcription text. No summary, no translation, no intro.`;
+  // Pass 1 gets glossary appended for accurate transcription of specialized terms
+  const pass1Prompt = buildRuntimePrompt(project);
 
   const pass2Prompt = project.pass2Prompt ?? `You are an expert archival historian and translator.
 Translate the provided transcription into English and extract structured metadata.

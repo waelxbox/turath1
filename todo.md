@@ -310,3 +310,12 @@
 - [x] Add manual merge UI: select two or more entities from the entity list and merge them
 - [x] Add backend mutation for manual merge (reuse existing merge logic, just user-initiated)
 - [x] Show merge button/action when multiple entities are selected
+
+## Features (Round 29) — Fix Onboarding Wizard Output Separation
+- [x] Fix wizard to output JSON schema, system prompt, and domain glossary as SEPARATE fields (not one megaprompt)
+- [x] Ensure generated JSON schemas always include Dublin Core core fields (title, subject, description, type, source, creator, date) + transcription + user-requested fields
+- [x] System prompt should only contain transcription rules/instructions (no schema, no glossary embedded)
+- [x] Domain glossary should be a separate JSON object of term:definition pairs
+- [x] Inject glossary into system prompt at runtime in transcription engine (buildRuntimePrompt)
+- [x] Add cleanSystemPrompt post-processing to strip any embedded schema/glossary from generated prompts
+- [x] Add ensureDublinCoreFields post-processing to guarantee core fields are always present
