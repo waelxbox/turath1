@@ -294,3 +294,8 @@
 
 ## Bug Fixes (Round 25) — Entity Merge Cleanup
 - [x] Filter out merged entities (canonical_id IS NOT NULL) from entity directory list and knowledge graph
+
+## Features (Round 26) — Document Management
+- [x] Add delete document tRPC mutation (cascade delete transcriptions, embeddings, document_entities)
+- [x] Add rename document tRPC mutation
+- [x] Add delete/rename UI actions to document list (context menu or action buttons)

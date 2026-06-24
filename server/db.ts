@@ -242,6 +242,24 @@ export async function updateDocumentStatus(id: number, status: Document["status"
   await db.update(documents).set(update).where(eq(documents.id, id));
 }
 
+/** Delete a document and all related records (transcriptions, embeddings, entity links) */
+export async function deleteDocument(id: number, projectId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // Delete related records first (in case ON DELETE CASCADE isn't set for all)
+  await db.delete(documentEmbeddings).where(eq(documentEmbeddings.documentId, id));
+  await db.delete(documentEntities).where(eq(documentEntities.documentId, id));
+  await db.delete(transcriptions).where(eq(transcriptions.documentId, id));
+  await db.delete(documents).where(and(eq(documents.id, id), eq(documents.projectId, projectId)));
+}
+
+/** Rename a document */
+export async function renameDocument(id: number, projectId: number, newFilename: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(documents).set({ filename: newFilename }).where(and(eq(documents.id, id), eq(documents.projectId, projectId)));
+}
+
 // ─── Transcriptions ───────────────────────────────────────────────────────────
 
 export async function createTranscription(data: InsertTranscription) {

@@ -26,6 +26,8 @@ import {
   getJobsByProjectId,
   updateJob,
   deleteProject,
+  deleteDocument,
+  renameDocument,
   getProjectMembers,
   addProjectMember,
   removeProjectMember,
@@ -716,6 +718,30 @@ const documentsRouter = router({
       })().catch(console.error);
 
       return { queued: pendingDocs.length, message: `Queued ${pendingDocs.length} documents for transcription.` };
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({ documentId: z.number(), projectId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role) throw new TRPCError({ code: "NOT_FOUND" });
+      if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN", message: "Viewers cannot delete documents" });
+      const doc = await getDocumentById(input.documentId, input.projectId);
+      if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "Document not found" });
+      await deleteDocument(input.documentId, input.projectId);
+      return { success: true };
+    }),
+
+  rename: protectedProcedure
+    .input(z.object({ documentId: z.number(), projectId: z.number(), newFilename: z.string().min(1).max(500) }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role) throw new TRPCError({ code: "NOT_FOUND" });
+      if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN", message: "Viewers cannot rename documents" });
+      const doc = await getDocumentById(input.documentId, input.projectId);
+      if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "Document not found" });
+      await renameDocument(input.documentId, input.projectId, input.newFilename);
+      return { success: true, filename: input.newFilename };
     }),
 });
 

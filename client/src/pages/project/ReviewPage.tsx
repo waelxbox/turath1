@@ -10,9 +10,13 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import {
   CheckCircle2, Flag, ChevronLeft, ChevronRight, Loader2,
-  Eye, Filter, Zap, AlertCircle, ImageOff, RotateCcw
+  Eye, Filter, Zap, AlertCircle, ImageOff, RotateCcw,
+  MoreVertical, Trash2, Pencil
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 interface Props {
   projectId: number;
@@ -510,12 +514,47 @@ function DynamicField({
 export default function ReviewPage({ projectId, project, docId: docIdProp }: Props) {
   const [, navigate] = useLocation();
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [renameDoc, setRenameDoc] = useState<{ id: number; filename: string } | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deleteDoc, setDeleteDoc] = useState<{ id: number; filename: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const utils = trpc.useUtils();
 
   const { data: documents } = trpc.documents.list.useQuery({
     projectId,
     status: statusFilter === "all"
       ? undefined
       : statusFilter as "needs_review" | "reviewed" | "flagged" | "pending" | "processing" | "error",
+  });
+
+  const deleteMutation = trpc.documents.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Document deleted");
+      utils.documents.list.invalidate({ projectId });
+      utils.projects.stats.invalidate({ id: projectId });
+      setDeleteDoc(null);
+      setIsDeleting(false);
+      // Navigate to first remaining doc
+      navigate("/review");
+    },
+    onError: (err) => {
+      toast.error(err.message);
+      setIsDeleting(false);
+    },
+  });
+
+  const renameMutation = trpc.documents.rename.useMutation({
+    onSuccess: () => {
+      toast.success("Document renamed");
+      utils.documents.list.invalidate({ projectId });
+      setRenameDoc(null);
+      setIsRenaming(false);
+    },
+    onError: (err) => {
+      toast.error(err.message);
+      setIsRenaming(false);
+    },
   });
 
   // Determine active document
@@ -559,14 +598,31 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
             </div>
           ) : (
             documents.map(doc => (
-              <button
+              <div
                 key={doc.id}
+                className={`group flex items-center justify-between px-3 py-2.5 hover:bg-secondary/50 transition-colors cursor-pointer ${doc.id === currentDocId ? "bg-secondary" : ""}`}
                 onClick={() => handleNavigate(doc.id)}
-                className={`w-full text-left px-3 py-2.5 hover:bg-secondary/50 transition-colors ${doc.id === currentDocId ? "bg-secondary" : ""}`}
               >
-                <div className="text-xs font-medium truncate mb-1">{doc.filename}</div>
-                <StatusBadge status={doc.status} />
-              </button>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-medium truncate mb-1">{doc.filename}</div>
+                  <StatusBadge status={doc.status} />
+                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                    <button className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-background/50 transition-opacity">
+                      <MoreVertical className="w-3.5 h-3.5 text-muted-foreground" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenuItem onClick={() => { setRenameDoc({ id: doc.id, filename: doc.filename }); setRenameValue(doc.filename); }}>
+                      <Pencil className="w-3.5 h-3.5 mr-2" /> Rename
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteDoc({ id: doc.id, filename: doc.filename })}>
+                      <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             ))
           )}
         </div>
@@ -588,12 +644,6 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
             </div>
           </div>
         ) : (
-          /**
-           * KEY is set to currentDocId so React fully re-mounts ReviewDocPanel
-           * whenever the user navigates to a different document.
-           * This guarantees editedFields is always fresh and never carries over
-           * stale data from the previous card.
-           */
           <ReviewDocPanel
             key={currentDocId}
             projectId={projectId}
@@ -605,6 +655,71 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
           />
         )}
       </div>
+
+      {/* Rename dialog */}
+      <Dialog open={!!renameDoc} onOpenChange={(open) => { if (!open) setRenameDoc(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename document</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Input
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              placeholder="Document filename"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && renameValue.trim() && renameDoc) {
+                  setIsRenaming(true);
+                  renameMutation.mutate({ documentId: renameDoc.id, projectId, newFilename: renameValue.trim() });
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameDoc(null)}>Cancel</Button>
+            <Button
+              disabled={!renameValue.trim() || isRenaming}
+              onClick={() => {
+                if (renameDoc && renameValue.trim()) {
+                  setIsRenaming(true);
+                  renameMutation.mutate({ documentId: renameDoc.id, projectId, newFilename: renameValue.trim() });
+                }
+              }}
+            >
+              {isRenaming ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation */}
+      <AlertDialog open={!!deleteDoc} onOpenChange={(open) => { if (!open) setDeleteDoc(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete document</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <span className="font-medium text-foreground">{deleteDoc?.filename}</span> and all its transcriptions, embeddings, and entity links. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isDeleting}
+              onClick={() => {
+                if (deleteDoc) {
+                  setIsDeleting(true);
+                  deleteMutation.mutate({ documentId: deleteDoc.id, projectId });
+                }
+              }}
+            >
+              {isDeleting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Trash2 className="w-4 h-4 mr-2" />}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
