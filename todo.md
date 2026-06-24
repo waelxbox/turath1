@@ -325,3 +325,8 @@
 - [x] Search entities by alias/variant names (not just canonical name)
 - [x] TEI-XML entity export (authority file with numeric IDs, canonical names, all variants, mention refs)
 - [x] Sync entity name edits from transcription review back to the entity record
+
+## Features (Round 31) — Annotated Entity Tags in Review
+- [x] Show entity ID tags [#42] next to recognized entity names in the transcription review panel
+- [x] Fetch document-linked entities and highlight matching text in field values
+- [x] Make entity tags clickable (navigate to entity detail)

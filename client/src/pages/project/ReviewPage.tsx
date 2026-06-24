@@ -120,6 +120,12 @@ function ReviewDocPanel({
     { staleTime: 4 * 60 * 1000 }
   );
 
+  // Fetch entities linked to this document for inline annotations
+  const { data: docEntities } = trpc.entities.byDocument.useQuery(
+    { documentId: currentDocId, projectId },
+    { enabled: !!transcription }
+  );
+
   const transcribeDoc = trpc.documents.transcribe.useMutation({
     onSuccess: async (result) => {
       if (result.success) {
@@ -358,6 +364,7 @@ function ReviewDocPanel({
                     fieldDef={def}
                     value={getNestedValue(editedFields, key)}
                     onChange={v => setEditedFields(prev => setNestedValue(prev, key, v))}
+                    entities={docEntities}
                   />
                 ))
               ) : (
@@ -417,18 +424,60 @@ function ReviewDocPanel({
   );
 }
 
+type DocEntity = { id: number; name: string; type: "person" | "location" | "organization"; contextSnippet: string | null };
+
+function EntityTag({ entity }: { entity: DocEntity }) {
+  const [, navigate] = useLocation();
+  const colors: Record<string, string> = {
+    person: "bg-orange-500/20 text-orange-300 border-orange-500/40",
+    location: "bg-green-500/20 text-green-300 border-green-500/40",
+    organization: "bg-indigo-500/20 text-indigo-300 border-indigo-500/40",
+  };
+  return (
+    <button
+      type="button"
+      className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded text-[10px] font-mono border cursor-pointer hover:opacity-80 transition-opacity ml-1 ${colors[entity.type] || "bg-muted text-muted-foreground border-border"}`}
+      onClick={() => navigate("/entities")}
+      title={`${entity.name} (${entity.type}) — click to view in Entity Directory`}
+    >
+      #{entity.id}
+    </button>
+  );
+}
+
+function FieldEntityAnnotations({ value, entities }: { value: unknown; entities?: DocEntity[] }) {
+  if (!entities || entities.length === 0 || typeof value !== "string" || !value.trim()) return null;
+  
+  // Find entities whose name appears in this field value
+  const matches = entities.filter(e => {
+    const normalizedVal = value.toLowerCase();
+    const normalizedName = e.name.toLowerCase();
+    return normalizedVal.includes(normalizedName) || normalizedName.includes(normalizedVal.trim());
+  });
+
+  if (matches.length === 0) return null;
+
+  return (
+    <span className="inline-flex items-center gap-0.5 ml-1">
+      {matches.map(e => <EntityTag key={e.id} entity={e} />)}
+    </span>
+  );
+}
+
 function DynamicField({
   fieldKey,
   label,
   fieldDef,
   value,
   onChange,
+  entities,
 }: {
   fieldKey: string;
   label: string;
   fieldDef: SchemaField;
   value: unknown;
   onChange: (v: unknown) => void;
+  entities?: DocEntity[];
 }) {
   if (fieldDef.type === "boolean") {
     return (
@@ -447,7 +496,16 @@ function DynamicField({
     const [tagInput, setTagInput] = useState("");
     return (
       <div>
-        <Label className="text-sm mb-1.5 block capitalize">{label}</Label>
+        <Label className="text-sm mb-1.5 block capitalize">
+          {label}
+          {arr.length > 0 && entities && entities.length > 0 && (
+            <span className="inline-flex items-center gap-0.5 ml-1">
+              {arr.filter(tag => typeof tag === "string").flatMap(tag => 
+                entities.filter(e => e.name.toLowerCase() === String(tag).toLowerCase())
+              ).slice(0, 5).map(e => <EntityTag key={e.id} entity={e} />)}
+            </span>
+          )}
+        </Label>
         {fieldDef.description && <p className="text-xs text-muted-foreground mb-2">{fieldDef.description}</p>}
         <div className="flex flex-wrap gap-1.5 mb-2 min-h-[24px]">
           {arr.map((tag, i) => (
@@ -486,7 +544,10 @@ function DynamicField({
   if (isLong) {
     return (
       <div>
-        <Label className="text-sm mb-1.5 block capitalize">{label}</Label>
+        <Label className="text-sm mb-1.5 block capitalize">
+          {label}
+          <FieldEntityAnnotations value={value} entities={entities} />
+        </Label>
         {fieldDef.description && <p className="text-xs text-muted-foreground mb-2">{fieldDef.description}</p>}
         <Textarea
           value={strVal}
@@ -500,7 +561,10 @@ function DynamicField({
 
   return (
     <div>
-      <Label className="text-sm mb-1.5 block capitalize">{label}</Label>
+      <Label className="text-sm mb-1.5 block capitalize">
+        {label}
+        <FieldEntityAnnotations value={value} entities={entities} />
+      </Label>
       {fieldDef.description && <p className="text-xs text-muted-foreground mb-2">{fieldDef.description}</p>}
       <Input
         value={strVal}
