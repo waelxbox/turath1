@@ -10,6 +10,7 @@ import {
   jobs, InsertJob,
   documentEmbeddings, InsertDocumentEmbedding,
   entities, Entity,
+  entityAliases, EntityAlias,
   documentEntities, DocumentEntity,
   projectMembers, InsertProjectMember, ProjectMember,
   projectInvites, InsertProjectInvite, ProjectInvite,
@@ -731,6 +732,83 @@ export async function getEntityDetails(projectId: number, entityId: number) {
     mentions,
     coOccurring,
   };
+}
+
+/** Get all aliases for a given entity */
+export async function getEntityAliases(entityId: number) {
+  const db = (await getDb())!;
+  return db
+    .select()
+    .from(entityAliases)
+    .where(eq(entityAliases.entityId, entityId))
+    .orderBy(entityAliases.alias);
+}
+
+/** Get all aliases for multiple entities (batch) */
+export async function getEntityAliasesBatch(entityIds: number[]) {
+  if (entityIds.length === 0) return [];
+  const db = (await getDb())!;
+  return db
+    .select()
+    .from(entityAliases)
+    .where(inArray(entityAliases.entityId, entityIds))
+    .orderBy(entityAliases.entityId, entityAliases.alias);
+}
+
+/** Search entities by name OR alias (for the entity directory search) */
+export async function searchEntitiesByNameOrAlias(
+  projectId: number,
+  searchTerm: string,
+  type?: "person" | "location" | "organization",
+) {
+  const db = (await getDb())!;
+  const pattern = `%${searchTerm}%`;
+
+  // Find entity IDs that match via alias
+  const aliasMatches = await db
+    .select({ entityId: entityAliases.entityId })
+    .from(entityAliases)
+    .innerJoin(entities, eq(entities.id, entityAliases.entityId))
+    .where(
+      and(
+        eq(entities.projectId, projectId),
+        isNull(entities.canonicalId),
+        ilike(entityAliases.alias, pattern),
+      ),
+    );
+
+  const aliasEntityIds = aliasMatches.map(a => a.entityId);
+
+  // Build conditions for main query: name matches OR id in alias matches
+  const conditions = [
+    eq(entities.projectId, projectId),
+    isNull(entities.canonicalId),
+  ];
+  if (type) conditions.push(eq(entities.type, type));
+
+  const nameCondition = ilike(entities.name, pattern);
+  const aliasCondition = aliasEntityIds.length > 0
+    ? inArray(entities.id, aliasEntityIds)
+    : undefined;
+
+  const whereClause = aliasCondition
+    ? and(...conditions, or(nameCondition, aliasCondition))
+    : and(...conditions, nameCondition);
+
+  return db
+    .select()
+    .from(entities)
+    .where(whereClause!)
+    .orderBy(entities.name);
+}
+
+/** Update an entity's name */
+export async function updateEntityName(entityId: number, projectId: number, newName: string) {
+  const db = (await getDb())!;
+  await db
+    .update(entities)
+    .set({ name: newName, normalizedName: newName.toLowerCase().trim() })
+    .where(and(eq(entities.id, entityId), eq(entities.projectId, projectId)));
 }
 
 // ─── Project Members & Invites ──────────────────────────────────────────────

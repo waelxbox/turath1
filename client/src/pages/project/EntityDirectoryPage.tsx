@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -120,9 +120,17 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
     });
   };
 
-  // Fetch all entities for the master list
+  // Debounced search for server-side alias matching
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Fetch entities with server-side search (includes alias matching)
   const { data: allEntities, isLoading: listLoading } = trpc.entities.list.useQuery({
     projectId,
+    search: debouncedSearch || undefined,
   });
 
   // Fetch details for selected entity
@@ -141,15 +149,11 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
       filtered = filtered.filter((e) => e.type === typeFilter);
     }
 
-    // Search filter
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      filtered = filtered.filter((e) => e.name.toLowerCase().includes(q));
-    }
+    // Search is now handled server-side (includes alias matching)
 
     // Sort alphabetically
     return [...filtered].sort((a, b) => a.name.localeCompare(b.name));
-  }, [allEntities, typeFilter, searchQuery]);
+  }, [allEntities, typeFilter]);
 
   // Group by first letter for alphabetical headers
   const groupedEntities = useMemo(() => {
@@ -359,6 +363,24 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
                 {details.coOccurring.length > 0 && ` · Connected to ${details.coOccurring.length} other entities`}
               </p>
             </div>
+
+            {/* Section: Aliases / Variant Names */}
+            {details.aliases && details.aliases.length > 0 && (
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3 flex items-center gap-2">
+                  <Link2 className="h-4 w-4" />
+                  Also Known As ({details.aliases.length})
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {details.aliases.map((alias: { id: number; alias: string; language?: string | null }) => (
+                    <Badge key={alias.id} variant="secondary" className="text-sm py-1 px-3">
+                      {alias.alias}
+                      {alias.language && <span className="ml-1.5 text-xs text-muted-foreground">({alias.language})</span>}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Section 1: Document Mentions */}
             <div>

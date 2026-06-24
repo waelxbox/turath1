@@ -40,6 +40,10 @@ import {
   acceptInvite,
   cancelInvite,
   getUserByEmail,
+  getEntityAliases,
+  getEntityAliasesBatch,
+  searchEntitiesByNameOrAlias,
+  updateEntityName,
 } from "./db";
 import crypto from "crypto";
 import { generateProjectConfig, validateConfig, refineConfig } from "./onboardingAgent";
@@ -816,6 +820,87 @@ const transcriptionsRouter = router({
           .catch((err) => console.warn("[NER] Failed:", err));
       }
 
+      // Fire-and-forget: sync entity name edits from transcription fields
+      // If the user edited a field that contains an entity name (e.g., sender, recipient),
+      // and the document has linked entities, update the entity record to match.
+      (async () => {
+        try {
+          const { getDb } = await import("./db");
+          const { documentEntities: docEntTable, entities: entTable } = await import("../drizzle/schema");
+          const { eq, and, sql: sqlHelper } = await import("drizzle-orm");
+          const dbConn = (await getDb())!;
+
+          // Get entities linked to this document
+          const linkedEntities = await dbConn
+            .select({ entityId: docEntTable.entityId, contextSnippet: docEntTable.contextSnippet })
+            .from(docEntTable)
+            .where(eq(docEntTable.documentId, input.documentId));
+
+          if (linkedEntities.length === 0) return;
+
+          // Get the actual entity records
+          const entityIds = linkedEntities.map(le => le.entityId);
+          const entityRecords = await dbConn
+            .select({ id: entTable.id, name: entTable.name, type: entTable.type, canonicalId: entTable.canonicalId })
+            .from(entTable)
+            .where(and(
+              eq(entTable.projectId, input.projectId),
+              sqlHelper`${entTable.id} IN (${sqlHelper.raw(entityIds.join(","))})`
+            ));
+
+          // Check entity-related fields in the reviewed JSON (sender, recipient, creator, mentioned_entities)
+          const entityFields = ["sender", "recipient", "creator", "author"];
+          for (const field of entityFields) {
+            const newValue = input.reviewedJson[field];
+            if (typeof newValue !== "string" || !newValue.trim()) continue;
+
+            // Find if there's a person entity whose name was close to the old value
+            // and update it to the new value
+            const normalizedNew = newValue.trim().toLowerCase();
+            for (const entity of entityRecords) {
+              if (entity.canonicalId) continue; // skip merged entities
+              if (entity.type !== "person") continue;
+              // Check if the entity name is similar to the field value (fuzzy match)
+              const normalizedEntity = entity.name.toLowerCase();
+              // If the entity name appears in the field value or vice versa, sync it
+              if (normalizedEntity.includes(normalizedNew) || normalizedNew.includes(normalizedEntity)) {
+                if (entity.name !== newValue.trim()) {
+                  await dbConn
+                    .update(entTable)
+                    .set({ name: newValue.trim(), normalizedName: normalizedNew })
+                    .where(eq(entTable.id, entity.id));
+                  console.log(`[EntitySync] Updated entity #${entity.id} name: "${entity.name}" → "${newValue.trim()}"`);
+                }
+                break; // Only update one entity per field
+              }
+            }
+          }
+
+          // Also handle mentioned_entities array field
+          const mentionedEntities = input.reviewedJson["mentioned_entities"];
+          if (Array.isArray(mentionedEntities)) {
+            for (const mention of mentionedEntities) {
+              if (typeof mention !== "string" || !mention.trim()) continue;
+              const normalizedMention = mention.trim().toLowerCase();
+              for (const entity of entityRecords) {
+                if (entity.canonicalId) continue;
+                const normalizedEntity = entity.name.toLowerCase();
+                if (normalizedEntity === normalizedMention && entity.name !== mention.trim()) {
+                  await dbConn
+                    .update(entTable)
+                    .set({ name: mention.trim(), normalizedName: normalizedMention })
+                    .where(eq(entTable.id, entity.id));
+                  console.log(`[EntitySync] Updated entity #${entity.id} from mentioned_entities: "${entity.name}" → "${mention.trim()}"`);
+                  break;
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("[EntitySync] Failed:", err);
+        }
+      })();
+
       return { success: true };
     }),
 });
@@ -981,15 +1066,19 @@ import {
 } from "./db";
 
 const entitiesRouter = router({
-  /** List all entities for a project, optionally filtered by type */
+  /** List all entities for a project, optionally filtered by type and search term */
   list: protectedProcedure
     .input(z.object({
       projectId: z.number(),
       type: z.enum(["person", "location", "organization"]).optional(),
+      search: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      if (input.search && input.search.trim().length > 0) {
+        return searchEntitiesByNameOrAlias(input.projectId, input.search.trim(), input.type);
+      }
       return getEntitiesByProject(input.projectId, input.type);
     }),
 
@@ -1034,7 +1123,96 @@ const entitiesRouter = router({
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       const details = await getEntityDetails(input.projectId, input.entityId);
       if (!details) throw new TRPCError({ code: "NOT_FOUND", message: "Entity not found" });
-      return details;
+      const aliases = await getEntityAliases(input.entityId);
+      return { ...details, aliases };
+    }),
+
+  /** Update an entity's canonical name */
+  updateName: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      entityId: z.number(),
+      newName: z.string().min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role || role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      await updateEntityName(input.entityId, input.projectId, input.newName);
+      return { success: true };
+    }),
+
+  /** Export entities as TEI-XML authority file */
+  exportTeiXml: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const { getEntitiesByProject, getEntityAliasesBatch, getDb } = await import("./db");
+      const { documentEntities, documents } = await import("../drizzle/schema");
+      const { eq, inArray } = await import("drizzle-orm");
+
+      const allEntities = await getEntitiesByProject(input.projectId);
+      const entityIds = allEntities.map(e => e.id);
+      const allAliases = await getEntityAliasesBatch(entityIds);
+
+      // Get mention counts per entity
+      const db = (await getDb())!;
+      const mentionRows = entityIds.length > 0 ? await db
+        .select({
+          entityId: documentEntities.entityId,
+          documentId: documentEntities.documentId,
+          contextSnippet: documentEntities.contextSnippet,
+          filename: documents.filename,
+        })
+        .from(documentEntities)
+        .innerJoin(documents, eq(documents.id, documentEntities.documentId))
+        .where(inArray(documentEntities.entityId, entityIds)) : [];
+
+      // Group aliases and mentions by entity
+      const aliasesByEntity = new Map<number, typeof allAliases>();
+      for (const a of allAliases) {
+        if (!aliasesByEntity.has(a.entityId)) aliasesByEntity.set(a.entityId, []);
+        aliasesByEntity.get(a.entityId)!.push(a);
+      }
+      const mentionsByEntity = new Map<number, typeof mentionRows>();
+      for (const m of mentionRows) {
+        if (!mentionsByEntity.has(m.entityId)) mentionsByEntity.set(m.entityId, []);
+        mentionsByEntity.get(m.entityId)!.push(m);
+      }
+
+      // Build TEI-XML
+      const escXml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      const lines: string[] = [
+        `<?xml version="1.0" encoding="UTF-8"?>`,
+        `<entityRegistry project="${escXml(project.name)}" exported="${new Date().toISOString().split("T")[0]}" xmlns="http://www.tei-c.org/ns/1.0">`,
+      ];
+
+      for (const entity of allEntities) {
+        const aliases = aliasesByEntity.get(entity.id) || [];
+        const mentions = mentionsByEntity.get(entity.id) || [];
+        lines.push(`  <entity xml:id="ent_${entity.id}" type="${entity.type}">`);
+        lines.push(`    <canonical>${escXml(entity.name)}</canonical>`);
+        if (aliases.length > 0) {
+          lines.push(`    <variants>`);
+          for (const a of aliases) {
+            const langAttr = a.language ? ` xml:lang="${a.language}"` : "";
+            lines.push(`      <variant${langAttr}>${escXml(a.alias)}</variant>`);
+          }
+          lines.push(`    </variants>`);
+        }
+        lines.push(`    <mentions count="${mentions.length}">`);
+        // Include up to 10 representative mentions
+        for (const m of mentions.slice(0, 10)) {
+          const ctx = m.contextSnippet ? ` context="${escXml(m.contextSnippet)}"` : "";
+          lines.push(`      <ref target="doc_${m.documentId}" source="${escXml(m.filename)}"${ctx}/>`);
+        }
+        lines.push(`    </mentions>`);
+        lines.push(`  </entity>`);
+      }
+
+      lines.push(`</entityRegistry>`);
+      return { xml: lines.join("\n"), filename: `${project.name.replace(/[^a-zA-Z0-9]/g, "_")}_entities.xml` };
     }),
 
   /** Re-extract entities for all reviewed documents (backfill) */

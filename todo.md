@@ -319,3 +319,9 @@
 - [x] Inject glossary into system prompt at runtime in transcription engine (buildRuntimePrompt)
 - [x] Add cleanSystemPrompt post-processing to strip any embedded schema/glossary from generated prompts
 - [x] Add ensureDublinCoreFields post-processing to guarantee core fields are always present
+
+## Features (Round 30) — Entity Aliases, TEI-XML Export, Entity Sync
+- [x] Show merged variant names (aliases) on entity detail panel
+- [x] Search entities by alias/variant names (not just canonical name)
+- [x] TEI-XML entity export (authority file with numeric IDs, canonical names, all variants, mention refs)
+- [x] Sync entity name edits from transcription review back to the entity record

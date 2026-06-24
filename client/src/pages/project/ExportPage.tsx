@@ -11,7 +11,7 @@ interface Props {
 }
 
 export default function ExportPage({ projectId, project }: Props) {
-  const [exporting, setExporting] = useState<"csv" | "json" | null>(null);
+  const [exporting, setExporting] = useState<"csv" | "json" | "tei" | null>(null);
 
   const exportCsv = trpc.export.csv.useMutation({
     onSuccess: (data: { csv: string; count: number }) => {
@@ -29,6 +29,11 @@ export default function ExportPage({ projectId, project }: Props) {
   });
 
   const { refetch: fetchJson } = trpc.export.jsonZip.useQuery(
+    { projectId },
+    { enabled: false }
+  );
+
+  const { refetch: fetchTeiXml } = trpc.entities.exportTeiXml.useQuery(
     { projectId },
     { enabled: false }
   );
@@ -126,19 +131,52 @@ export default function ExportPage({ projectId, project }: Props) {
         </div>
       </div>
 
-      {/* TEI-XML coming soon */}
-      <div className="mt-5 bg-card border border-dashed border-border rounded-xl p-6 opacity-60">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center flex-shrink-0">
+      {/* TEI-XML Entity Export */}
+      <div className="mt-5 bg-card border border-border rounded-xl p-6 hover:border-primary/30 transition-colors">
+        <div className="flex items-start gap-4 mb-4">
+          <div className="w-10 h-10 rounded-lg bg-purple-500/15 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
             <FileText className="w-5 h-5 text-purple-400" />
           </div>
           <div>
-            <h3 className="font-semibold mb-0.5">TEI-XML Export <span className="text-xs font-normal text-muted-foreground ml-2">Coming soon</span></h3>
-            <p className="text-xs text-muted-foreground">
-              Text Encoding Initiative XML format for academic digital humanities publishing and archival standards compliance.
+            <h3 className="font-semibold mb-1">TEI-XML Entity Authority File</h3>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Export your named entity registry as a TEI-XML authority file. Each entity gets a unique numeric ID with all variant names (aliases),
+              document mentions, and type classification. Ideal for linking across digital humanities projects.
             </p>
           </div>
         </div>
+        <div className="text-xs text-muted-foreground mb-4 space-y-1">
+          <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-400" /> Unique numeric IDs for each entity</div>
+          <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-400" /> All variant names / aliases included</div>
+          <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-400" /> Document mention references with context</div>
+        </div>
+        <Button
+          variant="outline"
+          className="w-full gap-2 bg-transparent"
+          onClick={async () => {
+            setExporting("tei");
+            try {
+              const result = await fetchTeiXml();
+              if (result.data) {
+                const blob = new Blob([result.data.xml], { type: "application/xml" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = result.data.filename;
+                a.click();
+                URL.revokeObjectURL(url);
+                toast.success("TEI-XML entity file exported");
+              }
+            } catch (err: any) {
+              toast.error(err.message || "Export failed");
+            }
+            setExporting(null);
+          }}
+          disabled={!!exporting}
+        >
+          {exporting === "tei" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+          {exporting === "tei" ? "Exporting…" : "Download TEI-XML"}
+        </Button>
       </div>
     </div>
   );
