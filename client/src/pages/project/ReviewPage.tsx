@@ -448,18 +448,20 @@ function EntityTag({ entity }: { entity: DocEntity }) {
 function FieldEntityAnnotations({ value, entities }: { value: unknown; entities?: DocEntity[] }) {
   if (!entities || entities.length === 0 || typeof value !== "string" || !value.trim()) return null;
   
-  // Find entities whose name appears in this field value
+  // Find entities whose name appears in this field value (or vice versa)
+  const normalizedVal = value.toLowerCase().trim();
   const matches = entities.filter(e => {
-    const normalizedVal = value.toLowerCase();
-    const normalizedName = e.name.toLowerCase();
-    return normalizedVal.includes(normalizedName) || normalizedName.includes(normalizedVal.trim());
+    const normalizedName = e.name.toLowerCase().trim();
+    // Match if field contains entity name, or entity name contains field value (for short fields like "Alexandria")
+    if (normalizedVal.length < 3 || normalizedName.length < 3) return false;
+    return normalizedVal.includes(normalizedName) || normalizedName.includes(normalizedVal);
   });
 
   if (matches.length === 0) return null;
 
   return (
-    <span className="inline-flex items-center gap-0.5 ml-1">
-      {matches.map(e => <EntityTag key={e.id} entity={e} />)}
+    <span className="inline-flex items-center gap-0.5 flex-wrap ml-1">
+      {matches.slice(0, 5).map(e => <EntityTag key={e.id} entity={e} />)}
     </span>
   );
 }
@@ -494,29 +496,34 @@ function DynamicField({
   if (fieldDef.type === "array" || fieldDef.displayHint === "tag_list") {
     const arr = Array.isArray(value) ? (value as unknown[]) : [];
     const [tagInput, setTagInput] = useState("");
+    
+    // Match each array item to an entity
+    const getEntityForTag = (tag: unknown): DocEntity | undefined => {
+      if (typeof tag !== "string" || !entities || entities.length === 0) return undefined;
+      const normalizedTag = tag.toLowerCase().trim();
+      return entities.find(e => {
+        const normalizedName = e.name.toLowerCase().trim();
+        return normalizedName === normalizedTag || normalizedName.includes(normalizedTag) || normalizedTag.includes(normalizedName);
+      });
+    };
+
     return (
       <div>
-        <Label className="text-sm mb-1.5 block capitalize">
-          {label}
-          {arr.length > 0 && entities && entities.length > 0 && (
-            <span className="inline-flex items-center gap-0.5 ml-1">
-              {arr.filter(tag => typeof tag === "string").flatMap(tag => 
-                entities.filter(e => e.name.toLowerCase() === String(tag).toLowerCase())
-              ).slice(0, 5).map(e => <EntityTag key={e.id} entity={e} />)}
-            </span>
-          )}
-        </Label>
+        <Label className="text-sm mb-1.5 block capitalize">{label}</Label>
         {fieldDef.description && <p className="text-xs text-muted-foreground mb-2">{fieldDef.description}</p>}
         <div className="flex flex-wrap gap-1.5 mb-2 min-h-[24px]">
-          {arr.map((tag, i) => (
-            <span
-              key={i}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/15 text-primary text-xs cursor-pointer hover:bg-destructive/15 hover:text-destructive transition-colors"
-              onClick={() => onChange(arr.filter((_, j) => j !== i))}
-            >
-              {String(tag)} ×
-            </span>
-          ))}
+          {arr.map((tag, i) => {
+            const matchedEntity = getEntityForTag(tag);
+            return (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/15 text-primary text-xs cursor-pointer hover:bg-destructive/15 hover:text-destructive transition-colors"
+                onClick={() => onChange(arr.filter((_, j) => j !== i))}
+              >
+                {String(tag)}{matchedEntity && <EntityTag entity={matchedEntity} />} ×
+              </span>
+            );
+          })}
           {arr.length === 0 && <span className="text-xs text-muted-foreground italic">No items</span>}
         </div>
         <div className="flex gap-2">
