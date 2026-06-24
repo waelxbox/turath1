@@ -6,6 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { toast } from "sonner";
 import {
   Users,
   MapPin,
@@ -19,6 +22,8 @@ import {
   Network,
   List,
   Merge,
+  CheckSquare,
+  X,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -55,6 +60,65 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [selectedEntityId, setSelectedEntityId] = useState<number | null>(null);
   const [, navigate] = useLocation();
+
+  // Manual merge state
+  const [mergeMode, setMergeMode] = useState(false);
+  const [selectedForMerge, setSelectedForMerge] = useState<Set<number>>(new Set());
+  const [showMergeDialog, setShowMergeDialog] = useState(false);
+  const [canonicalName, setCanonicalName] = useState("");
+  const [isMerging, setIsMerging] = useState(false);
+  const utils = trpc.useUtils();
+
+  const manualMergeMutation = trpc.merge.manual.useMutation({
+    onSuccess: () => {
+      toast.success("Entities merged successfully");
+      utils.entities.list.invalidate();
+      utils.entities.stats.invalidate();
+      utils.merge.stats.invalidate();
+      setSelectedForMerge(new Set());
+      setMergeMode(false);
+      setShowMergeDialog(false);
+      setIsMerging(false);
+      setSelectedEntityId(null);
+    },
+    onError: (err) => {
+      toast.error(`Merge failed: ${err.message}`);
+      setIsMerging(false);
+    },
+  });
+
+  const toggleMergeSelection = (entityId: number) => {
+    setSelectedForMerge(prev => {
+      const next = new Set(prev);
+      if (next.has(entityId)) {
+        next.delete(entityId);
+      } else {
+        next.add(entityId);
+      }
+      return next;
+    });
+  };
+
+  const openMergeDialog = () => {
+    if (selectedForMerge.size < 2) {
+      toast.error("Select at least 2 entities to merge");
+      return;
+    }
+    // Default canonical name to the first selected entity's name
+    const firstSelected = allEntities?.find(e => e.id === Array.from(selectedForMerge)[0]);
+    setCanonicalName(firstSelected?.name || "");
+    setShowMergeDialog(true);
+  };
+
+  const handleManualMerge = () => {
+    if (!canonicalName.trim() || selectedForMerge.size < 2) return;
+    setIsMerging(true);
+    manualMergeMutation.mutate({
+      projectId,
+      canonicalName: canonicalName.trim(),
+      entityIds: Array.from(selectedForMerge),
+    });
+  };
 
   // Fetch all entities for the master list
   const { data: allEntities, isLoading: listLoading } = trpc.entities.list.useQuery({
@@ -115,13 +179,25 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
             </div>
             <div className="flex items-center gap-1">
               <Button
+                variant={mergeMode ? "default" : "ghost"}
+                size="sm"
+                className={`text-xs gap-1.5 h-7 ${mergeMode ? "" : "text-muted-foreground hover:text-foreground"}`}
+                onClick={() => {
+                  setMergeMode(!mergeMode);
+                  setSelectedForMerge(new Set());
+                }}
+              >
+                <CheckSquare className="w-3.5 h-3.5" />
+                {mergeMode ? "Cancel" : "Select"}
+              </Button>
+              <Button
                 variant="ghost"
                 size="sm"
                 className="text-xs text-muted-foreground hover:text-foreground gap-1.5 h-7"
                 onClick={() => navigate("/entities/merge")}
               >
                 <Merge className="w-3.5 h-3.5" />
-                Merge
+                AI Merge
               </Button>
               <Button
                 variant="ghost"
@@ -197,17 +273,26 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
                   </div>
                   {groupedEntities[letter].map((entity) => {
                     const isActive = selectedEntityId === entity.id;
+                    const isChecked = selectedForMerge.has(entity.id);
                     return (
                       <button
                         key={entity.id}
-                        onClick={() => setSelectedEntityId(entity.id)}
+                        onClick={() => mergeMode ? toggleMergeSelection(entity.id) : setSelectedEntityId(entity.id)}
                         className={`w-full text-left px-4 py-2.5 flex items-center gap-3 transition-colors hover:bg-muted/60 ${
-                          isActive ? "bg-muted border-l-2 border-amber-400" : "border-l-2 border-transparent"
+                          isActive && !mergeMode ? "bg-muted border-l-2 border-amber-400" : isChecked ? "bg-amber-500/10 border-l-2 border-amber-400" : "border-l-2 border-transparent"
                         }`}
                       >
-                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${TYPE_DOT_COLORS[entity.type] || "bg-slate-400"}`} />
+                        {mergeMode && (
+                          <Checkbox
+                            checked={isChecked}
+                            onCheckedChange={() => toggleMergeSelection(entity.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex-shrink-0"
+                          />
+                        )}
+                        {!mergeMode && <div className={`w-2 h-2 rounded-full flex-shrink-0 ${TYPE_DOT_COLORS[entity.type] || "bg-slate-400"}`} />}
                         <div className="min-w-0 flex-1">
-                          <p className={`text-sm truncate ${isActive ? "font-medium" : ""}`}>
+                          <p className={`text-sm truncate ${isActive && !mergeMode ? "font-medium" : ""}`}>
                             {entity.name}
                           </p>
                         </div>
@@ -218,8 +303,7 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
                           {TYPE_LABELS[entity.type] || entity.type}
                         </Badge>
                       </button>
-                    );
-                  })}
+                    );                  })}
                 </div>
               ))}
             </div>
@@ -354,6 +438,86 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
           </div>
         ) : null}
       </div>
+
+      {/* ─── Merge Mode Floating Action Bar ─────────────────────────── */}
+      {mergeMode && selectedForMerge.size > 0 && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50">
+          <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-card border border-amber-500/30 shadow-lg shadow-amber-500/10">
+            <span className="text-sm font-medium">
+              {selectedForMerge.size} selected
+            </span>
+            <Button
+              size="sm"
+              className="gap-1.5 bg-amber-600 hover:bg-amber-700 text-white"
+              onClick={openMergeDialog}
+              disabled={selectedForMerge.size < 2}
+            >
+              <Merge className="h-3.5 w-3.5" />
+              Merge Selected
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setSelectedForMerge(new Set())}
+            >
+              <X className="h-3.5 w-3.5" />
+              Clear
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Manual Merge Dialog ────────────────────────────────────── */}
+      <Dialog open={showMergeDialog} onOpenChange={setShowMergeDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Merge className="h-5 w-5 text-amber-400" />
+              Merge Entities
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <p className="text-sm text-muted-foreground mb-2">
+                Merging {selectedForMerge.size} entities into one:
+              </p>
+              <div className="flex flex-wrap gap-1.5 mb-4">
+                {Array.from(selectedForMerge).map(id => {
+                  const entity = allEntities?.find(e => e.id === id);
+                  return entity ? (
+                    <Badge key={id} variant="outline" className="text-xs">
+                      {entity.name}
+                    </Badge>
+                  ) : null;
+                })}
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Canonical name</label>
+              <Input
+                value={canonicalName}
+                onChange={(e) => setCanonicalName(e.target.value)}
+                placeholder="Enter the preferred name..."
+                className="h-9"
+              />
+              <p className="text-xs text-muted-foreground mt-1.5">
+                This will be the primary name shown everywhere. Other names become aliases.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowMergeDialog(false)}>Cancel</Button>
+            <Button
+              className="gap-1.5 bg-amber-600 hover:bg-amber-700 text-white"
+              onClick={handleManualMerge}
+              disabled={isMerging || !canonicalName.trim()}
+            >
+              {isMerging ? <Loader2 className="h-4 w-4 animate-spin" /> : <Merge className="h-4 w-4" />}
+              Confirm Merge
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

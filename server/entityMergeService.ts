@@ -737,3 +737,68 @@ export async function skipMerge(suggestionId: number): Promise<void> {
     .set({ status: "skipped", reviewedAt: new Date() })
     .where(eq(mergeSuggestions.id, suggestionId));
 }
+
+/**
+ * Manual merge — user-initiated merge without a pre-existing suggestion.
+ * Creates a suggestion record for audit trail, then executes the merge.
+ */
+export async function manualMerge(
+  projectId: number,
+  canonicalName: string,
+  entityIds: number[],
+): Promise<void> {
+  const db = (await getDb())!;
+
+  if (entityIds.length < 2) return;
+
+  // Create an audit-trail suggestion record
+  const [suggestion] = await db.insert(mergeSuggestions).values({
+    projectId,
+    entityIds,
+    suggestedCanonical: canonicalName,
+    confidence: "high",
+    reasoning: "Manual merge by user",
+    status: "accepted",
+    reviewedAt: new Date(),
+  }).returning();
+
+  // Pick the first entity as canonical
+  const canonicalEntityId = entityIds[0];
+  const otherIds = entityIds.slice(1);
+
+  // Update canonical entity name
+  await db
+    .update(entities)
+    .set({ name: canonicalName })
+    .where(eq(entities.id, canonicalEntityId));
+
+  // For each non-canonical entity:
+  for (const otherId of otherIds) {
+    const [otherEntity] = await db
+      .select({ name: entities.name })
+      .from(entities)
+      .where(eq(entities.id, otherId));
+
+    if (otherEntity) {
+      // Store as alias of the canonical entity
+      await db.insert(entityAliases).values({
+        entityId: canonicalEntityId,
+        alias: otherEntity.name,
+        normalizedAlias: normalizeForComparison(otherEntity.name),
+        language: isArabic(otherEntity.name) ? "ar" : "other",
+      });
+    }
+
+    // Reassign all document_entities links from other → canonical
+    await db
+      .update(documentEntities)
+      .set({ entityId: canonicalEntityId })
+      .where(eq(documentEntities.entityId, otherId));
+
+    // Mark the other entity as merged (set canonicalId)
+    await db
+      .update(entities)
+      .set({ canonicalId: canonicalEntityId })
+      .where(eq(entities.id, otherId));
+  }
+}

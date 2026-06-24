@@ -48,7 +48,7 @@ import { storagePut } from "./storage";
 import { TRPCError } from "@trpc/server";
 import { embedTranscription, semanticSearch } from "./embeddingService";
 import { extractAndStoreEntities } from "./nerService";
-import { generateMergeSuggestions, executeMerge, rejectMerge, skipMerge, processMergeStep } from "./entityMergeService";
+import { generateMergeSuggestions, executeMerge, rejectMerge, skipMerge, processMergeStep, manualMerge } from "./entityMergeService";
 import { invokeLLM } from "./_core/llm";
 import { seedDemoProject } from "./demoSeed";
 
@@ -1330,6 +1330,22 @@ const mergeRouter = router({
         throw new TRPCError({ code: "FORBIDDEN" });
       }
       await skipMerge(input.suggestionId);
+      return { success: true };
+    }),
+
+  /** Manual merge — user selects entities to merge without AI suggestion */
+  manual: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      canonicalName: z.string().min(1),
+      entityIds: z.array(z.number()).min(2),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role || role === "viewer") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only owners and editors can merge entities" });
+      }
+      await manualMerge(input.projectId, input.canonicalName, input.entityIds);
       return { success: true };
     }),
 

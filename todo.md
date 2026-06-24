@@ -305,3 +305,8 @@
 - [x] Update document sidebar with infinite scroll (load more on scroll to bottom)
 - [x] Add document search/filter input in sidebar header
 - [x] Batch transcribe already processes in chunks of 3 concurrently (works fine for 2000 docs)
+
+## Features (Round 28) — Manual Entity Merge
+- [x] Add manual merge UI: select two or more entities from the entity list and merge them
+- [x] Add backend mutation for manual merge (reuse existing merge logic, just user-initiated)
+- [x] Show merge button/action when multiple entities are selected
