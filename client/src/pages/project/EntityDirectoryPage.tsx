@@ -58,7 +58,12 @@ const TYPE_DOT_COLORS: Record<string, string> = {
 export default function EntityDirectoryPage({ projectId }: { projectId: number }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
-  const [selectedEntityId, setSelectedEntityId] = useState<number | null>(null);
+  const [selectedEntityId, setSelectedEntityId] = useState<number | null>(() => {
+    // Check URL hash for pre-selected entity (e.g., #entity=42)
+    const hash = window.location.hash;
+    const match = hash.match(/entity=(\d+)/);
+    return match ? parseInt(match[1], 10) : null;
+  });
   const [, navigate] = useLocation();
 
   // Manual merge state

@@ -365,6 +365,7 @@ function ReviewDocPanel({
                     value={getNestedValue(editedFields, key)}
                     onChange={v => setEditedFields(prev => setNestedValue(prev, key, v))}
                     entities={docEntities}
+                    projectId={projectId}
                   />
                 ))
               ) : (
@@ -426,33 +427,52 @@ function ReviewDocPanel({
 
 type DocEntity = { id: number; name: string; type: "person" | "location" | "organization"; contextSnippet: string | null };
 
-function EntityTag({ entity }: { entity: DocEntity }) {
-  const [, navigate] = useLocation();
+function EntityTag({ entity, projectId }: { entity: DocEntity; projectId?: number }) {
+  const [showTooltip, setShowTooltip] = useState(false);
   const colors: Record<string, string> = {
     person: "bg-orange-500/20 text-orange-300 border-orange-500/40",
     location: "bg-green-500/20 text-green-300 border-green-500/40",
     organization: "bg-indigo-500/20 text-indigo-300 border-indigo-500/40",
   };
+  const typeLabels: Record<string, string> = { person: "Person", location: "Place", organization: "Organization" };
+  
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    // Navigate to entity directory with this entity pre-selected
+    if (projectId) {
+      window.location.href = `/projects/${projectId}/entities#entity=${entity.id}`;
+    }
+  };
+
   return (
-    <button
-      type="button"
-      className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded text-[10px] font-mono border cursor-pointer hover:opacity-80 transition-opacity ml-1 ${colors[entity.type] || "bg-muted text-muted-foreground border-border"}`}
-      onClick={() => navigate("/entities")}
-      title={`${entity.name} (${entity.type}) — click to view in Entity Directory`}
-    >
-      #{entity.id}
-    </button>
+    <span className="relative inline-flex">
+      <button
+        type="button"
+        className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded text-[10px] font-mono border cursor-pointer hover:scale-105 transition-transform ${colors[entity.type] || "bg-muted text-muted-foreground border-border"}`}
+        onClick={handleClick}
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+      >
+        #{entity.id}
+      </button>
+      {showTooltip && (
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 rounded bg-popover border border-border shadow-lg text-[11px] whitespace-nowrap z-50 pointer-events-none">
+          <span className="font-medium text-foreground">{entity.name}</span>
+          <span className="text-muted-foreground ml-1">({typeLabels[entity.type] || entity.type})</span>
+        </div>
+      )}
+    </span>
   );
 }
 
-function FieldEntityAnnotations({ value, entities }: { value: unknown; entities?: DocEntity[] }) {
+function FieldEntityAnnotations({ value, entities, projectId }: { value: unknown; entities?: DocEntity[]; projectId?: number }) {
   if (!entities || entities.length === 0 || typeof value !== "string" || !value.trim()) return null;
   
   // Find entities whose name appears in this field value (or vice versa)
   const normalizedVal = value.toLowerCase().trim();
   const matches = entities.filter(e => {
     const normalizedName = e.name.toLowerCase().trim();
-    // Match if field contains entity name, or entity name contains field value (for short fields like "Alexandria")
     if (normalizedVal.length < 3 || normalizedName.length < 3) return false;
     return normalizedVal.includes(normalizedName) || normalizedName.includes(normalizedVal);
   });
@@ -460,8 +480,8 @@ function FieldEntityAnnotations({ value, entities }: { value: unknown; entities?
   if (matches.length === 0) return null;
 
   return (
-    <span className="inline-flex items-center gap-0.5 flex-wrap ml-1">
-      {matches.slice(0, 5).map(e => <EntityTag key={e.id} entity={e} />)}
+    <span className="inline-flex items-center gap-0.5 flex-wrap">
+      {matches.slice(0, 5).map(e => <EntityTag key={e.id} entity={e} projectId={projectId} />)}
     </span>
   );
 }
@@ -473,6 +493,7 @@ function DynamicField({
   value,
   onChange,
   entities,
+  projectId,
 }: {
   fieldKey: string;
   label: string;
@@ -480,6 +501,7 @@ function DynamicField({
   value: unknown;
   onChange: (v: unknown) => void;
   entities?: DocEntity[];
+  projectId?: number;
 }) {
   if (fieldDef.type === "boolean") {
     return (
@@ -517,10 +539,14 @@ function DynamicField({
             return (
               <span
                 key={i}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/15 text-primary text-xs cursor-pointer hover:bg-destructive/15 hover:text-destructive transition-colors"
-                onClick={() => onChange(arr.filter((_, j) => j !== i))}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/15 text-primary text-xs"
               >
-                {String(tag)}{matchedEntity && <EntityTag entity={matchedEntity} />} ×
+                {String(tag)}{matchedEntity && <EntityTag entity={matchedEntity} projectId={projectId} />}
+                <button
+                  type="button"
+                  className="ml-0.5 hover:text-destructive transition-colors"
+                  onClick={() => onChange(arr.filter((_, j) => j !== i))}
+                >×</button>
               </span>
             );
           })}
@@ -551,10 +577,7 @@ function DynamicField({
   if (isLong) {
     return (
       <div>
-        <Label className="text-sm mb-1.5 block capitalize">
-          {label}
-          <FieldEntityAnnotations value={value} entities={entities} />
-        </Label>
+        <Label className="text-sm mb-1.5 block capitalize">{label}</Label>
         {fieldDef.description && <p className="text-xs text-muted-foreground mb-2">{fieldDef.description}</p>}
         <Textarea
           value={strVal}
@@ -562,22 +585,23 @@ function DynamicField({
           className="bg-background text-sm resize-none"
           rows={4}
         />
+        <FieldEntityAnnotations value={value} entities={entities} projectId={projectId} />
       </div>
     );
   }
 
   return (
     <div>
-      <Label className="text-sm mb-1.5 block capitalize">
-        {label}
-        <FieldEntityAnnotations value={value} entities={entities} />
-      </Label>
+      <Label className="text-sm mb-1.5 block capitalize">{label}</Label>
       {fieldDef.description && <p className="text-xs text-muted-foreground mb-2">{fieldDef.description}</p>}
-      <Input
-        value={strVal}
-        onChange={e => onChange(e.target.value)}
-        className="bg-background text-sm"
-      />
+      <div className="flex items-center gap-2">
+        <Input
+          value={strVal}
+          onChange={e => onChange(e.target.value)}
+          className="bg-background text-sm flex-1"
+        />
+        <FieldEntityAnnotations value={value} entities={entities} projectId={projectId} />
+      </div>
     </div>
   );
 }
