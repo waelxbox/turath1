@@ -427,3 +427,10 @@
 - [x] Add 3D depth/texture to blocks (stone look, not flat yellow rectangles)
 - [x] Add document image viewer back into Pyramid Mode
 - [x] Make pyramid visually fill the available space correctly
+
+## Pyramid Mode Redesign v2 (Round 42)
+- [x] Compact elegant pyramid widget in header (not full-screen)
+- [x] Side-by-side layout on desktop (image left, review right)
+- [x] Mobile: collapsible image panel with tap to show/hide
+- [x] Pyramid is always visible as progress indicator
+- [x] Polished visual style with desert night sky, gradient stones, gold capstone
