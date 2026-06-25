@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   CheckCircle2, Edit3, SkipForward, Loader2,
-  Flame, Zap, Star, Trophy
+  Flame, Zap, Star, Trophy, ImageIcon, Maximize2, X, Minus, Plus
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
@@ -14,11 +14,13 @@ interface Props {
   projectId: number;
 }
 
-// Pyramid configuration
-const BLOCKS_PER_ROW = [15, 13, 11, 9, 7, 5, 3, 1]; // bottom to top (8 rows)
-const TOTAL_BLOCKS = BLOCKS_PER_ROW.reduce((a, b) => a + b, 0); // 64 blocks total
+// Pyramid configuration — 10 rows, bottom-up, each row is narrower
+// Row 0 = bottom (widest), Row 9 = top (capstone)
+const BLOCKS_PER_ROW = [11, 10, 9, 8, 7, 6, 5, 4, 3, 1]; // bottom to top
+const TOTAL_BLOCKS = BLOCKS_PER_ROW.reduce((a, b) => a + b, 0); // 64 blocks
 
-// Calculate which row and position a block index falls into
+// Calculate which row and column a block index falls into
+// Blocks fill from bottom row (row 0) left-to-right, then move up
 function getBlockPosition(blockIndex: number): { row: number; col: number; rowWidth: number } {
   let remaining = blockIndex;
   for (let row = 0; row < BLOCKS_PER_ROW.length; row++) {
@@ -30,7 +32,7 @@ function getBlockPosition(blockIndex: number): { row: number; col: number; rowWi
   return { row: BLOCKS_PER_ROW.length - 1, col: 0, rowWidth: 1 };
 }
 
-// SVG Pyramid component
+// SVG Pyramid component — proper bottom-up stacking with textured blocks
 function PyramidVisualization({
   filledBlocks,
   totalBlocks,
@@ -44,120 +46,189 @@ function PyramidVisualization({
   animatingBlock: number | null;
   pagesCompleted: number;
 }) {
-  const pyramidWidth = 320;
-  const pyramidHeight = 240;
-  const blockHeight = pyramidHeight / BLOCKS_PER_ROW.length;
-  const maxRowWidth = pyramidWidth * 0.9;
+  const W = 300; // viewBox width
+  const H = 200; // viewBox height
+  const padding = 10;
+  const usableW = W - padding * 2;
+  const usableH = H - padding * 2;
+  const numRows = BLOCKS_PER_ROW.length;
+  const blockH = usableH / numRows;
+  const maxRowBlocks = BLOCKS_PER_ROW[0]; // widest row (bottom)
 
   // Calculate pyramid stage name
   const progress = filledBlocks / totalBlocks;
-  const stageName = progress >= 1 ? "Capstone" :
-    progress >= 0.75 ? "Upper Chambers" :
-    progress >= 0.5 ? "Mid Section" :
-    progress >= 0.25 ? "Lower Chambers" : "Foundation";
+  const stageName = progress >= 1 ? "Complete!" :
+    progress >= 0.8 ? "Capstone" :
+    progress >= 0.6 ? "Upper Chambers" :
+    progress >= 0.4 ? "Mid Section" :
+    progress >= 0.2 ? "Lower Chambers" : "Foundation";
 
   return (
-    <div className="relative flex flex-col items-center">
+    <div className="relative flex flex-col items-center h-full">
       {/* Desert sky gradient background */}
       <div className="absolute inset-0 rounded-lg overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-[#1a0a2e] via-[#2d1b4e] to-[#d4a574]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#0c0618] via-[#1a0d3a] to-[#3d2b1f]" />
         {/* Stars */}
-        <div className="absolute top-2 left-4 w-1 h-1 bg-white/60 rounded-full" />
-        <div className="absolute top-6 left-12 w-0.5 h-0.5 bg-white/40 rounded-full" />
-        <div className="absolute top-3 right-8 w-1 h-1 bg-white/50 rounded-full" />
-        <div className="absolute top-8 right-16 w-0.5 h-0.5 bg-white/30 rounded-full" />
-        <div className="absolute top-5 left-1/3 w-0.5 h-0.5 bg-white/40 rounded-full" />
-        {/* Sand dunes at bottom */}
-        <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-[#c4956a] to-transparent" />
+        {[...Array(8)].map((_, i) => (
+          <div
+            key={i}
+            className="absolute rounded-full bg-white"
+            style={{
+              width: `${1 + Math.random()}px`,
+              height: `${1 + Math.random()}px`,
+              top: `${5 + Math.random() * 30}%`,
+              left: `${5 + Math.random() * 90}%`,
+              opacity: 0.3 + Math.random() * 0.4,
+            }}
+          />
+        ))}
+        {/* Sand ground */}
+        <div className="absolute bottom-0 left-0 right-0 h-[20%] bg-gradient-to-t from-[#8b6914]/40 to-transparent" />
       </div>
 
       {/* Pyramid SVG */}
       <svg
-        viewBox={`0 0 ${pyramidWidth} ${pyramidHeight}`}
-        className="relative z-10 w-full max-w-[320px] h-auto"
-        style={{ filter: "drop-shadow(0 4px 12px rgba(0,0,0,0.3))" }}
+        viewBox={`0 0 ${W} ${H}`}
+        className="relative z-10 w-full h-full"
+        preserveAspectRatio="xMidYMax meet"
       >
-        {/* Pyramid outline (ghost) */}
-        <polygon
-          points={`${pyramidWidth / 2},8 ${pyramidWidth * 0.05},${pyramidHeight - 4} ${pyramidWidth * 0.95},${pyramidHeight - 4}`}
-          fill="none"
-          stroke="rgba(255,255,255,0.1)"
-          strokeWidth="1"
-          strokeDasharray="4 4"
-        />
+        <defs>
+          {/* Stone texture gradient */}
+          <linearGradient id="stoneBase" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#d4a56a" />
+            <stop offset="50%" stopColor="#b8894e" />
+            <stop offset="100%" stopColor="#9c7040" />
+          </linearGradient>
+          <linearGradient id="stoneMid" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#e8c88a" />
+            <stop offset="50%" stopColor="#d4a86a" />
+            <stop offset="100%" stopColor="#c49555" />
+          </linearGradient>
+          <linearGradient id="stoneTop" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#ffd700" />
+            <stop offset="50%" stopColor="#e6b800" />
+            <stop offset="100%" stopColor="#cc9900" />
+          </linearGradient>
+          <linearGradient id="stoneGold" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#ffd700" />
+            <stop offset="50%" stopColor="#ffed4a" />
+            <stop offset="100%" stopColor="#f59e0b" />
+          </linearGradient>
+          {/* Block shadow filter */}
+          <filter id="blockShadow" x="-10%" y="-10%" width="120%" height="130%">
+            <feDropShadow dx="0.5" dy="1" stdDeviation="0.5" floodOpacity="0.3" />
+          </filter>
+        </defs>
 
-        {/* Filled blocks */}
+        {/* Ghost outline of full pyramid */}
+        {BLOCKS_PER_ROW.map((rowBlocks, rowIdx) => {
+          // Row 0 = bottom, positioned at bottom of SVG
+          const rowY = padding + usableH - (rowIdx + 1) * blockH;
+          const rowW = (rowBlocks / maxRowBlocks) * usableW;
+          const rowX = (W - rowW) / 2;
+          return (
+            <rect
+              key={`ghost-${rowIdx}`}
+              x={rowX}
+              y={rowY}
+              width={rowW}
+              height={blockH}
+              fill="none"
+              stroke="rgba(255,255,255,0.06)"
+              strokeWidth="0.5"
+              strokeDasharray="2 2"
+              rx={1}
+            />
+          );
+        })}
+
+        {/* Filled blocks — bottom up, left to right */}
         {Array.from({ length: Math.min(filledBlocks, totalBlocks) }).map((_, i) => {
           const { row, col, rowWidth } = getBlockPosition(i);
-          const rowY = pyramidHeight - (row + 1) * blockHeight;
-          const blockWidth = maxRowWidth * (rowWidth / BLOCKS_PER_ROW[0]);
-          const singleBlockW = blockWidth / rowWidth;
-          const rowStartX = (pyramidWidth - blockWidth) / 2;
-          const blockX = rowStartX + col * singleBlockW;
+          // Row 0 at bottom of SVG
+          const rowY = padding + usableH - (row + 1) * blockH;
+          const rowW = (rowWidth / maxRowBlocks) * usableW;
+          const rowX = (W - rowW) / 2;
+          const singleBlockW = rowW / rowWidth;
+          const blockX = rowX + col * singleBlockW;
 
           const isAnimating = animatingBlock === i;
           const isCorrection = isAnimating && lastBlockIsCorrection;
-          const isLastRow = row === BLOCKS_PER_ROW.length - 1; // capstone
 
-          // Color based on position and type
-          let fill = "#c4956a"; // sandstone base
-          if (row >= 6) fill = "#ffd700"; // gold top
-          else if (row >= 4) fill = "#e8c88a"; // limestone mid
-          if (isCorrection) fill = "#fbbf24"; // golden for corrections
+          // Gradient based on row height
+          let gradientId = "stoneBase";
+          if (row >= 7) gradientId = "stoneTop";
+          else if (row >= 4) gradientId = "stoneMid";
+          if (isCorrection) gradientId = "stoneGold";
+
+          const gap = 0.8;
 
           return (
-            <motion.rect
-              key={i}
-              x={blockX + 0.5}
-              y={rowY + 0.5}
-              width={singleBlockW - 1}
-              height={blockHeight - 1}
-              rx={1}
-              fill={fill}
-              stroke="rgba(0,0,0,0.3)"
-              strokeWidth={0.5}
-              initial={isAnimating ? { opacity: 0, y: rowY - 20, scale: 0.5 } : { opacity: 1 }}
-              animate={{
-                opacity: 1,
-                y: rowY + 0.5,
-                scale: 1,
-              }}
-              transition={isAnimating ? {
-                type: "spring",
-                stiffness: 300,
-                damping: 20,
-                duration: 0.5,
-              } : { duration: 0 }}
-            />
+            <motion.g key={i}>
+              {/* Main block */}
+              <motion.rect
+                x={blockX + gap}
+                y={rowY + gap}
+                width={Math.max(singleBlockW - gap * 2, 2)}
+                height={Math.max(blockH - gap * 2, 2)}
+                rx={1.5}
+                fill={`url(#${gradientId})`}
+                stroke="rgba(0,0,0,0.4)"
+                strokeWidth={0.5}
+                filter="url(#blockShadow)"
+                initial={isAnimating ? { opacity: 0, y: rowY - 30, scaleY: 0.3 } : false}
+                animate={{ opacity: 1, y: rowY + gap, scaleY: 1 }}
+                transition={isAnimating ? {
+                  type: "spring",
+                  stiffness: 400,
+                  damping: 15,
+                } : { duration: 0 }}
+              />
+              {/* Top highlight (3D effect) */}
+              <rect
+                x={blockX + gap + 1}
+                y={rowY + gap + 0.5}
+                width={Math.max(singleBlockW - gap * 2 - 2, 1)}
+                height={Math.max(blockH * 0.25, 1)}
+                rx={0.5}
+                fill="rgba(255,255,255,0.15)"
+              />
+              {/* Bottom shadow line */}
+              <line
+                x1={blockX + gap + 1}
+                y1={rowY + blockH - gap - 0.5}
+                x2={blockX + singleBlockW - gap - 1}
+                y2={rowY + blockH - gap - 0.5}
+                stroke="rgba(0,0,0,0.2)"
+                strokeWidth={0.5}
+              />
+            </motion.g>
           );
         })}
 
         {/* Capstone glow when complete */}
         {filledBlocks >= totalBlocks && (
-          <motion.polygon
-            points={`${pyramidWidth / 2},4 ${pyramidWidth / 2 - 12},${blockHeight + 4} ${pyramidWidth / 2 + 12},${blockHeight + 4}`}
-            fill="url(#goldGradient)"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: [0.5, 1, 0.5] }}
+          <motion.circle
+            cx={W / 2}
+            cy={padding + blockH / 2}
+            r={8}
+            fill="none"
+            stroke="#ffd700"
+            strokeWidth={1.5}
+            initial={{ opacity: 0, scale: 0 }}
+            animate={{ opacity: [0.4, 1, 0.4], scale: [0.8, 1.2, 0.8] }}
             transition={{ duration: 2, repeat: Infinity }}
           />
         )}
-
-        <defs>
-          <linearGradient id="goldGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="#ffd700" />
-            <stop offset="100%" stopColor="#ff8c00" />
-          </linearGradient>
-        </defs>
       </svg>
 
       {/* Stage label */}
-      <div className="relative z-10 mt-1 text-center">
-        <p className="text-[10px] text-white/60 font-medium tracking-wider uppercase">
+      <div className="absolute bottom-1 left-0 right-0 z-10 text-center">
+        <p className="text-[10px] text-amber-300/80 font-medium tracking-wider uppercase">
           {stageName}
         </p>
-        <p className="text-[9px] text-white/40">
-          {filledBlocks}/{totalBlocks} blocks • Pyramid {pagesCompleted + 1}
+        <p className="text-[8px] text-white/40">
+          {filledBlocks}/{totalBlocks} blocks • Pyramid #{pagesCompleted + 1}
         </p>
       </div>
     </div>
@@ -181,7 +252,7 @@ function RowCompleteCelebration({ show, rowNum }: { show: boolean; rowNum: numbe
         exit={{ scale: 0.5, opacity: 0 }}
       >
         <p className="text-amber-300 font-bold text-sm text-center">
-          ✨ Row {rowNum} Complete!
+          Row {rowNum} Complete!
         </p>
         <p className="text-amber-200/60 text-[10px] text-center mt-0.5">
           The stones are sealed with hieroglyphs
@@ -206,15 +277,116 @@ function XpPopup({ xp, show }: { xp: number; show: boolean }) {
   );
 }
 
-// Fields that are per-page (text content) — NOT shown in metadata verification
-const TEXT_FIELDS = new Set([
-  "transcription", "original_text", "text", "content", "translation",
-  "body", "body_text", "main_text", "full_text", "raw_text"
-]);
-const SKIP_FIELDS = new Set([
-  "line_count", "word_count", "char_count", "confidence",
-  "page_number", "section_of_act", "folio_number"
-]);
+// Mini PanZoom image viewer for pyramid mode
+function MiniImageViewer({ src, alt }: { src: string; alt: string }) {
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [fullscreen, setFullscreen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef(false);
+  const lastPos = useRef({ x: 0, y: 0 });
+  const lastPinchDist = useRef(0);
+  const lastTap = useRef(0);
+
+  const handleZoomIn = () => setZoom(prev => Math.min(prev + 0.5, 6));
+  const handleZoomOut = () => {
+    const nz = Math.max(zoom - 0.5, 1);
+    setZoom(nz);
+    if (nz === 1) setPan({ x: 0, y: 0 });
+  };
+  const handleReset = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
+
+  const handleDoubleTap = (cx: number, cy: number) => {
+    if (zoom > 1.5) { setZoom(1); setPan({ x: 0, y: 0 }); }
+    else {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) { setZoom(2.5); return; }
+      const tx = cx - rect.left - rect.width / 2;
+      const ty = cy - rect.top - rect.height / 2;
+      setZoom(2.5);
+      setPan({ x: -tx * 1.5, y: -ty * 1.5 });
+    }
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      const now = Date.now();
+      if (now - lastTap.current < 300) { handleDoubleTap(e.touches[0].clientX, e.touches[0].clientY); lastTap.current = 0; return; }
+      lastTap.current = now;
+      if (zoom > 1) { dragging.current = true; lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }
+    } else if (e.touches.length === 2) {
+      dragging.current = false;
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      lastPinchDist.current = Math.sqrt(dx * dx + dy * dy);
+    }
+  };
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 1 && dragging.current) {
+      const dx = e.touches[0].clientX - lastPos.current.x;
+      const dy = e.touches[0].clientY - lastPos.current.y;
+      lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (lastPinchDist.current > 0) setZoom(prev => Math.max(1, Math.min(6, prev * (dist / lastPinchDist.current))));
+      lastPinchDist.current = dist;
+    }
+  };
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    dragging.current = false;
+    if (e.touches.length < 2) lastPinchDist.current = 0;
+    if (zoom < 1.1) { setZoom(1); setPan({ x: 0, y: 0 }); }
+  };
+
+  const viewer = (
+    <div className={`relative flex flex-col ${fullscreen ? "fixed inset-0 z-[100] bg-black" : "h-full"}`}>
+      {/* Controls */}
+      <div className="flex-shrink-0 flex items-center justify-between px-2 py-1 bg-black/80 border-b border-white/10">
+        <div className="flex items-center gap-0.5">
+          <button onClick={handleZoomOut} disabled={zoom <= 1} className="p-1 rounded text-white/70 hover:text-white disabled:text-white/30"><Minus className="w-3.5 h-3.5" /></button>
+          <span className="text-[10px] text-white/70 font-mono w-8 text-center">{Math.round(zoom * 100)}%</span>
+          <button onClick={handleZoomIn} disabled={zoom >= 6} className="p-1 rounded text-white/70 hover:text-white disabled:text-white/30"><Plus className="w-3.5 h-3.5" /></button>
+          {zoom > 1 && <button onClick={handleReset} className="ml-1 px-1.5 py-0.5 rounded text-[9px] text-white/60 bg-white/5">Reset</button>}
+        </div>
+        <div className="flex items-center gap-1">
+          {zoom <= 1 && <span className="text-[8px] text-white/40">double-tap zoom</span>}
+          {!fullscreen ? (
+            <button onClick={() => setFullscreen(true)} className="p-1 rounded text-white/70 hover:text-white"><Maximize2 className="w-3.5 h-3.5" /></button>
+          ) : (
+            <button onClick={() => setFullscreen(false)} className="p-1 rounded text-white/70 hover:text-white"><X className="w-3.5 h-3.5" /></button>
+          )}
+        </div>
+      </div>
+      {/* Image area */}
+      <div
+        ref={containerRef}
+        className="flex-1 overflow-hidden flex items-center justify-center bg-black/40"
+        style={{ cursor: zoom > 1 ? "grab" : "default", touchAction: "none" }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onDoubleClick={(e) => handleDoubleTap(e.clientX, e.clientY)}
+      >
+        <img
+          src={src}
+          alt={alt}
+          className="max-w-full max-h-full object-contain select-none pointer-events-none"
+          style={{
+            transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
+            transition: dragging.current ? "none" : "transform 0.15s ease-out",
+          }}
+          draggable={false}
+        />
+      </div>
+    </div>
+  );
+
+  if (fullscreen) return <>{viewer}</>;
+  return viewer;
+}
 
 export default function PyramidReviewMode({ projectId }: Props) {
   const [currentDocIndex, setCurrentDocIndex] = useState(0);
@@ -229,10 +401,10 @@ export default function PyramidReviewMode({ projectId }: Props) {
   const [showRowComplete, setShowRowComplete] = useState(false);
   const [completedRow, setCompletedRow] = useState(0);
   const [selectedLanguage, setSelectedLanguage] = useState<string>("");
+  const [showImage, setShowImage] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const swipeRef = useRef<HTMLDivElement>(null);
 
-  // Swipe gesture hook (inline)
+  // Swipe refs
   const startX = useRef(0);
   const startY = useRef(0);
   const swiping = useRef(false);
@@ -276,11 +448,10 @@ export default function PyramidReviewMode({ projectId }: Props) {
   const currentLine = lines[currentLineIndex] ?? "";
   const totalLines = lines.length;
 
-  // Calculate pyramid blocks filled based on lines reviewed in current session + historical pages
+  // Calculate pyramid blocks filled
   const sessionBlocks = reviewedLines.size;
   const historicalBlocks = stats ? (stats.pagesCompleted * 10 + stats.linesReviewed) % TOTAL_BLOCKS : 0;
   const pyramidBlocks = Math.min((historicalBlocks + sessionBlocks) % TOTAL_BLOCKS, TOTAL_BLOCKS);
-  const pyramidsCompleted = stats ? Math.floor((historicalBlocks + sessionBlocks) / TOTAL_BLOCKS) : 0;
 
   // Check if a row was just completed
   const checkRowCompletion = useCallback((newBlockCount: number) => {
@@ -322,14 +493,13 @@ export default function PyramidReviewMode({ projectId }: Props) {
     setAnimatingBlock(pyramidBlocks);
     setTimeout(() => { setShowXp(false); setAnimatingBlock(null); }, 800);
 
-    // Check row completion
     checkRowCompletion((historicalBlocks + newReviewed.size) % TOTAL_BLOCKS);
 
     if (result.dailyBonus > 0 && currentLineIndex === 0 && reviewedLines.size === 0) {
-      toast.success(`🔥 Daily streak bonus! +${result.dailyBonus} XP`);
+      toast.success(`Daily streak bonus! +${result.dailyBonus} XP`);
     }
     if (result.leveledUp) {
-      toast.success(`⭐ Level up! You're now Level ${result.level}!`);
+      toast.success(`Level up! You're now Level ${result.level}!`);
     }
 
     refetchStats();
@@ -363,7 +533,7 @@ export default function PyramidReviewMode({ projectId }: Props) {
     checkRowCompletion((historicalBlocks + newReviewed.size) % TOTAL_BLOCKS);
 
     if (result.leveledUp) {
-      toast.success(`⭐ Level up! You're now Level ${result.level}!`);
+      toast.success(`Level up! You're now Level ${result.level}!`);
     }
 
     refetchStats();
@@ -373,20 +543,13 @@ export default function PyramidReviewMode({ projectId }: Props) {
   // Advance to next line
   const advanceLine = useCallback((reviewed: Map<number, any>) => {
     for (let i = currentLineIndex + 1; i < totalLines; i++) {
-      if (!reviewed.has(i)) {
-        setCurrentLineIndex(i);
-        return;
-      }
+      if (!reviewed.has(i)) { setCurrentLineIndex(i); return; }
     }
-    // Check if all lines done
     if (reviewed.size >= totalLines) {
       handlePageComplete(reviewed);
     } else {
       for (let i = 0; i < currentLineIndex; i++) {
-        if (!reviewed.has(i)) {
-          setCurrentLineIndex(i);
-          return;
-        }
+        if (!reviewed.has(i)) { setCurrentLineIndex(i); return; }
       }
     }
   }, [currentLineIndex, totalLines]);
@@ -394,13 +557,9 @@ export default function PyramidReviewMode({ projectId }: Props) {
   // Handle page completion
   const handlePageComplete = useCallback(async (reviewed: Map<number, any>) => {
     if (!currentDoc || !transcription) return;
-
     const allReviewed = Array.from(reviewed.entries()).map(([idx, data]) => ({
-      index: idx,
-      original: data.original,
-      reviewed: data.reviewed,
+      index: idx, original: data.original, reviewed: data.reviewed,
     }));
-
     try {
       const result = await completePage.mutateAsync({
         projectId,
@@ -409,17 +568,15 @@ export default function PyramidReviewMode({ projectId }: Props) {
         reviewedLines: allReviewed,
         metadataCorrections: {},
       });
-
-      toast.success(`🏛️ Document complete! +${result.xpEarned} XP bonus!`);
+      toast.success(`Document complete! +${result.xpEarned} XP bonus!`);
       refetchStats();
-
       if (documents?.documents && currentDocIndex < documents.documents.length - 1) {
         setCurrentDocIndex(prev => prev + 1);
         setCurrentLineIndex(0);
         setReviewedLines(new Map());
         setEditMode(false);
       } else {
-        toast.success("🏆 All documents reviewed! Your pyramid stands tall!");
+        toast.success("All documents reviewed! Your pyramid stands tall!");
       }
     } catch {
       toast.error("Failed to save page review");
@@ -435,9 +592,7 @@ export default function PyramidReviewMode({ projectId }: Props) {
 
   // Skip line
   const skipLine = useCallback(() => {
-    if (currentLineIndex < totalLines - 1) {
-      setCurrentLineIndex(prev => prev + 1);
-    }
+    if (currentLineIndex < totalLines - 1) setCurrentLineIndex(prev => prev + 1);
     setEditMode(false);
   }, [currentLineIndex, totalLines]);
 
@@ -447,7 +602,6 @@ export default function PyramidReviewMode({ projectId }: Props) {
     startY.current = e.touches[0].clientY;
     swiping.current = true;
   }, []);
-
   const handleTouchEnd = useCallback((e: React.TouchEvent) => {
     if (!swiping.current) return;
     swiping.current = false;
@@ -468,10 +622,7 @@ export default function PyramidReviewMode({ projectId }: Props) {
       if (e.key === "Enter") { e.preventDefault(); handleApprove(); }
       else if (e.key === "e" || e.key === "E") { e.preventDefault(); startEdit(); }
       else if (e.key === "ArrowRight") { e.preventDefault(); skipLine(); }
-      else if (e.key === "ArrowLeft" && currentLineIndex > 0) {
-        e.preventDefault();
-        setCurrentLineIndex(prev => prev - 1);
-      }
+      else if (e.key === "ArrowLeft" && currentLineIndex > 0) { e.preventDefault(); setCurrentLineIndex(prev => prev - 1); }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -507,11 +658,11 @@ export default function PyramidReviewMode({ projectId }: Props) {
   const lineProgress = totalLines > 0 ? Math.round((reviewedLines.size / totalLines) * 100) : 0;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-gradient-to-b from-[#0d0520] to-background">
-      {/* Top: Pyramid visualization + stats */}
-      <div className="flex-shrink-0 relative px-3 pt-2 pb-1">
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Top section: Pyramid + optional image */}
+      <div className="flex-shrink-0">
         {/* Compact stats row */}
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between px-3 py-1.5 bg-card/30 border-b border-border">
           <div className="flex items-center gap-2">
             {stats && (
               <>
@@ -532,58 +683,67 @@ export default function PyramidReviewMode({ projectId }: Props) {
             )}
           </div>
           <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+            {/* Image toggle */}
+            {currentDoc?.storageUrl && (
+              <button
+                onClick={() => setShowImage(!showImage)}
+                className={`p-1 rounded ${showImage ? "text-amber-400 bg-amber-500/20" : "text-muted-foreground hover:text-foreground"}`}
+                title="Toggle document image"
+              >
+                <ImageIcon className="w-3.5 h-3.5" />
+              </button>
+            )}
             {languages && languages.length > 1 && (
               <select
                 value={selectedLanguage}
-                onChange={e => {
-                  setSelectedLanguage(e.target.value);
-                  setCurrentDocIndex(0);
-                  setCurrentLineIndex(0);
-                  setReviewedLines(new Map());
-                }}
+                onChange={e => { setSelectedLanguage(e.target.value); setCurrentDocIndex(0); setCurrentLineIndex(0); setReviewedLines(new Map()); }}
                 className="bg-background/50 border border-border rounded px-1.5 py-0.5 text-[10px]"
               >
                 <option value="">All</option>
-                {languages.map(lang => (
-                  <option key={lang} value={lang}>{lang}</option>
-                ))}
+                {languages.map(lang => <option key={lang} value={lang}>{lang}</option>)}
               </select>
             )}
             <span>{currentDocIndex + 1}/{documents.documents.length}</span>
           </div>
         </div>
 
-        {/* Pyramid */}
-        <div className="relative rounded-lg overflow-hidden" style={{ height: "28vh", minHeight: "160px" }}>
-          <PyramidVisualization
-            filledBlocks={pyramidBlocks}
-            totalBlocks={TOTAL_BLOCKS}
-            lastBlockIsCorrection={lastBlockIsCorrection}
-            animatingBlock={animatingBlock}
-            pagesCompleted={stats?.pagesCompleted ?? 0}
-          />
-          <AnimatePresence>
-            <RowCompleteCelebration show={showRowComplete} rowNum={completedRow} />
-          </AnimatePresence>
-        </div>
+        {/* Pyramid or Image viewer */}
+        {showImage && currentDoc?.storageUrl ? (
+          <div style={{ height: "30vh", minHeight: "160px" }}>
+            <MiniImageViewer src={currentDoc.storageUrl} alt={currentDoc.filename} />
+          </div>
+        ) : (
+          <div className="relative" style={{ height: "26vh", minHeight: "140px" }}>
+            <PyramidVisualization
+              filledBlocks={pyramidBlocks}
+              totalBlocks={TOTAL_BLOCKS}
+              lastBlockIsCorrection={lastBlockIsCorrection}
+              animatingBlock={animatingBlock}
+              pagesCompleted={stats?.pagesCompleted ?? 0}
+            />
+            <AnimatePresence>
+              <RowCompleteCelebration show={showRowComplete} rowNum={completedRow} />
+            </AnimatePresence>
+          </div>
+        )}
 
         {/* Document progress bar */}
-        <div className="flex items-center gap-2 mt-1.5">
+        <div className="flex items-center gap-2 px-3 py-1 border-b border-border bg-card/20">
           <span className="text-[9px] text-muted-foreground truncate max-w-[120px]">{currentDoc?.filename}</span>
           <Progress value={lineProgress} className="h-1 flex-1" />
           <span className="text-[9px] text-muted-foreground">{lineProgress}%</span>
         </div>
       </div>
 
-      {/* Bottom: Review card */}
+      {/* Bottom: Review card with swipe */}
       <div
         className="flex-1 flex flex-col min-h-0 overflow-hidden"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
-        {/* Current line card */}
+        {/* Scrollable line content */}
         <div className="flex-1 overflow-y-auto px-3 py-3">
-          {/* Previous lines context (faded) */}
+          {/* Previous lines context */}
           <div className="space-y-1 mb-3">
             {lines.slice(Math.max(0, currentLineIndex - 2), currentLineIndex).map((line, i) => {
               const actualIdx = Math.max(0, currentLineIndex - 2) + i;

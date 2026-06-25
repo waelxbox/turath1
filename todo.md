@@ -421,3 +421,9 @@
 - [x] Pyramid progress persists across sessions (tied to XP/stats)
 - [x] Mobile-first layout (pyramid top 30%, review card bottom 70%)
 - [x] Mode toggle accessible from Quick Review header
+
+## Pyramid Mode Fixes (Round 41)
+- [x] Fix pyramid blocks to stack bottom-up properly (fill each row left-to-right before moving up)
+- [x] Add 3D depth/texture to blocks (stone look, not flat yellow rectangles)
+- [x] Add document image viewer back into Pyramid Mode
+- [x] Make pyramid visually fill the available space correctly
