@@ -6,7 +6,8 @@ import { toast } from "sonner";
 import {
   CheckCircle2, Edit3, ChevronRight, ChevronLeft, Zap,
   Flame, Trophy, Star, SkipForward, Loader2, ImageIcon,
-  ThumbsUp, ThumbsDown, ClipboardCheck
+  ThumbsUp, ThumbsDown, ClipboardCheck, ZoomIn, ZoomOut,
+  Maximize2, X, Minus, Plus
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
@@ -117,6 +118,137 @@ function useSwipe(
   }, [ref, onSwipeLeft, onSwipeRight, threshold]);
 }
 
+/**
+ * Smart image viewer that auto-scrolls to approximate line position.
+ * The idea: if you're on line 10/35, we scroll the image to ~28% from top,
+ * giving you a zoomed-in view of roughly where that line would be.
+ */
+function LineTrackingImageViewer({
+  src,
+  alt,
+  currentLine,
+  totalLines,
+  isMobile,
+}: {
+  src: string;
+  alt: string;
+  currentLine: number;
+  totalLines: number;
+  isMobile: boolean;
+}) {
+  const [zoom, setZoom] = useState(isMobile ? 2.0 : 1.0);
+  const [fullscreen, setFullscreen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  // Calculate scroll position based on line progress
+  const lineProgress = totalLines > 0 ? currentLine / totalLines : 0;
+
+  // Auto-scroll when line changes or zoom changes
+  useEffect(() => {
+    const container = containerRef.current;
+    const img = imgRef.current;
+    if (!container || !img) return;
+
+    // Wait for image to have dimensions
+    const scrollToLine = () => {
+      const scrollableHeight = img.offsetHeight * zoom - container.offsetHeight;
+      if (scrollableHeight > 0) {
+        const targetScroll = scrollableHeight * lineProgress;
+        container.scrollTo({ top: targetScroll, behavior: "smooth" });
+      }
+    };
+
+    // Small delay to let zoom transition settle
+    const timer = setTimeout(scrollToLine, 100);
+    return () => clearTimeout(timer);
+  }, [currentLine, zoom, lineProgress]);
+
+  const handleZoomIn = () => setZoom(prev => Math.min(prev + 0.5, 5));
+  const handleZoomOut = () => setZoom(prev => Math.max(prev - 0.5, 1));
+
+  const viewer = (
+    <div className={`relative flex flex-col ${fullscreen ? "fixed inset-0 z-[100] bg-black" : "h-full"}`}>
+      {/* Zoom controls bar */}
+      <div className="flex-shrink-0 flex items-center justify-between px-3 py-1.5 bg-black/80 border-b border-white/10">
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleZoomOut}
+            disabled={zoom <= 1}
+            className="p-1.5 rounded text-white/70 hover:text-white disabled:text-white/30 active:bg-white/10"
+          >
+            <Minus className="w-4 h-4" />
+          </button>
+          <span className="text-[11px] text-white/70 font-mono w-10 text-center">{Math.round(zoom * 100)}%</span>
+          <button
+            onClick={handleZoomIn}
+            disabled={zoom >= 5}
+            className="p-1.5 rounded text-white/70 hover:text-white disabled:text-white/30 active:bg-white/10"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-white/50">
+            Line {currentLine + 1}/{totalLines} • auto-tracking
+          </span>
+          {!fullscreen ? (
+            <button
+              onClick={() => setFullscreen(true)}
+              className="p-1.5 rounded text-white/70 hover:text-white active:bg-white/10"
+            >
+              <Maximize2 className="w-4 h-4" />
+            </button>
+          ) : (
+            <button
+              onClick={() => setFullscreen(false)}
+              className="p-1.5 rounded text-white/70 hover:text-white active:bg-white/10"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Scrollable image container */}
+      <div
+        ref={containerRef}
+        className="flex-1 overflow-auto"
+        style={{ touchAction: "pan-x pan-y pinch-zoom" }}
+      >
+        <img
+          ref={imgRef}
+          src={src}
+          alt={alt}
+          className="w-full select-none"
+          style={{
+            transform: `scale(${zoom})`,
+            transformOrigin: "top center",
+            minHeight: `${zoom * 100}%`,
+          }}
+          draggable={false}
+        />
+      </div>
+
+      {/* Line position indicator — vertical bar on the right */}
+      <div className="absolute right-1 top-10 bottom-0 w-1.5 bg-white/10 rounded-full pointer-events-none">
+        <div
+          className="absolute w-full bg-primary/80 rounded-full transition-all duration-300"
+          style={{
+            top: `${lineProgress * 100}%`,
+            height: `${Math.max(100 / totalLines, 4)}%`,
+          }}
+        />
+      </div>
+    </div>
+  );
+
+  if (fullscreen) {
+    return <>{viewer}</>;
+  }
+  return viewer;
+}
+
 export default function QuickReviewPage({ projectId }: Props) {
   const [currentDocIndex, setCurrentDocIndex] = useState(0);
   const [currentLineIndex, setCurrentLineIndex] = useState(0);
@@ -132,7 +264,7 @@ export default function QuickReviewPage({ projectId }: Props) {
   const [editingMetaField, setEditingMetaField] = useState<string | null>(null);
   const [editingMetaValue, setEditingMetaValue] = useState("");
   const [selectedLanguage, setSelectedLanguage] = useState<string>("");
-  const [showImage, setShowImage] = useState(false); // mobile image toggle
+  const [showImage, setShowImage] = useState(true); // mobile image toggle — default ON
   const inputRef = useRef<HTMLInputElement>(null);
   const metaInputRef = useRef<HTMLInputElement>(null);
   const swipeRef = useRef<HTMLDivElement>(null);
@@ -456,7 +588,7 @@ export default function QuickReviewPage({ projectId }: Props) {
     setMetadataVerifications(new Map());
     setMetadataCorrections(new Map());
     setEditingMetaField(null);
-    setShowImage(false);
+    setShowImage(true);
   }, [currentDoc?.id]);
 
   // Loading state
@@ -551,50 +683,51 @@ export default function QuickReviewPage({ projectId }: Props) {
 
       {/* Main review area — stacked on mobile, side-by-side on desktop */}
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-        {/* Document image — top on mobile (collapsible), left on desktop */}
+        {/* Document image — top on mobile (collapsible with smart zoom), left on desktop */}
         {isMobile ? (
           <>
             {/* Mobile: tap to toggle image viewer */}
             <button
               onClick={() => setShowImage(!showImage)}
-              className="flex-shrink-0 flex items-center justify-center gap-2 px-3 py-2 bg-black/20 border-b border-border text-xs text-muted-foreground active:bg-black/30"
+              className="flex-shrink-0 flex items-center justify-center gap-2 px-3 py-1.5 bg-black/20 border-b border-border text-xs text-muted-foreground active:bg-black/30"
             >
               <ImageIcon className="w-3.5 h-3.5" />
               <span>{showImage ? "Hide document" : "View document"}</span>
               {showImage ? <ChevronLeft className="w-3 h-3 rotate-90" /> : <ChevronRight className="w-3 h-3 rotate-90" />}
             </button>
-            {showImage && (
-              <div
-                className="flex-shrink-0 bg-black/20 flex items-center justify-center overflow-auto p-2"
-                style={{ height: "40vh", touchAction: "pan-x pan-y pinch-zoom" }}
-              >
-                {currentDoc?.storageUrl ? (
-                  <img
-                    src={currentDoc.storageUrl}
-                    alt={currentDoc.filename}
-                    className="max-w-full max-h-full object-contain rounded"
-                    style={{ touchAction: "pinch-zoom" }}
-                  />
-                ) : (
-                  <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                    <ImageIcon className="w-10 h-10" />
-                    <span className="text-xs">No image</span>
-                  </div>
-                )}
+            {showImage && currentDoc?.storageUrl && (
+              <div className="flex-shrink-0" style={{ height: "35vh" }}>
+                <LineTrackingImageViewer
+                  src={currentDoc.storageUrl}
+                  alt={currentDoc.filename}
+                  currentLine={currentLineIndex}
+                  totalLines={totalLines}
+                  isMobile={true}
+                />
+              </div>
+            )}
+            {showImage && !currentDoc?.storageUrl && (
+              <div className="flex-shrink-0 h-24 bg-black/20 flex items-center justify-center">
+                <div className="flex flex-col items-center gap-1 text-muted-foreground">
+                  <ImageIcon className="w-8 h-8" />
+                  <span className="text-[10px]">No image</span>
+                </div>
               </div>
             )}
           </>
         ) : (
-          /* Desktop: side-by-side left panel */
-          <div className="w-1/2 border-r border-border bg-black/20 flex items-center justify-center overflow-hidden p-4">
+          /* Desktop: side-by-side left panel with smart viewer */
+          <div className="w-1/2 border-r border-border bg-black/20 overflow-hidden">
             {currentDoc?.storageUrl ? (
-              <img
+              <LineTrackingImageViewer
                 src={currentDoc.storageUrl}
                 alt={currentDoc.filename}
-                className="max-w-full max-h-full object-contain rounded"
+                currentLine={currentLineIndex}
+                totalLines={totalLines}
+                isMobile={false}
               />
             ) : (
-              <div className="flex flex-col items-center gap-2 text-muted-foreground">
+              <div className="h-full flex flex-col items-center justify-center gap-2 text-muted-foreground">
                 <ImageIcon className="w-12 h-12" />
                 <span className="text-sm">No image available</span>
               </div>
