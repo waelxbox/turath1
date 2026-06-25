@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE document_groups ADD CONSTRAINT dg_projectId_fk FOREIGN KEY (projectId) REFERENCES projects(id) ON DELETE CASCADE;\nALTER TABLE documents ADD CONSTRAINT documents_groupId_fk FOREIGN KEY (groupId) REFERENCES document_groups(id) ON DELETE SET NULL;\nCREATE INDEX dg_projectId_idx ON document_groups(projectId);\nCREATE INDEX documents_groupId_idx ON documents(groupId);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute ALTER TABLE document_groups ADD CONSTRAINT dg_projectId_fk FOREIGN KEY (projectId) REFERENCES projects(id) ON DELETE CASCADE;\nALTER TABLE documents ADD CONSTRAINT documents_groupId_fk FOREIGN KEY (groupId) REFERENCES document_groups(id) ON DELETE SET NULL;\nCREATE INDEX dg_projectId_idx ON document_groups(projectId);\nCREATE INDEX documents_groupId_idx ON documents(groupId);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 2013
+}

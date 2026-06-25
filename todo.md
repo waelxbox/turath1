@@ -347,3 +347,8 @@
 - [x] Frontend: review page shows shared metadata at top + per-page tab/flipper for transcription
 - [ ] Frontend: "Add page to existing document" action (deferred)
 - [ ] Export: multi-page documents export as single logical entry with concatenated transcription (deferred)
+
+## Bug Fixes (Round 34) — Production DB Migration
+- [x] Fix production documents disappearing — migration 0004 (document_groups + groupId/pageNumber) was never applied to the Supabase PostgreSQL database
+- [x] Applied migration directly to Supabase: CREATE TABLE document_groups, ALTER TABLE documents ADD COLUMN groupId/pageNumber, FK constraints, indexes
+- [x] Verified documents load correctly in review sidebar after fix

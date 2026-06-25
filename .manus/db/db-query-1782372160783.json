@@ -1,0 +1,40 @@
+{
+  "query": "SELECT id, filename, groupId, pageNumber FROM documents LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute SELECT id, filename, groupId, pageNumber FROM documents LIMIT 5;",
+  "rows": [
+    {
+      "id": "1",
+      "filename": "sfe.png",
+      "groupId": "NULL",
+      "pageNumber": "NULL"
+    },
+    {
+      "id": "2",
+      "filename": "Screenshot 2026-03-30 at 11.33.17 AM.png",
+      "groupId": "NULL",
+      "pageNumber": "NULL"
+    },
+    {
+      "id": "30001",
+      "filename": "Screenshot 2026-03-30 at 11.33.17 AM.png",
+      "groupId": "NULL",
+      "pageNumber": "NULL"
+    },
+    {
+      "id": "60001",
+      "filename": "IMG_3153.jpeg",
+      "groupId": "NULL",
+      "pageNumber": "NULL"
+    },
+    {
+      "id": "90001",
+      "filename": "IMG_3139.jpeg",
+      "groupId": "NULL",
+      "pageNumber": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tfilename\tgroupId\tpageNumber\n1\tsfe.png\tNULL\tNULL\n2\tScreenshot 2026-03-30 at 11.33.17 AM.png\tNULL\tNULL\n30001\tScreenshot 2026-03-30 at 11.33.17 AM.png\tNULL\tNULL\n60001\tIMG_3153.jpeg\tNULL\tNULL\n90001\tIMG_3139.jpeg\tNULL\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 633
+}
