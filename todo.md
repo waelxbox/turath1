@@ -335,3 +335,15 @@
 - [x] On save/approve, check if extracted entities still appear in the transcription text
 - [x] If entities are stale (name not found in transcription), re-run entity extraction on the updated text
 - [x] Remove stale document_entities links for entities no longer mentioned
+
+## Features (Round 33) — Multi-Page Document Support
+- [x] Add document_groups table (id, projectId, title, sharedMetadata JSON, createdAt)
+- [x] Add groupId and pageNumber columns to documents table
+- [x] Create migration SQL and apply
+- [x] Backend: CRUD for document groups (create group, add page to group, reorder pages)
+- [x] Backend: transcription with page context (pass previous pages' transcriptions to AI)
+- [x] Backend: shared metadata save/load (one edit applies to all pages in group)
+- [x] Frontend: upload flow supports "Upload as multi-page document" (multiple files → one group)
+- [x] Frontend: review page shows shared metadata at top + per-page tab/flipper for transcription
+- [ ] Frontend: "Add page to existing document" action (deferred)
+- [ ] Export: multi-page documents export as single logical entry with concatenated transcription (deferred)

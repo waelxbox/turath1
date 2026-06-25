@@ -118,6 +118,24 @@ export const onboardingSamples = pgTable("onboarding_samples", {
 export type OnboardingSample = typeof onboardingSamples.$inferSelect;
 export type InsertOnboardingSample = typeof onboardingSamples.$inferInsert;
 
+// ─── Document Groups (Multi-Page Documents) ─────────────────────────────────
+// A logical document that may span multiple pages/images. Shared metadata lives here.
+
+export const documentGroups = pgTable("document_groups", {
+  id: serial("id").primaryKey(),
+  projectId: integer("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 512 }).notNull(),
+  sharedMetadata: jsonb("sharedMetadata"),  // { sender, recipient, date, origin_location, etc. }
+  pageCount: integer("pageCount").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("dg_projectId_idx").on(t.projectId),
+]);
+
+export type DocumentGroup = typeof documentGroups.$inferSelect;
+export type InsertDocumentGroup = typeof documentGroups.$inferInsert;
+
 // ─── Documents ────────────────────────────────────────────────────────────────
 
 export const documents = pgTable("documents", {
@@ -130,11 +148,15 @@ export const documents = pgTable("documents", {
   fileSizeBytes: integer("fileSizeBytes"),
   status: documentStatusEnum("status").default("pending").notNull(),
   errorMessage: text("errorMessage"),
+  // Multi-page support
+  groupId: integer("groupId").references(() => documentGroups.id, { onDelete: "set null" }),
+  pageNumber: integer("pageNumber"),  // 1-based page order within group
   uploadedAt: timestamp("uploadedAt").defaultNow().notNull(),
   processedAt: timestamp("processedAt"),
 }, (t) => [
   index("documents_projectId_idx").on(t.projectId),
   index("documents_status_idx").on(t.status),
+  index("documents_groupId_idx").on(t.groupId),
 ]);
 
 export type Document = typeof documents.$inferSelect;

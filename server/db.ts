@@ -5,6 +5,7 @@ import {
   users, InsertUser,
   projects, InsertProject, Project,
   onboardingSamples, InsertOnboardingSample,
+  documentGroups, InsertDocumentGroup, DocumentGroup,
   documents, InsertDocument, Document,
   transcriptions, InsertTranscription,
   jobs, InsertJob,
@@ -310,8 +311,84 @@ export async function renameDocument(id: number, projectId: number, newFilename:
   if (!db) throw new Error("Database not available");
   await db.update(documents).set({ filename: newFilename }).where(and(eq(documents.id, id), eq(documents.projectId, projectId)));
 }
+// ─── Document Groups (Multi-Page) ──────────────────────────────────────────
 
-// ─── Transcriptions ───────────────────────────────────────────────────────────
+export async function createDocumentGroup(data: InsertDocumentGroup) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [group] = await db.insert(documentGroups).values(data).returning();
+  return group;
+}
+
+export async function getDocumentGroupsByProject(projectId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(documentGroups).where(eq(documentGroups.projectId, projectId)).orderBy(desc(documentGroups.createdAt));
+}
+
+export async function getDocumentGroupById(groupId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [group] = await db.select().from(documentGroups).where(eq(documentGroups.id, groupId)).limit(1);
+  return group || null;
+}
+
+export async function getDocumentGroupPages(groupId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(documents).where(eq(documents.groupId, groupId)).orderBy(asc(documents.pageNumber));
+}
+
+export async function addDocumentToGroup(documentId: number, groupId: number, pageNumber: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(documents).set({ groupId, pageNumber }).where(eq(documents.id, documentId));
+  // Update page count
+  const pages = await db.select({ id: documents.id }).from(documents).where(eq(documents.groupId, groupId));
+  await db.update(documentGroups).set({ pageCount: pages.length, updatedAt: new Date() }).where(eq(documentGroups.id, groupId));
+}
+
+export async function removeDocumentFromGroup(documentId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [doc] = await db.select({ groupId: documents.groupId }).from(documents).where(eq(documents.id, documentId));
+  await db.update(documents).set({ groupId: null, pageNumber: null }).where(eq(documents.id, documentId));
+  // Update page count if doc was in a group
+  if (doc?.groupId) {
+    const pages = await db.select({ id: documents.id }).from(documents).where(eq(documents.groupId, doc.groupId));
+    await db.update(documentGroups).set({ pageCount: pages.length, updatedAt: new Date() }).where(eq(documentGroups.id, doc.groupId));
+  }
+}
+
+export async function updateDocumentGroupMetadata(groupId: number, sharedMetadata: Record<string, unknown>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(documentGroups).set({ sharedMetadata, updatedAt: new Date() }).where(eq(documentGroups.id, groupId));
+}
+
+export async function updateDocumentGroupTitle(groupId: number, title: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(documentGroups).set({ title, updatedAt: new Date() }).where(eq(documentGroups.id, groupId));
+}
+
+export async function deleteDocumentGroup(groupId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // Unlink all documents from this group first
+  await db.update(documents).set({ groupId: null, pageNumber: null }).where(eq(documents.groupId, groupId));
+  await db.delete(documentGroups).where(eq(documentGroups.id, groupId));
+}
+
+export async function reorderGroupPages(groupId: number, orderedDocIds: number[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  for (let i = 0; i < orderedDocIds.length; i++) {
+    await db.update(documents).set({ pageNumber: i + 1 }).where(and(eq(documents.id, orderedDocIds[i]), eq(documents.groupId, groupId)));
+  }
+}
+
+// ─── Transcriptions ───────────────────────────────────────────────────────────────
 
 export async function createTranscription(data: InsertTranscription) {
   const db = await getDb();

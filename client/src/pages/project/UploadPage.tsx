@@ -3,8 +3,11 @@ import type { Project } from "../../../../drizzle/schema";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Upload, Loader2, CheckCircle2, XCircle, FileImage, ArrowRight } from "lucide-react";
+import { Upload, Loader2, CheckCircle2, XCircle, FileImage, ArrowRight, Layers } from "lucide-react";
 import { useLocation } from "wouter";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 
 interface Props {
   projectId: number;
@@ -54,12 +57,16 @@ export default function UploadPage({ projectId, project }: Props) {
   const [queue, setQueue] = useState<QueuedFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [isMultiPage, setIsMultiPage] = useState(false);
+  const [groupTitle, setGroupTitle] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
 
   const uploadDoc = trpc.documents.upload.useMutation();
   const transcribeDoc = trpc.documents.transcribe.useMutation();
+  const createGroup = trpc.groups.create.useMutation();
+  const transcribeWithContext = trpc.groups.transcribeWithContext.useMutation();
 
   const handleFiles = useCallback((files: FileList | null) => {
     if (!files) return;
@@ -83,6 +90,70 @@ export default function UploadPage({ projectId, project }: Props) {
     if (pending.length === 0) return;
     setIsProcessing(true);
 
+    if (isMultiPage && pending.length > 1) {
+      // Multi-page mode: upload all pages first, then create group, then transcribe with context
+      const uploadedDocIds: number[] = [];
+      
+      // Upload all pages sequentially to maintain order
+      for (const item of pending) {
+        try {
+          updateStatus(item.id, "uploading");
+          const base64 = await readFileAsBase64(item.file);
+          const doc = await uploadDoc.mutateAsync({
+            projectId,
+            filename: item.file.name,
+            fileBase64: base64,
+            mimeType: item.file.type,
+            fileSizeBytes: item.file.size,
+          });
+          if (doc) uploadedDocIds.push(doc.id);
+          updateStatus(item.id, "done");
+        } catch (err) {
+          updateStatus(item.id, "error", err instanceof Error ? err.message : String(err));
+        }
+      }
+
+      // Create the group
+      if (uploadedDocIds.length > 0) {
+        const title = groupTitle.trim() || `Multi-page document (${uploadedDocIds.length} pages)`;
+        try {
+          const group = await createGroup.mutateAsync({
+            projectId,
+            title,
+            documentIds: uploadedDocIds,
+          });
+
+          // Transcribe each page with context from previous pages
+          for (let i = 0; i < uploadedDocIds.length; i++) {
+            const item = pending[i];
+            if (item) updateStatus(item.id, "transcribing");
+            try {
+              await transcribeWithContext.mutateAsync({
+                groupId: group.id,
+                projectId,
+                documentId: uploadedDocIds[i],
+              });
+              if (item) updateStatus(item.id, "done");
+            } catch (err) {
+              if (item) updateStatus(item.id, "error", err instanceof Error ? err.message : String(err));
+            }
+          }
+
+          toast.success(`Multi-page document "${title}" created with ${uploadedDocIds.length} pages`);
+        } catch (err) {
+          toast.error(`Failed to create group: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+
+      setIsProcessing(false);
+      setShowSuccess(true);
+      utils.projects.stats.invalidate({ id: projectId });
+      utils.documents.list.invalidate({ projectId });
+      utils.documents.listPaginated.invalidate();
+      return;
+    }
+
+    // Standard single-page mode
     const tasks = pending.map(item => async () => {
       updateStatus(item.id, "uploading");
       const base64 = await readFileAsBase64(item.file);
@@ -160,6 +231,33 @@ export default function UploadPage({ projectId, project }: Props) {
           Add scanned document images. The AI will read and transcribe each one automatically.
         </p>
       </div>
+
+      {/* Multi-page toggle */}
+      <div className="flex items-center gap-3 mb-6 p-4 bg-card border border-border rounded-xl">
+        <Layers className="w-5 h-5 text-muted-foreground" />
+        <div className="flex-1">
+          <Label htmlFor="multipage-toggle" className="text-sm font-medium cursor-pointer">
+            Upload as multi-page document
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            Group multiple page images into one logical document. Pages share metadata (sender, date) but have separate transcriptions.
+          </p>
+        </div>
+        <Switch id="multipage-toggle" checked={isMultiPage} onCheckedChange={setIsMultiPage} />
+      </div>
+
+      {/* Group title input (only in multi-page mode) */}
+      {isMultiPage && queue.length > 0 && (
+        <div className="mb-4">
+          <Label className="text-sm mb-1.5 block">Document title</Label>
+          <Input
+            value={groupTitle}
+            onChange={(e) => setGroupTitle(e.target.value)}
+            placeholder="e.g., Letter from Behna to Mizrahi, June 1936 (3 pages)"
+            className="bg-background"
+          />
+        </div>
+      )}
 
       {/* Drop zone */}
       <div

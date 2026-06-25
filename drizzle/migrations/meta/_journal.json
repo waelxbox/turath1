@@ -29,6 +29,13 @@
       "when": 1782206596640,
       "tag": "0003_watery_rawhide_kid",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782365860023,
+      "tag": "0004_military_miss_america",
+      "breakpoints": true
     }
   ]
 }

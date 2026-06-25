@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import {
   CheckCircle2, Flag, ChevronLeft, ChevronRight, Loader2,
   Eye, Filter, Zap, AlertCircle, ImageOff, RotateCcw,
-  MoreVertical, Trash2, Pencil, Search
+  MoreVertical, Trash2, Pencil, Search, Layers
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -89,6 +89,18 @@ function setNestedValue(obj: Record<string, unknown>, key: string, value: unknow
  * Inner component that is fully re-mounted when docId changes.
  * This guarantees editedFields always starts fresh for each document.
  */
+// Fields that are per-page (not shared across a multi-page document)
+const PER_PAGE_FIELDS = new Set([
+  "transcription", "full_arabic_transcription", "original_transcription",
+  "english_translation", "full_english_translation", "summary", "notes",
+  "keywords_items", "mentioned_entities", "stamp_markings"
+]);
+
+function isPerPageField(key: string): boolean {
+  const base = key.split(".")[0].toLowerCase();
+  return PER_PAGE_FIELDS.has(base) || base.includes("transcription") || base.includes("translation");
+}
+
 function ReviewDocPanel({
   projectId,
   project,
@@ -100,29 +112,50 @@ function ReviewDocPanel({
   projectId: number;
   project: Project;
   currentDocId: number;
-  documents: Array<{ id: number; filename: string; status: string; errorMessage?: string | null }>;
+  documents: Array<{ id: number; filename: string; status: string; errorMessage?: string | null; groupId?: number | null; pageNumber?: number | null }>;
   currentIndex: number;
   onNavigate: (docId: number) => void;
 }) {
   const [editedFields, setEditedFields] = useState<Record<string, unknown>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [activePageDocId, setActivePageDocId] = useState(currentDocId);
   const utils = trpc.useUtils();
+
+  // Detect if this document belongs to a group
+  const currentDoc = documents.find(d => d.id === currentDocId);
+  const groupId = (currentDoc as any)?.groupId as number | null | undefined;
+
+  // Fetch group pages if this doc is part of a group
+  const { data: groupData } = trpc.groups.getById.useQuery(
+    { groupId: groupId!, projectId },
+    { enabled: !!groupId }
+  );
+
+  const groupPages = groupData?.pages ?? [];
+  const isMultiPage = !!groupId && groupPages.length > 1;
+  const activePageDoc = isMultiPage ? groupPages.find((p: any) => p.id === activePageDocId) : null;
+  const effectiveDocId = isMultiPage ? activePageDocId : currentDocId;
+
+  // Reset active page when switching documents
+  useEffect(() => {
+    setActivePageDocId(currentDocId);
+  }, [currentDocId]);
 
   const { data: transcription, refetch: refetchTranscription, isLoading: transcriptionLoading } =
     trpc.transcriptions.getByDocument.useQuery(
-      { documentId: currentDocId, projectId },
+      { documentId: effectiveDocId, projectId },
       { enabled: true }
     );
 
   const { data: imageData, isLoading: imageLoading } = trpc.documents.getImageUrl.useQuery(
-    { documentId: currentDocId, projectId },
+    { documentId: effectiveDocId, projectId },
     { staleTime: 4 * 60 * 1000 }
   );
 
   // Fetch entities linked to this document for inline annotations
   const { data: docEntities } = trpc.entities.byDocument.useQuery(
-    { documentId: currentDocId, projectId },
+    { documentId: effectiveDocId, projectId },
     { enabled: !!transcription }
   );
 
@@ -193,8 +226,6 @@ function ReviewDocPanel({
     await transcribeDoc.mutateAsync({ documentId: currentDocId, projectId });
   }, [currentDocId, projectId, transcribeDoc]);
 
-  const currentDoc = documents.find(d => d.id === currentDocId);
-
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Doc header */}
@@ -219,6 +250,12 @@ function ReviewDocPanel({
           </div>
           <span className="text-sm font-medium">{currentDoc?.filename}</span>
           {currentDoc && <StatusBadge status={currentDoc.status} />}
+          {isMultiPage && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium">
+              <Layers className="w-3 h-3" />
+              {groupData?.title || "Multi-page"}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {/* Retranscribe — always visible when a doc is loaded */}
@@ -262,6 +299,26 @@ function ReviewDocPanel({
           )}
         </div>
       </div>
+
+      {/* Page flipper for multi-page documents */}
+      {isMultiPage && groupPages.length > 0 && (
+        <div className="flex items-center gap-1 px-6 py-2 border-b border-border bg-secondary/30 flex-shrink-0">
+          <span className="text-xs text-muted-foreground mr-2">Pages:</span>
+          {groupPages.map((page: any) => (
+            <button
+              key={page.id}
+              onClick={() => setActivePageDocId(page.id)}
+              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                page.id === activePageDocId
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary hover:bg-secondary/80 text-muted-foreground"
+              }`}
+            >
+              {page.pageNumber || groupPages.indexOf(page) + 1}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Split view */}
       <div className="flex-1 overflow-hidden flex">
@@ -356,18 +413,44 @@ function ReviewDocPanel({
               )}
 
               {flatFields && flatFields.length > 0 ? (
-                flatFields.map(({ key, label, def }) => (
-                  <DynamicField
-                    key={key}
-                    fieldKey={key}
-                    label={label}
-                    fieldDef={def}
-                    value={getNestedValue(editedFields, key)}
-                    onChange={v => setEditedFields(prev => setNestedValue(prev, key, v))}
-                    entities={docEntities}
-                    projectId={projectId}
-                  />
-                ))
+                <>
+                  {/* For multi-page docs, show shared metadata section header */}
+                  {isMultiPage && (
+                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide pb-1 border-b border-border">
+                      Shared Metadata (applies to all pages)
+                    </div>
+                  )}
+                  {flatFields.filter(f => !isMultiPage || !isPerPageField(f.key)).map(({ key, label, def }) => (
+                    <DynamicField
+                      key={key}
+                      fieldKey={key}
+                      label={label}
+                      fieldDef={def}
+                      value={getNestedValue(editedFields, key)}
+                      onChange={v => setEditedFields(prev => setNestedValue(prev, key, v))}
+                      entities={docEntities}
+                      projectId={projectId}
+                    />
+                  ))}
+                  {/* Per-page fields section */}
+                  {isMultiPage && (
+                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide pb-1 pt-3 border-b border-border">
+                      Page {groupPages.findIndex((p: any) => p.id === activePageDocId) + 1} Content
+                    </div>
+                  )}
+                  {flatFields.filter(f => !isMultiPage || isPerPageField(f.key)).map(({ key, label, def }) => (
+                    <DynamicField
+                      key={`${effectiveDocId}-${key}`}
+                      fieldKey={key}
+                      label={label}
+                      fieldDef={def}
+                      value={getNestedValue(editedFields, key)}
+                      onChange={v => setEditedFields(prev => setNestedValue(prev, key, v))}
+                      entities={docEntities}
+                      projectId={projectId}
+                    />
+                  ))}
+                </>
               ) : (
                 rawData && Object.entries(rawData)
                   .filter(([k]) => !k.startsWith("_"))
@@ -778,8 +861,20 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
                   onClick={() => handleNavigate(doc.id)}
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium truncate mb-1">{doc.filename}</div>
-                    <StatusBadge status={doc.status} />
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs font-medium truncate">{doc.filename}</span>
+                      {(doc as any).groupId && (
+                        <span className="flex-shrink-0" aria-label="Part of multi-page document">
+                          <Layers className="w-3 h-3 text-primary/60" />
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <StatusBadge status={doc.status} />
+                      {(doc as any).pageNumber && (
+                        <span className="text-[10px] text-muted-foreground">p.{(doc as any).pageNumber}</span>
+                      )}
+                    </div>
                   </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>

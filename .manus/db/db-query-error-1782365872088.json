@@ -1,0 +1,16 @@
+{
+  "query": "CREATE TABLE \"document_groups\" (\n\t\"id\" serial PRIMARY KEY NOT NULL,\n\t\"projectId\" integer NOT NULL,\n\t\"title\" varchar(512) NOT NULL,\n\t\"sharedMetadata\" jsonb,\n\t\"pageCount\" integer DEFAULT 1 NOT NULL,\n\t\"createdAt\" timestamp DEFAULT now() NOT NULL,\n\t\"updatedAt\" timestamp DEFAULT now() NOT NULL\n);\nALTER TABLE \"documents\" ADD COLUMN \"groupId\" integer;\nALTER TABLE \"documents\" ADD COLUMN \"pageNumber\" integer;\nALTER TABLE \"document_groups\" ADD CONSTRAINT \"document_groups_projectId_projects_id_fk\" FOREIGN KEY (\"projectId\") REFERENCES \"public\".\"projects\"(\"id\") ON DELETE cascade ON UPDATE no action;\nCREATE INDEX \"dg_projectId_idx\" ON \"document_groups\" USING btree (\"projectId\");\nALTER TABLE \"documents\" ADD CONSTRAINT \"documents_groupId_document_groups_id_fk\" FOREIGN KEY (\"groupId\") REFERENCES \"public\".\"document_groups\"(\"id\") ON DELETE set null ON UPDATE no action;\nCREATE INDEX \"documents_groupId_idx\" ON \"documents\" USING btree (\"groupId\");",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute CREATE TABLE \"document_groups\" (\n\t\"id\" serial PRIMARY KEY NOT NULL,\n\t\"projectId\" integer NOT NULL,\n\t\"title\" varchar(512) NOT NULL,\n\t\"sharedMetadata\" jsonb,\n\t\"pageCount\" integer DEFAULT 1 NOT NULL,\n\t\"createdAt\" timestamp DEFAULT now() NOT NULL,\n\t\"updatedAt\" timestamp DEFAULT now() NOT NULL\n);\nALTER TABLE \"documents\" ADD COLUMN \"groupId\" integer;\nALTER TABLE \"documents\" ADD COLUMN \"pageNumber\" integer;\nALTER TABLE \"document_groups\" ADD CONSTRAINT \"document_groups_projectId_projects_id_fk\" FOREIGN KEY (\"projectId\") REFERENCES \"public\".\"projects\"(\"id\") ON DELETE cascade ON UPDATE no action;\nCREATE INDEX \"dg_projectId_idx\" ON \"document_groups\" USING btree (\"projectId\");\nALTER TABLE \"documents\" ADD CONSTRAINT \"documents_groupId_document_groups_id_fk\" FOREIGN KEY (\"groupId\") REFERENCES \"public\".\"document_groups\"(\"id\") ON DELETE set null ON UPDATE no action;\nCREATE INDEX \"documents_groupId_idx\" ON \"documents\" USING btree (\"groupId\");",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1064 (42000) at line 1: You have an error in your SQL syntax; check the manual that corresponds to your TiDB version for the right syntax to use line 1 column 30 near \"\"document_groups\" (",
+    "\t\"id\" serial PRIMARY KEY NOT NULL,",
+    "\t\"projectId\" integer NOT NULL,",
+    "\t\"title\" varchar(512) NOT NULL,",
+    "\t\"sharedMetadata\" jsonb,",
+    "\t\"pageCount\" integer DEFAULT 1 NOT NULL,",
+    "\t\"createdAt\" timestamp DEFAULT now() NOT NULL,",
+    "\t\"updatedAt\" timestamp DEFAULT now() NOT NULL",
+    ")\""
+  ]
+}

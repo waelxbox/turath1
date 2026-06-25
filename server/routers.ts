@@ -44,6 +44,16 @@ import {
   getEntityAliasesBatch,
   searchEntitiesByNameOrAlias,
   updateEntityName,
+  createDocumentGroup,
+  getDocumentGroupsByProject,
+  getDocumentGroupById,
+  getDocumentGroupPages,
+  addDocumentToGroup,
+  removeDocumentFromGroup,
+  updateDocumentGroupMetadata,
+  updateDocumentGroupTitle,
+  deleteDocumentGroup,
+  reorderGroupPages,
 } from "./db";
 import crypto from "crypto";
 import { generateProjectConfig, validateConfig, refineConfig } from "./onboardingAgent";
@@ -1554,6 +1564,201 @@ const mergeRouter = router({
     }),
 });
 
+// ─── Document Groups Router (Multi-Page) ─────────────────────────────────────
+
+const groupsRouter = router({
+  list: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      return getDocumentGroupsByProject(input.projectId);
+    }),
+
+  getById: protectedProcedure
+    .input(z.object({ groupId: z.number(), projectId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      const group = await getDocumentGroupById(input.groupId);
+      if (!group || group.projectId !== input.projectId) throw new TRPCError({ code: "NOT_FOUND" });
+      const pages = await getDocumentGroupPages(input.groupId);
+      return { ...group, pages };
+    }),
+
+  create: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      title: z.string().min(1),
+      documentIds: z.array(z.number()).min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      const group = await createDocumentGroup({
+        projectId: input.projectId,
+        title: input.title,
+        pageCount: input.documentIds.length,
+      });
+      // Add documents to group with page numbers
+      for (let i = 0; i < input.documentIds.length; i++) {
+        await addDocumentToGroup(input.documentIds[i], group.id, i + 1);
+      }
+      return group;
+    }),
+
+  addPage: protectedProcedure
+    .input(z.object({
+      groupId: z.number(),
+      projectId: z.number(),
+      documentId: z.number(),
+      pageNumber: z.number().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      const group = await getDocumentGroupById(input.groupId);
+      if (!group) throw new TRPCError({ code: "NOT_FOUND" });
+      const pageNum = input.pageNumber ?? group.pageCount + 1;
+      await addDocumentToGroup(input.documentId, input.groupId, pageNum);
+      return { success: true };
+    }),
+
+  removePage: protectedProcedure
+    .input(z.object({ documentId: z.number(), projectId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      await removeDocumentFromGroup(input.documentId);
+      return { success: true };
+    }),
+
+  reorderPages: protectedProcedure
+    .input(z.object({
+      groupId: z.number(),
+      projectId: z.number(),
+      orderedDocIds: z.array(z.number()),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      await reorderGroupPages(input.groupId, input.orderedDocIds);
+      return { success: true };
+    }),
+
+  updateTitle: protectedProcedure
+    .input(z.object({ groupId: z.number(), projectId: z.number(), title: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      await updateDocumentGroupTitle(input.groupId, input.title);
+      return { success: true };
+    }),
+
+  updateSharedMetadata: protectedProcedure
+    .input(z.object({
+      groupId: z.number(),
+      projectId: z.number(),
+      sharedMetadata: z.record(z.string(), z.unknown()),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      await updateDocumentGroupMetadata(input.groupId, input.sharedMetadata as Record<string, unknown>);
+      return { success: true };
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({ groupId: z.number(), projectId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      await deleteDocumentGroup(input.groupId);
+      return { success: true };
+    }),
+
+  transcribeWithContext: protectedProcedure
+    .input(z.object({
+      groupId: z.number(),
+      projectId: z.number(),
+      documentId: z.number(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+
+      // Get all pages in order
+      const pages = await getDocumentGroupPages(input.groupId);
+      const targetPageIdx = pages.findIndex(p => p.id === input.documentId);
+      if (targetPageIdx < 0) throw new TRPCError({ code: "NOT_FOUND", message: "Document not in group" });
+
+      // Build context from previous pages' transcriptions
+      let pageContext = "";
+      for (let i = 0; i < targetPageIdx; i++) {
+        const prevTranscription = await getTranscriptionByDocumentId(pages[i].id);
+        if (prevTranscription?.reviewedJson) {
+          const reviewed = prevTranscription.reviewedJson as Record<string, unknown>;
+          const transcriptionText = reviewed.transcription || reviewed.full_arabic_transcription || reviewed.Original_Transcription || "";
+          pageContext += `--- Page ${i + 1} ---\n${transcriptionText}\n\n`;
+        } else if (prevTranscription?.rawJson) {
+          const raw = prevTranscription.rawJson as Record<string, unknown>;
+          const transcriptionText = raw.transcription || raw.full_arabic_transcription || raw.Original_Transcription || "";
+          pageContext += `--- Page ${i + 1} ---\n${transcriptionText}\n\n`;
+        }
+      }
+
+      // Get the target document's image
+      const targetDoc = pages[targetPageIdx];
+      if (!targetDoc.storageUrl) throw new TRPCError({ code: "BAD_REQUEST", message: "Document has no image" });
+
+      // Fetch image and convert to base64
+      const response = await fetch(targetDoc.storageUrl);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const base64 = buffer.toString("base64");
+      const mimeType = targetDoc.mimeType || "image/jpeg";
+
+      // Process with page context
+      const result = await processDocument(project, base64, mimeType, targetDoc.filename, {
+        pageContext: pageContext || undefined,
+      });
+
+      // Save transcription
+      if (!result.error) {
+        const existing = await getTranscriptionByDocumentId(targetDoc.id);
+        if (existing) {
+          await updateReviewedJson(existing.id, result.rawJson);
+        } else {
+          await createTranscription({
+            documentId: targetDoc.id,
+            projectId: input.projectId,
+            rawJson: result.rawJson,
+            originalText: result.originalText || null,
+            modelUsed: result.modelUsed,
+          });
+        }
+        await updateDocumentStatus(targetDoc.id, "needs_review");
+      }
+
+      return { success: !result.error, result: result.rawJson, error: result.error };
+    }),
+});
+
 // ─── App Router ───────────────────────────────────────────────────────────────
 
 export const appRouter = router({
@@ -1569,6 +1774,7 @@ export const appRouter = router({
   entities: entitiesRouter,
   members: membersRouter,
   merge: mergeRouter,
+  groups: groupsRouter,
 });
 
 export type AppRouter = typeof appRouter;

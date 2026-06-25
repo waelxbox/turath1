@@ -118,10 +118,16 @@ function buildRuntimePrompt(project: Project): string {
 async function runSinglePass(
   project: Project,
   imageBase64: string,
-  mimeType: string
+  mimeType: string,
+  pageContext?: string
 ): Promise<Record<string, unknown>> {
   const systemPrompt = buildRuntimePrompt(project);
   const schema = project.jsonSchema as Record<string, SchemaField> | null;
+
+  let userText = "Please transcribe this document and return the result as the JSON object described in your instructions.";
+  if (pageContext) {
+    userText = `This is a continuation page of a multi-page document. Here are the transcriptions from the previous page(s) for context:\n\n${pageContext}\n\n---\nNow please transcribe THIS page (the image provided) and return the result as the JSON object described in your instructions. Note: shared metadata (sender, recipient, date, etc.) may be the same as previous pages.`;
+  }
 
   const messages: Parameters<typeof invokeLLM>[0]["messages"] = [
     { role: "system", content: systemPrompt },
@@ -137,7 +143,7 @@ async function runSinglePass(
         },
         {
           type: "text",
-          text: "Please transcribe this document and return the result as the JSON object described in your instructions.",
+          text: userText,
         },
       ],
     },
@@ -164,7 +170,8 @@ async function runSinglePass(
 async function runTwoPass(
   project: Project,
   imageBase64: string,
-  mimeType: string
+  mimeType: string,
+  pageContext?: string
 ): Promise<{ result: Record<string, unknown>; originalText: string }> {
   // Pass 1 gets glossary appended for accurate transcription of specialized terms
   const pass1Prompt = buildRuntimePrompt(project);
@@ -174,6 +181,11 @@ Translate the provided transcription into English and extract structured metadat
 Output ONLY valid JSON.`;
 
   const schema = project.jsonSchema as Record<string, SchemaField> | null;
+
+  let pass1UserText = "Verbatim transcription of all text, please.";
+  if (pageContext) {
+    pass1UserText = `This is a continuation page of a multi-page document. Previous page(s) transcription for context:\n\n${pageContext}\n\n---\nNow provide a verbatim transcription of all text on THIS page (the image provided).`;
+  }
 
   // Pass 1: Vision → verbatim text
   const pass1Response = await callLLM({
@@ -186,7 +198,7 @@ Output ONLY valid JSON.`;
             type: "image_url",
             image_url: { url: `data:${mimeType};base64,${imageBase64}`, detail: "high" },
           },
-          { type: "text", text: "Verbatim transcription of all text, please." },
+          { type: "text", text: pass1UserText },
         ],
       },
     ],
@@ -242,18 +254,19 @@ export async function processDocument(
   project: Project,
   imageBase64: string,
   mimeType: string,
-  filename: string
+  filename: string,
+  options?: { pageContext?: string }  // Previous pages' transcriptions for multi-page documents
 ): Promise<TranscriptionResult> {
   try {
     let rawJson: Record<string, unknown>;
     let originalText: string | undefined;
 
     if (project.pipelineType === "two_pass") {
-      const { result, originalText: ot } = await runTwoPass(project, imageBase64, mimeType);
+      const { result, originalText: ot } = await runTwoPass(project, imageBase64, mimeType, options?.pageContext);
       rawJson = result;
       originalText = ot;
     } else {
-      rawJson = await runSinglePass(project, imageBase64, mimeType);
+      rawJson = await runSinglePass(project, imageBase64, mimeType, options?.pageContext);
     }
 
     // Apply post-processing rules
