@@ -108,7 +108,7 @@ REQUIREMENTS FOR EACH COMPONENT:
 You MUST output a single valid JSON object with this exact structure:
 {
   "pipelineType": "single_pass" | "two_pass",
-  "modelName": "gemini-2.5-flash",
+  "modelName": "gemini-2.5-flash" | "gemini-3.1-pro-preview",
   "systemPrompt": "<transcription rules ONLY — no schema, no glossary>",
   "pass2Prompt": "<only if two_pass, otherwise null>",
   "jsonSchema": {
@@ -129,6 +129,10 @@ You MUST output a single valid JSON object with this exact structure:
   "outputFormats": ["json", "csv"],
   "reasoning": "<2-3 sentence explanation of your choices>"
 }
+
+Guidelines for modelName:
+- Use "gemini-3.1-pro-preview" if ANY Arabic text is present in the documents (handwritten or printed Arabic, Ottoman Turkish, or any right-to-left script). This is the ONLY model capable of processing Arabic manuscripts.
+- Use "gemini-2.5-flash" for all other languages (French, English, German, Latin, etc.)
 
 Guidelines for pipelineType:
 - Use "two_pass" if documents require BOTH transcription AND translation (e.g., Arabic/French → English metadata)
@@ -228,6 +232,12 @@ export async function generateProjectConfig(samples: SamplePair[]): Promise<Gene
   const cleaned = raw.replace(/^```(?:json)?\s*/m, "").replace(/\s*```$/m, "").trim();
   const config = JSON.parse(cleaned) as GeneratedConfig;
 
+  // Post-process: force gemini-3.1-pro-preview if Arabic content is detected
+  const hasArabic = detectArabicContent(samples, config);
+  if (hasArabic && config.modelName !== "gemini-3.1-pro-preview") {
+    config.modelName = "gemini-3.1-pro-preview";
+  }
+
   // Post-process: ensure Dublin Core core fields are present in the schema
   config.jsonSchema = ensureDublinCoreFields(config.jsonSchema);
 
@@ -253,6 +263,27 @@ export async function generateProjectConfig(samples: SamplePair[]): Promise<Gene
   config.systemPrompt = cleanSystemPrompt(config.systemPrompt, config.jsonSchema, config.glossary);
 
   return config;
+}
+
+/**
+ * Detect if Arabic content is present in samples or generated config.
+ * Checks manual transcriptions for Arabic Unicode characters and config for Arabic-related keywords.
+ */
+function detectArabicContent(samples: SamplePair[], config: GeneratedConfig): boolean {
+  // Check manual transcriptions for Arabic Unicode range (\u0600-\u06FF, \u0750-\u077F, \uFB50-\uFDFF, \uFE70-\uFEFF)
+  const arabicRegex = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/;
+  for (const sample of samples) {
+    const text = JSON.stringify(sample.manualTranscription);
+    if (arabicRegex.test(text)) return true;
+  }
+  // Check if the generated config mentions Arabic in system prompt, glossary, or reasoning
+  const configText = [
+    config.systemPrompt,
+    config.reasoning,
+    JSON.stringify(config.glossary),
+  ].join(" ").toLowerCase();
+  if (configText.includes("arabic") || configText.includes("ottoman") || configText.includes("\u0639\u0631\u0628")) return true;
+  return false;
 }
 
 /**

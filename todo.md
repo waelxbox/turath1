@@ -373,3 +373,6 @@
 - [x] Add JSON repair logic (attempt to close truncated JSON before throwing parse error)
 - [x] Auto-recover stuck 'processing' docs (>5 min) by resetting to 'pending' (built into retryAllPending)
 - [ ] Add 1 automatic retry on JSON parse failure in transcription engine (deferred — JSON repair covers most cases)
+
+## Onboarding Improvements (Round 36)
+- [x] Default Arabic collections to gemini-3.1-pro-preview during onboarding (auto-detect Arabic in samples/config)
