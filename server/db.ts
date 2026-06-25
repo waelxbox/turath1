@@ -1016,3 +1016,31 @@ export async function getUserByEmail(email: string) {
     .limit(1);
   return result[0];
 }
+
+/**
+ * Reset documents stuck in 'processing' for >5 min, then return all pending + error docs for retry.
+ */
+export async function resetStuckAndGetRetryable(projectId: number): Promise<Document[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  // Reset stuck 'processing' docs (>5 min old) to 'pending'
+  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+  await db.update(documents)
+    .set({ status: "pending" })
+    .where(
+      and(
+        eq(documents.projectId, projectId),
+        eq(documents.status, "processing"),
+        lt(documents.uploadedAt, fiveMinAgo)
+      )
+    );
+
+  // Get all pending + error docs
+  return db.select().from(documents).where(
+    and(
+      eq(documents.projectId, projectId),
+      inArray(documents.status, ["pending", "error"])
+    )
+  ).orderBy(asc(documents.uploadedAt));
+}

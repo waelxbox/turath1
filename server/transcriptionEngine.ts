@@ -32,6 +32,46 @@ export interface TranscriptionResult {
   error?: string;
 }
 
+/**
+ * Attempt to repair truncated JSON by closing open strings, arrays, and objects.
+ * Returns parsed object or throws if repair fails.
+ */
+function safeParseJson(raw: string): Record<string, unknown> {
+  try {
+    return JSON.parse(raw);
+  } catch (firstErr) {
+    // Attempt repair: close any open strings, arrays, objects
+    let repaired = raw;
+    // Count unescaped quotes to see if a string is open
+    const quoteCount = (repaired.match(/(?<!\\)"/g) || []).length;
+    if (quoteCount % 2 !== 0) {
+      repaired += '"';
+    }
+    // Close open brackets/braces
+    const opens = { '{': 0, '[': 0 };
+    let inString = false;
+    for (let i = 0; i < repaired.length; i++) {
+      const ch = repaired[i];
+      if (ch === '"' && (i === 0 || repaired[i - 1] !== '\\')) inString = !inString;
+      if (inString) continue;
+      if (ch === '{') opens['{']++;
+      else if (ch === '}') opens['{']--;
+      else if (ch === '[') opens['[']++;
+      else if (ch === ']') opens['[']--;
+    }
+    // Remove trailing comma before closing
+    repaired = repaired.replace(/,\s*$/, '');
+    for (let i = 0; i < opens['[']; i++) repaired += ']';
+    for (let i = 0; i < opens['{']; i++) repaired += '}';
+    try {
+      return JSON.parse(repaired);
+    } catch {
+      // If repair failed, throw original error
+      throw firstErr;
+    }
+  }
+}
+
 type SchemaField = {
   type: string;
   description?: string;
@@ -166,7 +206,7 @@ async function runSinglePass(
   const rawContent = response.choices[0]?.message?.content ?? "{}";
   const raw = typeof rawContent === "string" ? rawContent : "{}";
   const cleaned = raw.replace(/^```(?:json)?\s*/m, "").replace(/\s*```$/m, "").trim();
-  return JSON.parse(cleaned);
+  return safeParseJson(cleaned);
 }
 
 /**
@@ -232,7 +272,7 @@ Output ONLY valid JSON.`;
   const pass2Content = pass2Response.choices[0]?.message?.content ?? "{}";
   const raw2 = typeof pass2Content === "string" ? pass2Content : "{}";
   const cleaned = raw2.replace(/^```(?:json)?\s*/m, "").replace(/\s*```$/m, "").trim();
-  const result = JSON.parse(cleaned);
+  const result = safeParseJson(cleaned);
   result.Original_Transcription = originalText;
 
   return { result, originalText };

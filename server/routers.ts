@@ -755,6 +755,61 @@ const documentsRouter = router({
       return { queued: pendingDocs.length, message: `Queued ${pendingDocs.length} documents for transcription.` };
     }),
 
+  retryAllPending: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
+      // Reset stuck 'processing' docs and get all retryable docs via db helper
+      const { resetStuckAndGetRetryable } = await import("./db");
+      const retryDocs = await resetStuckAndGetRetryable(input.projectId);
+
+      if (retryDocs.length === 0) {
+        return { queued: 0, message: "No documents to retry." };
+      }
+
+      // Process in background with concurrency limit
+      const CONCURRENCY = 3;
+      (async () => {
+        const chunks: typeof retryDocs[] = [];
+        for (let i = 0; i < retryDocs.length; i += CONCURRENCY) {
+          chunks.push(retryDocs.slice(i, i + CONCURRENCY));
+        }
+
+        for (const chunk of chunks) {
+          await Promise.all(chunk.map(async (doc) => {
+            try {
+              await updateDocumentStatus(doc.id, "processing");
+              const { storageGet: storageGetRetry } = await import("./storage");
+              const { url } = await storageGetRetry(doc.storagePath);
+              const resp = await fetch(url);
+              const buf = await resp.arrayBuffer();
+              const base64 = Buffer.from(buf).toString("base64");
+              const result = await processDocument(project, base64, doc.mimeType ?? "image/jpeg", doc.filename);
+
+              if (result.error) {
+                await updateDocumentStatus(doc.id, "error", result.error);
+              } else {
+                await createTranscription({
+                  documentId: doc.id,
+                  projectId: input.projectId,
+                  modelUsed: result.modelUsed,
+                  rawJson: result.rawJson,
+                  originalText: result.originalText ?? null,
+                });
+                await updateDocumentStatus(doc.id, "needs_review");
+              }
+            } catch (err) {
+              await updateDocumentStatus(doc.id, "error", String(err));
+            }
+          }));
+        }
+      })().catch(console.error);
+
+      return { queued: retryDocs.length, message: `Retrying ${retryDocs.length} document(s).` };
+    }),
+
   delete: protectedProcedure
     .input(z.object({ documentId: z.number(), projectId: z.number() }))
     .mutation(async ({ ctx, input }) => {

@@ -366,3 +366,10 @@
 - [x] Persist Search tab state (query, results) when navigating away to view a document
 - [x] Persist Ask Archive tab state (conversation history, input) when navigating away to view a document
 - [x] Persist Entities page state (search query, type filter) when navigating away
+
+## Transcription Reliability (Round 37)
+
+- [x] Add "Retry all failed/pending" button on Review page to batch-transcribe all pending/error/stuck docs
+- [x] Add JSON repair logic (attempt to close truncated JSON before throwing parse error)
+- [x] Auto-recover stuck 'processing' docs (>5 min) by resetting to 'pending' (built into retryAllPending)
+- [ ] Add 1 automatic retry on JSON parse failure in transcription engine (deferred — JSON repair covers most cases)

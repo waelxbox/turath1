@@ -50,6 +50,38 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function RetryAllButton({ projectId }: { projectId: number }) {
+  const utils = trpc.useUtils();
+  const retryAll = trpc.documents.retryAllPending.useMutation({
+    onSuccess: (data) => {
+      if (data.queued === 0) {
+        toast.info("No documents to retry.");
+      } else {
+        toast.success(data.message);
+        // Poll for updates
+        const interval = setInterval(() => {
+          utils.documents.listPaginated.invalidate();
+        }, 5000);
+        setTimeout(() => clearInterval(interval), 120000);
+      }
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-8 text-xs gap-1 whitespace-nowrap"
+      onClick={() => retryAll.mutate({ projectId })}
+      disabled={retryAll.isPending}
+    >
+      {retryAll.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+      Retry all
+    </Button>
+  );
+}
+
 function flattenSchema(
   schema: Record<string, SchemaField>,
   prefix = ""
@@ -876,6 +908,7 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
               <SelectItem value="error">Errors</SelectItem>
             </SelectContent>
           </Select>
+          <RetryAllButton projectId={projectId} />
         </div>
         <div ref={listRef} className="flex-1 overflow-y-auto divide-y divide-border" onScroll={handleScroll}>
           {isLoadingFirst ? (
