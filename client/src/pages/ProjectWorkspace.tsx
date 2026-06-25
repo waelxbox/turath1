@@ -2,7 +2,7 @@ import { useParams, useLocation, Router, Route, Switch } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { getLoginUrl } from "@/const";
-import { Loader2, BookOpen, Upload, Eye, Download, Settings, ArrowLeft, ChevronRight, MessageSquare, Search, Network } from "lucide-react";
+import { Loader2, BookOpen, Upload, Eye, Download, Settings, ArrowLeft, ChevronRight, MessageSquare, Search, Network, Gamepad2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import UploadPage from "./project/UploadPage";
 import ReviewPage from "./project/ReviewPage";
@@ -14,6 +14,7 @@ import SemanticSearchPage from "./project/SemanticSearchPage";
 import KnowledgeGraphPage from "./project/KnowledgeGraphPage";
 import EntityDirectoryPage from "./project/EntityDirectoryPage";
 import EntityMergePage from "./project/EntityMergePage";
+import QuickReviewPage from "./project/QuickReviewPage";
 import { toast } from "sonner";
 
 type NavItem = {
@@ -46,6 +47,15 @@ function buildNavGroups(stats: { total: number; reviewed: number; needsReview: n
           label: "Review",
           icon: Eye,
           path: "/review",
+          badge: stats?.needsReview ?? 0,
+          disabled: !hasDocuments,
+          disabledReason: "Upload documents first",
+        },
+        {
+          id: "quick-review",
+          label: "Quick Review",
+          icon: Gamepad2,
+          path: "/quick-review",
           badge: stats?.needsReview ?? 0,
           disabled: !hasDocuments,
           disabledReason: "Upload documents first",
@@ -247,6 +257,10 @@ function WorkspaceInner({
               {/* review queue (no specific doc) */}
               <Route path="/review">
                 <ReviewPage projectId={projectId} project={project} />
+              </Route>
+              {/* gamified quick review */}
+              <Route path="/quick-review">
+                <QuickReviewPage projectId={projectId} />
               </Route>
               {/* search */}
               <Route path="/search">

@@ -354,3 +354,53 @@ export const mergeSuggestions = pgTable("merge_suggestions", {
 
 export type MergeSuggestion = typeof mergeSuggestions.$inferSelect;
 export type InsertMergeSuggestion = typeof mergeSuggestions.$inferInsert;
+
+// ─── Gamification: Review Activities ────────────────────────────────────────
+// Tracks individual XP-earning events (line approved, correction made, page completed, streak bonus).
+
+export const activityTypeEnum = pgEnum("activity_type", [
+  "line_approved", "line_corrected", "page_completed", "streak_bonus", "daily_login"
+]);
+
+export const reviewActivities = pgTable("review_activities", {
+  id: serial("id").primaryKey(),
+  userId: integer("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  projectId: integer("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  documentId: integer("documentId").references(() => documents.id, { onDelete: "set null" }),
+  activityType: activityTypeEnum("activityType").notNull(),
+  xpEarned: integer("xpEarned").notNull().default(0),
+  metadata: jsonb("metadata"),  // { lineIndex, lineText, correctionDiff, etc. }
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("ra_userId_idx").on(t.userId),
+  index("ra_projectId_idx").on(t.projectId),
+  index("ra_userId_projectId_idx").on(t.userId, t.projectId),
+  index("ra_createdAt_idx").on(t.createdAt),
+]);
+
+export type ReviewActivity = typeof reviewActivities.$inferSelect;
+export type InsertReviewActivity = typeof reviewActivities.$inferInsert;
+
+// ─── Gamification: User XP Stats ────────────────────────────────────────────
+// Aggregated per-user-per-project stats for fast leaderboard queries.
+
+export const userXpStats = pgTable("user_xp_stats", {
+  id: serial("id").primaryKey(),
+  userId: integer("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  projectId: integer("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  totalXp: integer("totalXp").notNull().default(0),
+  level: integer("level").notNull().default(0),
+  linesReviewed: integer("linesReviewed").notNull().default(0),
+  correctionsMade: integer("correctionsMade").notNull().default(0),
+  pagesCompleted: integer("pagesCompleted").notNull().default(0),
+  currentStreak: integer("currentStreak").notNull().default(0),
+  longestStreak: integer("longestStreak").notNull().default(0),
+  lastActiveDate: varchar("lastActiveDate", { length: 10 }),  // YYYY-MM-DD for streak tracking
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("uxs_userId_projectId_idx").on(t.userId, t.projectId),
+  index("uxs_projectId_totalXp_idx").on(t.projectId, t.totalXp),
+]);
+
+export type UserXpStats = typeof userXpStats.$inferSelect;
+export type InsertUserXpStats = typeof userXpStats.$inferInsert;

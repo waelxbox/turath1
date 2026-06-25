@@ -65,6 +65,7 @@ import { extractAndStoreEntities, reconcileDocumentEntities } from "./nerService
 import { generateMergeSuggestions, executeMerge, rejectMerge, skipMerge, processMergeStep, manualMerge } from "./entityMergeService";
 import { invokeLLM } from "./_core/llm";
 import { seedDemoProject } from "./demoSeed";
+import { awardXp, getUserStats, getLeaderboard, maybeAwardStreakBonus, XP_VALUES, xpProgressInLevel } from "./gamification";
 
 // ─── Auth Router ──────────────────────────────────────────────────────────────
 
@@ -2013,6 +2014,131 @@ const groupsRouter = router({
     }),
 });
 
+// ─── Gamification Router ──────────────────────────────────────────────────────
+
+const gamificationRouter = router({
+  // Get current user's stats for a project
+  myStats: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role) throw new TRPCError({ code: "NOT_FOUND" });
+      return getUserStats(ctx.user.id, input.projectId);
+    }),
+
+  // Get project leaderboard
+  leaderboard: protectedProcedure
+    .input(z.object({ projectId: z.number(), limit: z.number().optional() }))
+    .query(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role) throw new TRPCError({ code: "NOT_FOUND" });
+      return getLeaderboard(input.projectId, input.limit ?? 10);
+    }),
+
+  // Submit a line review (approve or correct) — awards XP
+  submitLineReview: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      documentId: z.number(),
+      transcriptionId: z.number(),
+      lineIndex: z.number(),
+      originalLine: z.string(),
+      reviewedLine: z.string(),
+      isCorrection: z.boolean(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role || role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+
+      // Check for daily login bonus
+      const dailyBonus = await maybeAwardStreakBonus(ctx.user.id, input.projectId);
+
+      // Award XP for the line review
+      const activityType = input.isCorrection ? "line_corrected" : "line_approved";
+      const result = await awardXp({
+        userId: ctx.user.id,
+        projectId: input.projectId,
+        documentId: input.documentId,
+        activityType,
+        metadata: {
+          lineIndex: input.lineIndex,
+          originalLine: input.originalLine,
+          reviewedLine: input.reviewedLine,
+        },
+      });
+
+      return {
+        ...result,
+        dailyBonus,
+      };
+    }),
+
+  // Submit page completion bonus
+  completePage: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      documentId: z.number(),
+      transcriptionId: z.number(),
+      reviewedLines: z.array(z.object({
+        index: z.number(),
+        original: z.string(),
+        reviewed: z.string(),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role || role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+
+      // Award page completion bonus
+      const result = await awardXp({
+        userId: ctx.user.id,
+        projectId: input.projectId,
+        documentId: input.documentId,
+        activityType: "page_completed",
+        metadata: { totalLines: input.reviewedLines.length },
+      });
+
+      // Also persist the reviewed transcription (merge lines back into the transcription)
+      const transcription = await getTranscriptionByDocumentId(input.documentId);
+      if (transcription) {
+        const rawJson = transcription.rawJson as Record<string, unknown>;
+        // Find the main text field and update it with reviewed lines
+        const textFields = ["transcription", "original_text", "text", "content"];
+        let mainTextField: string | null = null;
+        for (const f of textFields) {
+          if (typeof rawJson[f] === "string") { mainTextField = f; break; }
+        }
+        if (mainTextField) {
+          const reviewedText = input.reviewedLines.map(l => l.reviewed).join("\n");
+          const reviewedJson = { ...rawJson, [mainTextField]: reviewedText };
+          await updateReviewedJson(transcription.id, reviewedJson);
+          await updateDocumentStatus(input.documentId, "reviewed");
+
+          // Fire-and-forget: embedding + NER
+          embedTranscription({
+            projectId: input.projectId,
+            documentId: input.documentId,
+            transcriptionId: transcription.id,
+            reviewedJson,
+            filename: "",
+          }).catch(() => {});
+
+          const textForNER = Object.values(reviewedJson)
+            .filter((v): v is string => typeof v === "string")
+            .join("\n");
+          if (textForNER.length > 10) {
+            reconcileDocumentEntities(input.projectId, input.documentId, textForNER).catch(() => {});
+          }
+        }
+      }
+
+      return result;
+    }),
+
+  // Get XP constants (for UI display)
+  xpValues: publicProcedure.query(() => XP_VALUES),
+});
+
 // ─── App Router ───────────────────────────────────────────────────────────────
 
 export const appRouter = router({
@@ -2029,6 +2155,7 @@ export const appRouter = router({
   members: membersRouter,
   merge: mergeRouter,
   groups: groupsRouter,
+  gamification: gamificationRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -376,3 +376,15 @@
 
 ## Onboarding Improvements (Round 36)
 - [x] Default Arabic collections to gemini-3.1-pro-preview during onboarding (auto-detect Arabic in samples/config)
+
+## Gamification Features (Round 38)
+- [x] Database schema: review_activities table (tracks XP-earning events per user per project)
+- [x] Database schema: user_stats table (total XP, level, current streak, longest streak, last active date)
+- [x] Backend: XP earning logic (2 XP per line approved, 5 XP per correction, 50 XP per page completed)
+- [x] Backend: Streak tracking (daily activity, resets after missed day)
+- [x] Backend: Leaderboard query (per project, ranked by XP)
+- [x] Frontend: New "Quick Review" tab in project workspace (completely separate from traditional Review tab)
+- [x] Frontend: Line-by-line review mode (split transcription into lines, step through one at a time with image)
+- [x] Frontend: XP counter + level display in Quick Review header
+- [x] Frontend: Streak counter with visual indicator
+- [x] Frontend: Project leaderboard component on Quick Review page
