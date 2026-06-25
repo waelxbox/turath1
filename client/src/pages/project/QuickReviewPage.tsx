@@ -130,7 +130,7 @@ function useSwipe(
  * - +/- buttons and fullscreen mode
  * - "Reset" button to snap back to fit view
  */
-function PanZoomImageViewer({
+export function PanZoomImageViewer({
   src,
   alt,
   isMobile,

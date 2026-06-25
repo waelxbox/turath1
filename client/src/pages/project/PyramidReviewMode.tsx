@@ -6,8 +6,9 @@ import { toast } from "sonner";
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
 import {
   CheckCircle2, Edit3, SkipForward, Loader2,
-  Flame, Zap, Star, Trophy, Minus, Plus
+  Flame, Zap, Star, Trophy
 } from "lucide-react";
+import { PanZoomImageViewer } from "./QuickReviewPage";
 
 interface Props {
   projectId: number;
@@ -353,15 +354,6 @@ export default function PyramidReviewMode({ projectId }: Props) {
   const [selectedLanguage, setSelectedLanguage] = useState<string>("");
   const [showIncoming, setShowIncoming] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
-  const imageContainerRef = useRef<HTMLDivElement>(null);
-
-  // Image viewer state
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const imgDragging = useRef(false);
-  const imgLastPos = useRef({ x: 0, y: 0 });
-  const imgLastPinch = useRef(0);
-  const imgLastTap = useRef(0);
 
   // Mobile detection
   const [isMobile, setIsMobile] = useState(false);
@@ -485,53 +477,6 @@ export default function PyramidReviewMode({ projectId }: Props) {
 
   useEffect(() => { setCurrentLineIndex(0); setReviewedLines(new Map()); setEditMode(false); }, [currentDoc?.id]);
 
-  // Image pan/zoom handlers
-  const handleImgDoubleTap = (cx: number, cy: number) => {
-    if (zoom > 1.5) { setZoom(1); setPan({ x: 0, y: 0 }); }
-    else {
-      const rect = imageContainerRef.current?.getBoundingClientRect();
-      if (!rect) { setZoom(2.5); return; }
-      setZoom(2.5);
-      setPan({ x: -(cx - rect.left - rect.width / 2) * 1.5, y: -(cy - rect.top - rect.height / 2) * 1.5 });
-    }
-  };
-  const handleImgTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 1) {
-      const now = Date.now();
-      if (now - imgLastTap.current < 300) { handleImgDoubleTap(e.touches[0].clientX, e.touches[0].clientY); imgLastTap.current = 0; return; }
-      imgLastTap.current = now;
-      if (zoom > 1) { imgDragging.current = true; imgLastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }
-    } else if (e.touches.length === 2) {
-      imgDragging.current = false;
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      imgLastPinch.current = Math.sqrt(dx * dx + dy * dy);
-    }
-  };
-  const handleImgTouchMove = (e: React.TouchEvent) => {
-    if (e.touches.length === 1 && imgDragging.current) {
-      const dx = e.touches[0].clientX - imgLastPos.current.x;
-      const dy = e.touches[0].clientY - imgLastPos.current.y;
-      imgLastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
-    } else if (e.touches.length === 2) {
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (imgLastPinch.current > 0) setZoom(prev => Math.max(1, Math.min(6, prev * (dist / imgLastPinch.current))));
-      imgLastPinch.current = dist;
-    }
-  };
-  const handleImgTouchEnd = (e: React.TouchEvent) => {
-    imgDragging.current = false;
-    if (e.touches.length < 2) imgLastPinch.current = 0;
-    if (zoom < 1.1) { setZoom(1); setPan({ x: 0, y: 0 }); }
-  };
-  const handleImgMouseDown = (e: React.MouseEvent) => { if (zoom <= 1) return; e.preventDefault(); imgDragging.current = true; imgLastPos.current = { x: e.clientX, y: e.clientY }; };
-  const handleImgMouseMove = (e: React.MouseEvent) => { if (!imgDragging.current) return; setPan(prev => ({ x: prev.x + e.clientX - imgLastPos.current.x, y: prev.y + e.clientY - imgLastPos.current.y })); imgLastPos.current = { x: e.clientX, y: e.clientY }; };
-  const handleImgMouseUp = () => { imgDragging.current = false; };
-  const handleImgWheel = (e: React.WheelEvent) => { e.preventDefault(); const nz = Math.max(1, Math.min(6, zoom + (e.deltaY > 0 ? -0.3 : 0.3))); setZoom(nz); if (nz === 1) setPan({ x: 0, y: 0 }); };
-
   if (docsLoading) return <div className="flex items-center justify-center h-full"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
   if (!documents?.documents?.length) return (
     <div className="flex flex-col items-center justify-center h-full gap-4 p-6">
@@ -590,41 +535,16 @@ export default function PyramidReviewMode({ projectId }: Props) {
         <div className="flex-1 flex min-h-0">
           {/* LEFT: Document image with digital ruler */}
           <div className="w-[45%] flex flex-col min-h-0 border-r border-border relative">
-            {/* Zoom controls */}
-            <div className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 bg-black/80 border-b border-white/10">
-              <button onClick={() => { const nz = Math.max(zoom - 0.3, 1); setZoom(nz); if (nz === 1) setPan({ x: 0, y: 0 }); }} disabled={zoom <= 1} className="p-1 text-white/60 hover:text-white disabled:text-white/30"><Minus className="w-4 h-4" /></button>
-              <span className="text-[11px] text-white/60 font-mono w-12 text-center">{Math.round(zoom * 100)}%</span>
-              <button onClick={() => setZoom(prev => Math.min(prev + 0.3, 6))} disabled={zoom >= 6} className="p-1 text-white/60 hover:text-white disabled:text-white/30"><Plus className="w-4 h-4" /></button>
-              {zoom > 1 && <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} className="ml-2 px-2 py-0.5 text-[10px] text-white/50 bg-white/10 rounded">Reset</button>}
-            </div>
-            {/* Image area */}
-            <div
-              ref={imageContainerRef}
-              className="flex-1 overflow-hidden bg-neutral-900 relative"
-              style={{ cursor: zoom > 1 ? "grab" : "default", touchAction: "none" }}
-              onMouseDown={handleImgMouseDown}
-              onMouseMove={handleImgMouseMove}
-              onMouseUp={handleImgMouseUp}
-              onMouseLeave={handleImgMouseUp}
-              onTouchStart={handleImgTouchStart}
-              onTouchMove={handleImgTouchMove}
-              onTouchEnd={handleImgTouchEnd}
-              onWheel={handleImgWheel}
-              onDoubleClick={(e) => handleImgDoubleTap(e.clientX, e.clientY)}
-            >
+            <div className="flex-1 min-h-0">
               {currentDoc?.storageUrl ? (
-                <img
+                <PanZoomImageViewer
                   src={currentDoc.storageUrl}
-                  alt={currentDoc.filename}
-                  className="absolute inset-0 w-full h-full object-contain select-none pointer-events-none"
-                  style={{ transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`, transition: imgDragging.current ? "none" : "transform 0.15s ease-out" }}
-                  draggable={false}
+                  alt={currentDoc.filename || "Document"}
+                  isMobile={false}
                 />
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">No image</div>
               )}
-              {/* Digital Ruler */}
-              <DigitalRuler containerRef={imageContainerRef} />
             </div>
           </div>
 
@@ -751,31 +671,15 @@ export default function PyramidReviewMode({ projectId }: Props) {
       </div>
 
       {/* Top 40%: Locked document viewer */}
-      <div
-        ref={imageContainerRef}
-        className="flex-shrink-0 relative overflow-hidden bg-neutral-900 border-b border-border"
-        style={{ height: "40%", touchAction: "none", cursor: zoom > 1 ? "grab" : "default" }}
-        onTouchStart={handleImgTouchStart}
-        onTouchMove={handleImgTouchMove}
-        onTouchEnd={handleImgTouchEnd}
-        onDoubleClick={(e) => handleImgDoubleTap(e.clientX, e.clientY)}
-      >
+      <div className="flex-shrink-0 border-b border-border" style={{ height: "40%" }}>
         {currentDoc?.storageUrl ? (
-          <img
+          <PanZoomImageViewer
             src={currentDoc.storageUrl}
-            alt={currentDoc.filename}
-            className="absolute inset-0 w-full h-full object-contain select-none pointer-events-none"
-            style={{ transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`, transition: imgDragging.current ? "none" : "transform 0.12s ease-out" }}
-            draggable={false}
+            alt={currentDoc.filename || "Document"}
+            isMobile={true}
           />
         ) : (
-          <div className="flex items-center justify-center h-full text-muted-foreground text-sm">No image</div>
-        )}
-        {/* Zoom indicator */}
-        {zoom > 1 && (
-          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/70 rounded-full px-2 py-0.5 text-[9px] text-white/60">
-            {Math.round(zoom * 100)}% • double-tap to reset
-          </div>
+          <div className="flex items-center justify-center h-full bg-neutral-900 text-muted-foreground text-sm">No image</div>
         )}
       </div>
 
