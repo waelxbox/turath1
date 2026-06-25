@@ -52,33 +52,85 @@ function StatusBadge({ status }: { status: string }) {
 
 function RetryAllButton({ projectId }: { projectId: number }) {
   const utils = trpc.useUtils();
+  const [isRunning, setIsRunning] = useState(false);
+  const [totalQueued, setTotalQueued] = useState(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Poll stats while running
+  const { data: stats } = trpc.projects.stats.useQuery(
+    { id: projectId },
+    { refetchInterval: isRunning ? 4000 : false }
+  );
+
+  // Detect completion: when running and no more pending/processing
+  useEffect(() => {
+    if (isRunning && stats && stats.pending === 0 && stats.processing === 0) {
+      setIsRunning(false);
+      setTotalQueued(0);
+      toast.success("All documents transcribed!");
+      utils.documents.listPaginated.invalidate();
+    }
+  }, [isRunning, stats, utils]);
+
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, []);
+
   const retryAll = trpc.documents.retryAllPending.useMutation({
     onSuccess: (data) => {
       if (data.queued === 0) {
-        toast.info("No documents to retry.");
+        toast.info("No pending documents to retry.");
       } else {
-        toast.success(data.message);
-        // Poll for updates
-        const interval = setInterval(() => {
+        setTotalQueued(data.queued);
+        setIsRunning(true);
+        toast.success(`Started transcribing ${data.queued} document(s)`);
+        // Also invalidate list periodically
+        intervalRef.current = setInterval(() => {
           utils.documents.listPaginated.invalidate();
-        }, 5000);
-        setTimeout(() => clearInterval(interval), 120000);
+        }, 6000);
+        setTimeout(() => {
+          if (intervalRef.current) clearInterval(intervalRef.current);
+        }, 300000); // 5 min max
       }
     },
     onError: (err) => toast.error(err.message),
   });
+
+  const pendingCount = stats?.pending ?? 0;
+  const processingCount = stats?.processing ?? 0;
+  const remainingCount = pendingCount + processingCount;
+
+  if (isRunning) {
+    const completed = totalQueued - remainingCount;
+    const pct = totalQueued > 0 ? Math.round((completed / totalQueued) * 100) : 0;
+    return (
+      <div className="flex items-center gap-2 h-8 px-2 rounded border border-border bg-background text-xs">
+        <Loader2 className="w-3 h-3 animate-spin text-primary" />
+        <span className="text-muted-foreground whitespace-nowrap">
+          {completed}/{totalQueued} done ({pct}%)
+        </span>
+        <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
+          <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+    );
+  }
+
+  // Only show button if there are pending docs
+  if (pendingCount === 0 && processingCount === 0) return null;
 
   return (
     <Button
       variant="outline"
       size="sm"
       className="h-8 text-xs gap-1 whitespace-nowrap"
-      title="Transcribe all pending and stuck documents"
+      title={`Transcribe ${pendingCount} pending document(s)`}
       onClick={() => retryAll.mutate({ projectId })}
       disabled={retryAll.isPending}
     >
       {retryAll.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
-      Retry pending
+      Retry pending ({pendingCount})
     </Button>
   );
 }
