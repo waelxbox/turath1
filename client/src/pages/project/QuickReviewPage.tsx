@@ -677,6 +677,24 @@ function ClassicReviewMode({ projectId, mode, setMode }: Props & { mode: ReviewM
     setEditMode(false);
   }, [currentLineIndex, totalLines]);
 
+  // Skip entire document (move to next doc without reviewing)
+  const skipDocument = useCallback(() => {
+    if (documents?.documents && currentDocIndex < documents.documents.length - 1) {
+      setCurrentDocIndex(prev => prev + 1);
+      setCurrentLineIndex(0);
+      setReviewedLines(new Map());
+      setEditMode(false);
+      setPhase("lines");
+      setMetadataIndex(0);
+      setMetadataVerifications(new Map());
+      setMetadataCorrections(new Map());
+      setEditingMetaField(null);
+      toast.info("Document skipped");
+    } else {
+      toast.info("No more documents to skip to");
+    }
+  }, [currentDocIndex, documents]);
+
   // Swipe gestures for line review
   useSwipe(swipeRef, {
     onSwipeRight: handleApprove,
@@ -889,7 +907,17 @@ function ClassicReviewMode({ projectId, mode, setMode }: Props & { mode: ReviewM
         <div className="flex-1 md:w-1/2 flex flex-col min-h-0 overflow-hidden">
           {/* Document info bar */}
           <div className="px-3 md:px-6 py-2 md:py-3 border-b border-border bg-card/30 flex-shrink-0">
-            <h3 className="text-xs md:text-sm font-medium truncate">{currentDoc?.filename}</h3>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-xs md:text-sm font-medium truncate flex-1">{currentDoc?.filename}</h3>
+              <button
+                onClick={skipDocument}
+                className="flex items-center gap-1 px-2 py-1 text-[10px] md:text-xs text-muted-foreground hover:text-foreground bg-muted/50 hover:bg-muted rounded transition-colors"
+                title="Skip this document"
+              >
+                <SkipForward className="w-3 h-3" />
+                <span className="hidden md:inline">Skip Doc</span>
+              </button>
+            </div>
             <div className="flex items-center gap-2 mt-1">
               {phase === "lines" ? (
                 <>

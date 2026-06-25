@@ -478,6 +478,19 @@ export default function PyramidReviewMode({ projectId }: Props) {
   const startEdit = useCallback(() => { setEditMode(true); setEditedLine(currentLine); setTimeout(() => inputRef.current?.focus(), 50); }, [currentLine]);
   const skipLine = useCallback(() => { if (currentLineIndex < totalLines - 1) setCurrentLineIndex(prev => prev + 1); setEditMode(false); }, [currentLineIndex, totalLines]);
 
+  // Skip entire document
+  const skipDocument = useCallback(() => {
+    if (documents?.documents && currentDocIndex < documents.documents.length - 1) {
+      setCurrentDocIndex(prev => prev + 1);
+      setCurrentLineIndex(0);
+      setReviewedLines(new Map());
+      setEditMode(false);
+      toast.info("Document skipped");
+    } else {
+      toast.info("No more documents to skip to");
+    }
+  }, [currentDocIndex, documents]);
+
   // Keyboard shortcuts (desktop)
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
@@ -533,6 +546,13 @@ export default function PyramidReviewMode({ projectId }: Props) {
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <span className="truncate max-w-[180px]">{currentDoc?.filename}</span>
+            <button
+              onClick={skipDocument}
+              className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground bg-muted/50 hover:bg-muted rounded transition-colors"
+              title="Skip this document"
+            >
+              <SkipForward className="w-3 h-3" /> Skip Doc
+            </button>
             {languages && languages.length > 1 && (
               <select
                 value={selectedLanguage}
@@ -673,6 +693,13 @@ export default function PyramidReviewMode({ projectId }: Props) {
           </div>
         )}
         <div className="flex items-center gap-2">
+          <button
+            onClick={skipDocument}
+            className="flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] text-muted-foreground hover:text-foreground bg-muted/50 rounded transition-colors"
+            title="Skip document"
+          >
+            <SkipForward className="w-2.5 h-2.5" /> Skip
+          </button>
           {languages && languages.length > 1 && (
             <select
               value={selectedLanguage}

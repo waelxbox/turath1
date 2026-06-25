@@ -453,3 +453,7 @@
 - [x] Auto-save on every approve/skip/edit action (debounced 500ms)
 - [x] Auto-restore on page load (both Classic and Pyramid modes)
 - [x] Persist across reload, tab change, and browser close (visibilitychange + beforeunload)
+
+## Skip Document Feature (Round 45)
+- [x] Add "Skip Document" button/action to Classic mode (jumps to next doc without reviewing)
+- [x] Add "Skip Document" button/action to Pyramid mode
