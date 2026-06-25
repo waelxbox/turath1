@@ -388,3 +388,8 @@
 - [x] Frontend: XP counter + level display in Quick Review header
 - [x] Frontend: Streak counter with visual indicator
 - [x] Frontend: Project leaderboard component on Quick Review page
+
+## Gamification Enhancements (Round 38b)
+- [x] Add metadata verification step after all lines reviewed (yes/no per field)
+- [x] Only mark document as 'reviewed' after BOTH text lines AND metadata are verified
+- [x] Show metadata fields as simple yes/no questions (non-expert friendly)

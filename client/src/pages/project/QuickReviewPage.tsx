@@ -5,13 +5,16 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   CheckCircle2, Edit3, ChevronRight, ChevronLeft, Zap,
-  Flame, Trophy, Star, SkipForward, Loader2, ImageIcon
+  Flame, Trophy, Star, SkipForward, Loader2, ImageIcon,
+  ThumbsUp, ThumbsDown, ClipboardCheck
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
 interface Props {
   projectId: number;
 }
+
+type ReviewPhase = "lines" | "metadata" | "complete";
 
 // XP animation component
 function XpPopup({ xp, show }: { xp: number; show: boolean }) {
@@ -41,6 +44,17 @@ function LevelBadge({ level }: { level: number }) {
   );
 }
 
+// Fields that are per-page (text content) — NOT shown in metadata verification
+const TEXT_FIELDS = new Set([
+  "transcription", "original_text", "text", "content", "translation",
+  "transliteration", "notes", "marginalia", "commentary"
+]);
+
+// Fields to skip in metadata verification (internal/obvious)
+const SKIP_FIELDS = new Set([
+  "page_number", "section_of_act", "folio_number"
+]);
+
 export default function QuickReviewPage({ projectId }: Props) {
   const [currentDocIndex, setCurrentDocIndex] = useState(0);
   const [currentLineIndex, setCurrentLineIndex] = useState(0);
@@ -49,7 +63,14 @@ export default function QuickReviewPage({ projectId }: Props) {
   const [reviewedLines, setReviewedLines] = useState<Map<number, { original: string; reviewed: string }>>(new Map());
   const [showXp, setShowXp] = useState(false);
   const [lastXp, setLastXp] = useState(0);
+  const [phase, setPhase] = useState<ReviewPhase>("lines");
+  const [metadataIndex, setMetadataIndex] = useState(0);
+  const [metadataVerifications, setMetadataVerifications] = useState<Map<string, boolean>>(new Map());
+  const [metadataCorrections, setMetadataCorrections] = useState<Map<string, string>>(new Map());
+  const [editingMetaField, setEditingMetaField] = useState<string | null>(null);
+  const [editingMetaValue, setEditingMetaValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const metaInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch documents that need review
   const { data: documents, isLoading: docsLoading } = trpc.documents.listPaginated.useQuery(
@@ -78,11 +99,10 @@ export default function QuickReviewPage({ projectId }: Props) {
     { enabled: !!currentDoc?.id }
   );
 
-  // Extract lines from transcription
+  // Extract lines from transcription (text fields only)
   const lines = useMemo(() => {
     if (!transcription?.rawJson) return [];
     const raw = transcription.rawJson as Record<string, unknown>;
-    // Find the main text field
     const textFields = ["transcription", "original_text", "text", "content"];
     for (const f of textFields) {
       if (typeof raw[f] === "string" && (raw[f] as string).trim().length > 0) {
@@ -92,9 +112,41 @@ export default function QuickReviewPage({ projectId }: Props) {
     return [];
   }, [transcription]);
 
+  // Extract metadata fields for verification (non-text fields with values)
+  const metadataFields = useMemo(() => {
+    if (!transcription?.rawJson) return [];
+    const raw = transcription.rawJson as Record<string, unknown>;
+    const fields: { key: string; label: string; value: string }[] = [];
+
+    for (const [key, value] of Object.entries(raw)) {
+      if (TEXT_FIELDS.has(key)) continue;
+      if (SKIP_FIELDS.has(key)) continue;
+      if (value === null || value === undefined || value === "") continue;
+
+      const label = key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      let displayValue: string;
+
+      if (Array.isArray(value)) {
+        if (value.length === 0) continue;
+        displayValue = value.join(", ");
+      } else if (typeof value === "boolean") {
+        displayValue = value ? "Yes" : "No";
+      } else {
+        displayValue = String(value);
+      }
+
+      if (displayValue.trim().length === 0) continue;
+      fields.push({ key, label, value: displayValue });
+    }
+
+    return fields;
+  }, [transcription]);
+
   const currentLine = lines[currentLineIndex] ?? "";
   const totalLines = lines.length;
-  const progress = totalLines > 0 ? Math.round((reviewedLines.size / totalLines) * 100) : 0;
+  const lineProgress = totalLines > 0 ? Math.round((reviewedLines.size / totalLines) * 100) : 0;
+  const currentMetaField = metadataFields[metadataIndex];
+  const totalMetaFields = metadataFields.length;
 
   // Mutations
   const submitLine = trpc.gamification.submitLineReview.useMutation();
@@ -128,7 +180,7 @@ export default function QuickReviewPage({ projectId }: Props) {
 
     refetchStats();
     advanceLine();
-  }, [currentDoc, transcription, currentLineIndex, currentLine, projectId]);
+  }, [currentDoc, transcription, currentLineIndex, currentLine, projectId, reviewedLines]);
 
   // Handle line correction
   const handleCorrect = useCallback(async () => {
@@ -159,7 +211,7 @@ export default function QuickReviewPage({ projectId }: Props) {
     advanceLine();
   }, [currentDoc, transcription, currentLineIndex, currentLine, editedLine, projectId]);
 
-  // Advance to next line or complete page
+  // Advance to next line or transition to metadata phase
   const advanceLine = useCallback(() => {
     // Find next unreviewed line
     for (let i = currentLineIndex + 1; i < totalLines; i++) {
@@ -168,10 +220,18 @@ export default function QuickReviewPage({ projectId }: Props) {
         return;
       }
     }
-    // Check if all lines are done
+    // Check if all lines are done (current one was just added so +1)
     if (reviewedLines.size + 1 >= totalLines) {
-      // Page complete!
-      handlePageComplete();
+      // All lines done — transition to metadata verification
+      if (metadataFields.length > 0) {
+        setPhase("metadata");
+        setMetadataIndex(0);
+        setMetadataVerifications(new Map());
+        setMetadataCorrections(new Map());
+      } else {
+        // No metadata to verify — complete immediately
+        handlePageComplete();
+      }
     } else {
       // Wrap around to find unreviewed lines
       for (let i = 0; i < currentLineIndex; i++) {
@@ -181,9 +241,45 @@ export default function QuickReviewPage({ projectId }: Props) {
         }
       }
     }
-  }, [currentLineIndex, totalLines, reviewedLines]);
+  }, [currentLineIndex, totalLines, reviewedLines, metadataFields]);
 
-  // Handle page completion
+  // Handle metadata confirmation (yes)
+  const handleMetaConfirm = useCallback(() => {
+    if (!currentMetaField) return;
+    setMetadataVerifications(prev => new Map(prev).set(currentMetaField.key, true));
+
+    if (metadataIndex < totalMetaFields - 1) {
+      setMetadataIndex(prev => prev + 1);
+    } else {
+      // All metadata verified — complete the page
+      handlePageComplete();
+    }
+  }, [currentMetaField, metadataIndex, totalMetaFields]);
+
+  // Handle metadata rejection (no — needs correction)
+  const handleMetaReject = useCallback(() => {
+    if (!currentMetaField) return;
+    setEditingMetaField(currentMetaField.key);
+    setEditingMetaValue(currentMetaField.value);
+    setTimeout(() => metaInputRef.current?.focus(), 50);
+  }, [currentMetaField]);
+
+  // Submit metadata correction
+  const handleMetaCorrectionSubmit = useCallback(() => {
+    if (!editingMetaField) return;
+    setMetadataVerifications(prev => new Map(prev).set(editingMetaField, false));
+    setMetadataCorrections(prev => new Map(prev).set(editingMetaField, editingMetaValue));
+    setEditingMetaField(null);
+    setEditingMetaValue("");
+
+    if (metadataIndex < totalMetaFields - 1) {
+      setMetadataIndex(prev => prev + 1);
+    } else {
+      handlePageComplete();
+    }
+  }, [editingMetaField, editingMetaValue, metadataIndex, totalMetaFields]);
+
+  // Handle page completion (called after BOTH lines and metadata are done)
   const handlePageComplete = useCallback(async () => {
     if (!currentDoc || !transcription) return;
 
@@ -193,8 +289,10 @@ export default function QuickReviewPage({ projectId }: Props) {
       reviewed: data.reviewed,
     }));
 
-    // Add the current line that just got reviewed
-    allReviewed.push({ index: currentLineIndex, original: currentLine, reviewed: editMode ? editedLine : currentLine });
+    // If we're coming from advanceLine (last line just reviewed), add it
+    if (!reviewedLines.has(currentLineIndex) && phase === "lines") {
+      allReviewed.push({ index: currentLineIndex, original: currentLine, reviewed: editMode ? editedLine : currentLine });
+    }
 
     try {
       const result = await completePage.mutateAsync({
@@ -202,6 +300,7 @@ export default function QuickReviewPage({ projectId }: Props) {
         documentId: currentDoc.id,
         transcriptionId: transcription.id,
         reviewedLines: allReviewed,
+        metadataCorrections: Object.fromEntries(metadataCorrections),
       });
 
       toast.success(`🎉 Page complete! +${result.xpEarned} XP bonus!`);
@@ -213,13 +312,18 @@ export default function QuickReviewPage({ projectId }: Props) {
         setCurrentLineIndex(0);
         setReviewedLines(new Map());
         setEditMode(false);
+        setPhase("lines");
+        setMetadataIndex(0);
+        setMetadataVerifications(new Map());
+        setMetadataCorrections(new Map());
       } else {
+        setPhase("complete");
         toast.success("🏆 All documents reviewed! Amazing work!");
       }
     } catch (err) {
       toast.error("Failed to save page review");
     }
-  }, [currentDoc, transcription, reviewedLines, currentLineIndex, currentLine, editMode, editedLine, projectId, currentDocIndex, documents]);
+  }, [currentDoc, transcription, reviewedLines, currentLineIndex, currentLine, editMode, editedLine, projectId, currentDocIndex, documents, metadataCorrections, phase]);
 
   // Enter edit mode
   const startEdit = useCallback(() => {
@@ -239,7 +343,17 @@ export default function QuickReviewPage({ projectId }: Props) {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't intercept when editing
+      if (phase === "metadata") {
+        if (editingMetaField) {
+          if (e.key === "Enter") { e.preventDefault(); handleMetaCorrectionSubmit(); }
+          if (e.key === "Escape") { setEditingMetaField(null); setEditingMetaValue(""); }
+          return;
+        }
+        if (e.key === "Enter" || e.key === "y" || e.key === "Y") { e.preventDefault(); handleMetaConfirm(); }
+        else if (e.key === "n" || e.key === "N") { e.preventDefault(); handleMetaReject(); }
+        return;
+      }
+      // Lines phase
       if (editMode) return;
       if (e.key === "Enter") { e.preventDefault(); handleApprove(); }
       else if (e.key === "e" || e.key === "E") { e.preventDefault(); startEdit(); }
@@ -251,13 +365,18 @@ export default function QuickReviewPage({ projectId }: Props) {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [editMode, handleApprove, startEdit, skipLine, currentLineIndex]);
+  }, [phase, editMode, editingMetaField, handleApprove, startEdit, skipLine, currentLineIndex, handleMetaConfirm, handleMetaReject, handleMetaCorrectionSubmit]);
 
   // Reset when document changes
   useEffect(() => {
     setCurrentLineIndex(0);
     setReviewedLines(new Map());
     setEditMode(false);
+    setPhase("lines");
+    setMetadataIndex(0);
+    setMetadataVerifications(new Map());
+    setMetadataCorrections(new Map());
+    setEditingMetaField(null);
   }, [currentDoc?.id]);
 
   // Loading state
@@ -270,7 +389,7 @@ export default function QuickReviewPage({ projectId }: Props) {
   }
 
   // No documents to review
-  if (!documents?.documents?.length) {
+  if (!documents?.documents?.length || phase === "complete") {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4 text-muted-foreground">
         <Trophy className="w-12 h-12 text-yellow-400" />
@@ -311,7 +430,11 @@ export default function QuickReviewPage({ projectId }: Props) {
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <span>Doc {currentDocIndex + 1}/{documents.documents.length}</span>
             <span>•</span>
-            <span>Line {currentLineIndex + 1}/{totalLines}</span>
+            {phase === "lines" ? (
+              <span>Line {currentLineIndex + 1}/{totalLines}</span>
+            ) : (
+              <span className="text-blue-400">Metadata {metadataIndex + 1}/{totalMetaFields}</span>
+            )}
           </div>
         </div>
         {stats && (
@@ -342,119 +465,260 @@ export default function QuickReviewPage({ projectId }: Props) {
           )}
         </div>
 
-        {/* Right: Line review */}
+        {/* Right: Review panel */}
         <div className="w-1/2 flex flex-col">
           {/* Document info */}
           <div className="px-6 py-3 border-b border-border bg-card/30">
             <h3 className="text-sm font-medium truncate">{currentDoc?.filename}</h3>
             <div className="flex items-center gap-2 mt-1">
-              <Progress value={progress} className="h-1.5 flex-1" />
-              <span className="text-[10px] text-muted-foreground">{progress}%</span>
-            </div>
-          </div>
-
-          {/* Line context (previous lines) */}
-          <div className="flex-1 overflow-y-auto px-6 py-4">
-            <div className="space-y-2 mb-6">
-              {lines.slice(Math.max(0, currentLineIndex - 3), currentLineIndex).map((line, i) => {
-                const actualIdx = Math.max(0, currentLineIndex - 3) + i;
-                const isReviewed = reviewedLines.has(actualIdx);
-                return (
-                  <div key={actualIdx} className={`text-sm py-1 px-2 rounded ${isReviewed ? "text-muted-foreground/50 line-through" : "text-muted-foreground/70"}`}>
-                    {line}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Current line — the focus */}
-            <div className="relative border-2 border-primary/50 rounded-lg p-4 bg-primary/5">
-              <div className="absolute -top-3 left-3 bg-background px-2 text-xs text-primary font-medium">
-                Line {currentLineIndex + 1}
-              </div>
-
-              {!editMode ? (
-                <div className="text-base font-medium leading-relaxed">
-                  {currentLine}
-                </div>
+              {phase === "lines" ? (
+                <>
+                  <Progress value={lineProgress} className="h-1.5 flex-1" />
+                  <span className="text-[10px] text-muted-foreground">{lineProgress}%</span>
+                </>
               ) : (
-                <Input
-                  ref={inputRef}
-                  value={editedLine}
-                  onChange={e => setEditedLine(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === "Enter") handleCorrect();
-                    if (e.key === "Escape") { setEditMode(false); setEditedLine(""); }
-                  }}
-                  className="text-base font-medium"
-                  placeholder="Type the corrected text..."
-                />
+                <>
+                  <div className="flex items-center gap-1 text-xs text-blue-400">
+                    <ClipboardCheck className="w-3 h-3" />
+                    <span>Verifying metadata</span>
+                  </div>
+                  <Progress value={totalMetaFields > 0 ? (metadataIndex / totalMetaFields) * 100 : 0} className="h-1.5 flex-1" />
+                  <span className="text-[10px] text-muted-foreground">{metadataIndex}/{totalMetaFields}</span>
+                </>
               )}
-
-              <XpPopup xp={lastXp} show={showXp} />
             </div>
+          </div>
 
-            {/* Next lines preview */}
-            <div className="space-y-2 mt-6">
-              {lines.slice(currentLineIndex + 1, currentLineIndex + 4).map((line, i) => (
-                <div key={currentLineIndex + 1 + i} className="text-sm py-1 px-2 text-muted-foreground/40">
-                  {line}
+          {/* Phase: Line review */}
+          {phase === "lines" && (
+            <>
+              <div className="flex-1 overflow-y-auto px-6 py-4">
+                {/* Previous lines context */}
+                <div className="space-y-2 mb-6">
+                  {lines.slice(Math.max(0, currentLineIndex - 3), currentLineIndex).map((line, i) => {
+                    const actualIdx = Math.max(0, currentLineIndex - 3) + i;
+                    const isReviewed = reviewedLines.has(actualIdx);
+                    return (
+                      <div key={actualIdx} className={`text-sm py-1 px-2 rounded ${isReviewed ? "text-muted-foreground/50 line-through" : "text-muted-foreground/70"}`}>
+                        {line}
+                      </div>
+                    );
+                  })}
                 </div>
-              ))}
-            </div>
-          </div>
 
-          {/* Action buttons */}
-          <div className="flex-shrink-0 border-t border-border px-6 py-4">
-            {!editMode ? (
-              <div className="flex items-center gap-3">
-                <Button
-                  onClick={handleApprove}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-700"
-                  disabled={submitLine.isPending}
-                >
-                  <CheckCircle2 className="w-4 h-4 mr-2" />
-                  Correct (+2 XP)
-                </Button>
-                <Button
-                  onClick={startEdit}
-                  variant="outline"
-                  className="flex-1"
-                >
-                  <Edit3 className="w-4 h-4 mr-2" />
-                  Edit (+5 XP)
-                </Button>
-                <Button
-                  onClick={skipLine}
-                  variant="ghost"
-                  size="icon"
-                  title="Skip this line"
-                >
-                  <SkipForward className="w-4 h-4" />
-                </Button>
+                {/* Current line */}
+                <div className="relative border-2 border-primary/50 rounded-lg p-4 bg-primary/5">
+                  <div className="absolute -top-3 left-3 bg-background px-2 text-xs text-primary font-medium">
+                    Line {currentLineIndex + 1}
+                  </div>
+
+                  {!editMode ? (
+                    <div className="text-base font-medium leading-relaxed">
+                      {currentLine}
+                    </div>
+                  ) : (
+                    <Input
+                      ref={inputRef}
+                      value={editedLine}
+                      onChange={e => setEditedLine(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") handleCorrect();
+                        if (e.key === "Escape") { setEditMode(false); setEditedLine(""); }
+                      }}
+                      className="text-base font-medium"
+                      placeholder="Type the corrected text..."
+                    />
+                  )}
+
+                  <XpPopup xp={lastXp} show={showXp} />
+                </div>
+
+                {/* Next lines preview */}
+                <div className="space-y-2 mt-6">
+                  {lines.slice(currentLineIndex + 1, currentLineIndex + 4).map((line, i) => (
+                    <div key={currentLineIndex + 1 + i} className="text-sm py-1 px-2 text-muted-foreground/40">
+                      {line}
+                    </div>
+                  ))}
+                </div>
               </div>
-            ) : (
-              <div className="flex items-center gap-3">
-                <Button
-                  onClick={handleCorrect}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700"
-                  disabled={submitLine.isPending || !editedLine.trim()}
-                >
-                  <CheckCircle2 className="w-4 h-4 mr-2" />
-                  Submit correction (+5 XP)
-                </Button>
-                <Button
-                  onClick={() => { setEditMode(false); setEditedLine(""); }}
-                  variant="ghost"
-                >
-                  Cancel
-                </Button>
+
+              {/* Line action buttons */}
+              <div className="flex-shrink-0 border-t border-border px-6 py-4">
+                {!editMode ? (
+                  <div className="flex items-center gap-3">
+                    <Button
+                      onClick={handleApprove}
+                      className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+                      disabled={submitLine.isPending}
+                    >
+                      <CheckCircle2 className="w-4 h-4 mr-2" />
+                      Correct (+2 XP)
+                    </Button>
+                    <Button
+                      onClick={startEdit}
+                      variant="outline"
+                      className="flex-1"
+                    >
+                      <Edit3 className="w-4 h-4 mr-2" />
+                      Edit (+5 XP)
+                    </Button>
+                    <Button
+                      onClick={skipLine}
+                      variant="ghost"
+                      size="icon"
+                      title="Skip this line"
+                    >
+                      <SkipForward className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <Button
+                      onClick={handleCorrect}
+                      className="flex-1 bg-blue-600 hover:bg-blue-700"
+                      disabled={submitLine.isPending || !editedLine.trim()}
+                    >
+                      <CheckCircle2 className="w-4 h-4 mr-2" />
+                      Submit correction (+5 XP)
+                    </Button>
+                    <Button
+                      onClick={() => { setEditMode(false); setEditedLine(""); }}
+                      variant="ghost"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                )}
+                <p className="text-[10px] text-muted-foreground mt-2 text-center">
+                  Keyboard: Enter = approve/submit • E = edit • → = skip • ← = back
+                </p>
               </div>
-            )}
-            <p className="text-[10px] text-muted-foreground mt-2 text-center">
-              Keyboard: Enter = approve/submit • E = edit • → = skip
-            </p>
-          </div>
+            </>
+          )}
+
+          {/* Phase: Metadata verification */}
+          {phase === "metadata" && currentMetaField && (
+            <>
+              <div className="flex-1 overflow-y-auto px-6 py-6">
+                {/* Phase transition header */}
+                <div className="mb-6 p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                  <div className="flex items-center gap-2 text-blue-400 mb-1">
+                    <ClipboardCheck className="w-4 h-4" />
+                    <span className="text-sm font-semibold">Metadata Verification</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Lines are done! Now verify the document's metadata fields. Confirm each one is correct or fix it.
+                  </p>
+                </div>
+
+                {/* Previously verified fields */}
+                {metadataIndex > 0 && (
+                  <div className="space-y-2 mb-6">
+                    {metadataFields.slice(0, metadataIndex).map(field => {
+                      const wasConfirmed = metadataVerifications.get(field.key);
+                      const correction = metadataCorrections.get(field.key);
+                      return (
+                        <div key={field.key} className="flex items-center gap-2 text-xs text-muted-foreground/60">
+                          {wasConfirmed ? (
+                            <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                          ) : (
+                            <Edit3 className="w-3 h-3 text-blue-400" />
+                          )}
+                          <span className="font-medium">{field.label}:</span>
+                          <span className={correction ? "line-through" : ""}>{field.value}</span>
+                          {correction && <span className="text-blue-400">→ {correction}</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Current metadata field */}
+                <div className="relative border-2 border-blue-500/50 rounded-lg p-6 bg-blue-500/5">
+                  <div className="absolute -top-3 left-3 bg-background px-2 text-xs text-blue-400 font-medium">
+                    {currentMetaField.label}
+                  </div>
+
+                  {!editingMetaField ? (
+                    <div className="text-center">
+                      <p className="text-lg font-medium mb-2">{currentMetaField.value}</p>
+                      <p className="text-sm text-muted-foreground">Is this correct?</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-2">Original: <span className="line-through">{currentMetaField.value}</span></p>
+                      <Input
+                        ref={metaInputRef}
+                        value={editingMetaValue}
+                        onChange={e => setEditingMetaValue(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === "Enter") handleMetaCorrectionSubmit();
+                          if (e.key === "Escape") { setEditingMetaField(null); setEditingMetaValue(""); }
+                        }}
+                        className="text-base"
+                        placeholder="Type the correct value..."
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Remaining fields preview */}
+                {metadataIndex < totalMetaFields - 1 && (
+                  <div className="space-y-2 mt-6">
+                    {metadataFields.slice(metadataIndex + 1, metadataIndex + 4).map(field => (
+                      <div key={field.key} className="text-xs text-muted-foreground/40 py-1 px-2">
+                        <span className="font-medium">{field.label}:</span> {field.value}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Metadata action buttons */}
+              <div className="flex-shrink-0 border-t border-border px-6 py-4">
+                {!editingMetaField ? (
+                  <div className="flex items-center gap-3">
+                    <Button
+                      onClick={handleMetaConfirm}
+                      className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+                    >
+                      <ThumbsUp className="w-4 h-4 mr-2" />
+                      Yes, correct (+2 XP)
+                    </Button>
+                    <Button
+                      onClick={handleMetaReject}
+                      variant="outline"
+                      className="flex-1 border-red-500/30 text-red-400 hover:bg-red-500/10"
+                    >
+                      <ThumbsDown className="w-4 h-4 mr-2" />
+                      No, fix it (+5 XP)
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <Button
+                      onClick={handleMetaCorrectionSubmit}
+                      className="flex-1 bg-blue-600 hover:bg-blue-700"
+                      disabled={!editingMetaValue.trim()}
+                    >
+                      <CheckCircle2 className="w-4 h-4 mr-2" />
+                      Submit correction
+                    </Button>
+                    <Button
+                      onClick={() => { setEditingMetaField(null); setEditingMetaValue(""); }}
+                      variant="ghost"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                )}
+                <p className="text-[10px] text-muted-foreground mt-2 text-center">
+                  Keyboard: Enter/Y = confirm • N = reject/fix
+                </p>
+              </div>
+            </>
+          )}
         </div>
       </div>
 

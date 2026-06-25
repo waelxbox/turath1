@@ -2084,6 +2084,7 @@ const gamificationRouter = router({
         original: z.string(),
         reviewed: z.string(),
       })),
+      metadataCorrections: z.record(z.string(), z.string()).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const role = await getProjectRole(input.projectId, ctx.user.id);
@@ -2111,6 +2112,12 @@ const gamificationRouter = router({
         if (mainTextField) {
           const reviewedText = input.reviewedLines.map(l => l.reviewed).join("\n");
           const reviewedJson = { ...rawJson, [mainTextField]: reviewedText };
+          // Apply metadata corrections from Quick Review
+          if (input.metadataCorrections) {
+            for (const [key, value] of Object.entries(input.metadataCorrections)) {
+              reviewedJson[key] = value;
+            }
+          }
           await updateReviewedJson(transcription.id, reviewedJson);
           await updateDocumentStatus(input.documentId, "reviewed");
 
