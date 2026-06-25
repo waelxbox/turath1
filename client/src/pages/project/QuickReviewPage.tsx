@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import {
   CheckCircle2, Edit3, ChevronRight, ChevronLeft, Zap,
   Flame, Trophy, Star, SkipForward, Loader2, ImageIcon,
-  ThumbsUp, ThumbsDown, ClipboardCheck, ZoomIn, ZoomOut,
+  ThumbsUp, ThumbsDown, ClipboardCheck,
   Maximize2, X, Minus, Plus
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
@@ -119,59 +119,143 @@ function useSwipe(
 }
 
 /**
- * Smart image viewer that auto-scrolls to approximate line position.
- * The idea: if you're on line 10/35, we scroll the image to ~28% from top,
- * giving you a zoomed-in view of roughly where that line would be.
+ * Pan & Zoom image viewer.
+ * - Drag/one-finger pan to move around the image
+ * - Pinch to zoom on touch devices
+ * - Double-tap to toggle between fit and 2.5x zoom
+ * - +/- buttons and fullscreen mode
+ * - "Reset" button to snap back to fit view
  */
-function LineTrackingImageViewer({
+function PanZoomImageViewer({
   src,
   alt,
-  currentLine,
-  totalLines,
   isMobile,
 }: {
   src: string;
   alt: string;
-  currentLine: number;
-  totalLines: number;
   isMobile: boolean;
 }) {
-  const [zoom, setZoom] = useState(isMobile ? 2.0 : 1.0);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
   const [fullscreen, setFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const imgRef = useRef<HTMLImageElement>(null);
 
-  // Calculate scroll position based on line progress
-  const lineProgress = totalLines > 0 ? currentLine / totalLines : 0;
+  // Drag state
+  const dragging = useRef(false);
+  const lastPos = useRef({ x: 0, y: 0 });
+  const lastPinchDist = useRef(0);
+  const lastTap = useRef(0);
 
-  // Auto-scroll when line changes or zoom changes
-  useEffect(() => {
-    const container = containerRef.current;
-    const img = imgRef.current;
-    if (!container || !img) return;
+  const handleZoomIn = () => {
+    setZoom(prev => Math.min(prev + 0.5, 6));
+  };
+  const handleZoomOut = () => {
+    const newZoom = Math.max(zoom - 0.5, 1);
+    setZoom(newZoom);
+    if (newZoom === 1) setPan({ x: 0, y: 0 });
+  };
+  const handleReset = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
 
-    // Wait for image to have dimensions
-    const scrollToLine = () => {
-      const scrollableHeight = img.offsetHeight * zoom - container.offsetHeight;
-      if (scrollableHeight > 0) {
-        const targetScroll = scrollableHeight * lineProgress;
-        container.scrollTo({ top: targetScroll, behavior: "smooth" });
+  // Double-tap to toggle zoom
+  const handleDoubleTap = (clientX: number, clientY: number) => {
+    if (zoom > 1.5) {
+      // Zoom out to fit
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
+    } else {
+      // Zoom in to 2.5x centered on tap point
+      const container = containerRef.current;
+      if (!container) { setZoom(2.5); return; }
+      const rect = container.getBoundingClientRect();
+      const tapX = clientX - rect.left - rect.width / 2;
+      const tapY = clientY - rect.top - rect.height / 2;
+      setZoom(2.5);
+      setPan({ x: -tapX * 1.5, y: -tapY * 1.5 });
+    }
+  };
+
+  // Mouse events for desktop drag
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (zoom <= 1) return;
+    e.preventDefault();
+    dragging.current = true;
+    lastPos.current = { x: e.clientX, y: e.clientY };
+  };
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!dragging.current) return;
+    const dx = e.clientX - lastPos.current.x;
+    const dy = e.clientY - lastPos.current.y;
+    lastPos.current = { x: e.clientX, y: e.clientY };
+    setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+  };
+  const handleMouseUp = () => { dragging.current = false; };
+
+  // Touch events for mobile pan + pinch + double-tap
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      // Check for double-tap
+      const now = Date.now();
+      if (now - lastTap.current < 300) {
+        handleDoubleTap(e.touches[0].clientX, e.touches[0].clientY);
+        lastTap.current = 0;
+        return;
       }
-    };
+      lastTap.current = now;
 
-    // Small delay to let zoom transition settle
-    const timer = setTimeout(scrollToLine, 100);
-    return () => clearTimeout(timer);
-  }, [currentLine, zoom, lineProgress]);
+      // Start drag (only if zoomed in)
+      if (zoom > 1) {
+        dragging.current = true;
+        lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
+    } else if (e.touches.length === 2) {
+      // Start pinch
+      dragging.current = false;
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      lastPinchDist.current = Math.sqrt(dx * dx + dy * dy);
+    }
+  };
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 1 && dragging.current) {
+      const dx = e.touches[0].clientX - lastPos.current.x;
+      const dy = e.touches[0].clientY - lastPos.current.y;
+      lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (lastPinchDist.current > 0) {
+        const scale = dist / lastPinchDist.current;
+        setZoom(prev => Math.max(1, Math.min(6, prev * scale)));
+      }
+      lastPinchDist.current = dist;
+    }
+  };
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    dragging.current = false;
+    if (e.touches.length < 2) lastPinchDist.current = 0;
+    // Snap back if zoom is near 1
+    if (zoom < 1.1) { setZoom(1); setPan({ x: 0, y: 0 }); }
+  };
 
-  const handleZoomIn = () => setZoom(prev => Math.min(prev + 0.5, 5));
-  const handleZoomOut = () => setZoom(prev => Math.max(prev - 0.5, 1));
+  // Mouse wheel zoom for desktop
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.2 : 0.2;
+    const newZoom = Math.max(1, Math.min(6, zoom + delta));
+    setZoom(newZoom);
+    if (newZoom === 1) setPan({ x: 0, y: 0 });
+  };
 
   const viewer = (
     <div className={`relative flex flex-col ${fullscreen ? "fixed inset-0 z-[100] bg-black" : "h-full"}`}>
-      {/* Zoom controls bar */}
-      <div className="flex-shrink-0 flex items-center justify-between px-3 py-1.5 bg-black/80 border-b border-white/10">
-        <div className="flex items-center gap-1">
+      {/* Controls bar */}
+      <div className="flex-shrink-0 flex items-center justify-between px-2 py-1 bg-black/80 border-b border-white/10">
+        <div className="flex items-center gap-0.5">
           <button
             onClick={handleZoomOut}
             disabled={zoom <= 1}
@@ -182,16 +266,27 @@ function LineTrackingImageViewer({
           <span className="text-[11px] text-white/70 font-mono w-10 text-center">{Math.round(zoom * 100)}%</span>
           <button
             onClick={handleZoomIn}
-            disabled={zoom >= 5}
+            disabled={zoom >= 6}
             className="p-1.5 rounded text-white/70 hover:text-white disabled:text-white/30 active:bg-white/10"
           >
             <Plus className="w-4 h-4" />
           </button>
+          {zoom > 1 && (
+            <button
+              onClick={handleReset}
+              className="ml-1 px-2 py-0.5 rounded text-[10px] text-white/60 hover:text-white bg-white/5 hover:bg-white/10"
+            >
+              Reset
+            </button>
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-white/50">
-            Line {currentLine + 1}/{totalLines} • auto-tracking
-          </span>
+        <div className="flex items-center gap-1">
+          {isMobile && zoom <= 1 && (
+            <span className="text-[9px] text-white/40">double-tap to zoom</span>
+          )}
+          {isMobile && zoom > 1 && (
+            <span className="text-[9px] text-white/40">drag to pan</span>
+          )}
           {!fullscreen ? (
             <button
               onClick={() => setFullscreen(true)}
@@ -210,42 +305,36 @@ function LineTrackingImageViewer({
         </div>
       </div>
 
-      {/* Scrollable image container */}
+      {/* Pan/zoom image area */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-auto"
-        style={{ touchAction: "pan-x pan-y pinch-zoom" }}
+        className="flex-1 overflow-hidden flex items-center justify-center bg-black/40"
+        style={{ cursor: zoom > 1 ? "grab" : "default", touchAction: "none" }}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onWheel={handleWheel}
+        onDoubleClick={(e) => handleDoubleTap(e.clientX, e.clientY)}
       >
         <img
-          ref={imgRef}
           src={src}
           alt={alt}
-          className="w-full select-none"
+          className="max-w-full max-h-full object-contain select-none pointer-events-none"
           style={{
-            transform: `scale(${zoom})`,
-            transformOrigin: "top center",
-            minHeight: `${zoom * 100}%`,
+            transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
+            transition: dragging.current ? "none" : "transform 0.15s ease-out",
           }}
           draggable={false}
-        />
-      </div>
-
-      {/* Line position indicator — vertical bar on the right */}
-      <div className="absolute right-1 top-10 bottom-0 w-1.5 bg-white/10 rounded-full pointer-events-none">
-        <div
-          className="absolute w-full bg-primary/80 rounded-full transition-all duration-300"
-          style={{
-            top: `${lineProgress * 100}%`,
-            height: `${Math.max(100 / totalLines, 4)}%`,
-          }}
         />
       </div>
     </div>
   );
 
-  if (fullscreen) {
-    return <>{viewer}</>;
-  }
+  if (fullscreen) return <>{viewer}</>;
   return viewer;
 }
 
@@ -696,12 +785,10 @@ export default function QuickReviewPage({ projectId }: Props) {
               {showImage ? <ChevronLeft className="w-3 h-3 rotate-90" /> : <ChevronRight className="w-3 h-3 rotate-90" />}
             </button>
             {showImage && currentDoc?.storageUrl && (
-              <div className="flex-shrink-0" style={{ height: "35vh" }}>
-                <LineTrackingImageViewer
+              <div className="flex-shrink-0" style={{ height: "40vh" }}>
+                <PanZoomImageViewer
                   src={currentDoc.storageUrl}
                   alt={currentDoc.filename}
-                  currentLine={currentLineIndex}
-                  totalLines={totalLines}
                   isMobile={true}
                 />
               </div>
@@ -719,11 +806,9 @@ export default function QuickReviewPage({ projectId }: Props) {
           /* Desktop: side-by-side left panel with smart viewer */
           <div className="w-1/2 border-r border-border bg-black/20 overflow-hidden">
             {currentDoc?.storageUrl ? (
-              <LineTrackingImageViewer
+              <PanZoomImageViewer
                 src={currentDoc.storageUrl}
                 alt={currentDoc.filename}
-                currentLine={currentLineIndex}
-                totalLines={totalLines}
                 isMobile={false}
               />
             ) : (
