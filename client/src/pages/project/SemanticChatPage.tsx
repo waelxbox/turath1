@@ -10,6 +10,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
+import { useSessionState } from "@/hooks/useSessionState";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -49,8 +50,8 @@ interface Props {
 
 export default function SemanticChatPage({ projectId, project }: Props) {
   const [, navigate] = useLocation();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState("");
+  const [messages, setMessages] = useSessionState<ChatMessage[]>(`turath-chat-messages-${projectId}`, []);
+  const [input, setInput] = useSessionState(`turath-chat-input-${projectId}`, "");
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);

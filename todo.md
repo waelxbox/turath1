@@ -360,3 +360,8 @@
 - [x] Auto-transcribe all pages sequentially on multi-page upload (already coded, verified working — schema error was the blocker)
 - [x] Add "Transcribe all remaining" button in ReviewPage for existing grouped documents with pending pages
 - [x] Fix page 3 status stuck at 'processing' (fixed directly in DB)
+
+## State Persistence Fix (Round 36)
+
+- [x] Persist Search tab state (query, results) when navigating away to view a document
+- [x] Persist Ask Archive tab state (conversation history, input) when navigating away to view a document

@@ -8,9 +8,10 @@
  * Clicking a result navigates directly to the review page for that document.
  */
 
-import { useState, useRef } from "react";
+import { useRef } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { useSessionState } from "@/hooks/useSessionState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -52,8 +53,8 @@ const EXAMPLE_QUERIES = [
 ];
 
 export default function SemanticSearchPage({ projectId, project }: Props) {
-  const [query, setQuery] = useState("");
-  const [submitted, setSubmitted] = useState("");
+  const [query, setQuery] = useSessionState(`turath-search-query-${projectId}`, "");
+  const [submitted, setSubmitted] = useSessionState(`turath-search-submitted-${projectId}`, "");
   const [, navigate] = useLocation();
   const inputRef = useRef<HTMLInputElement>(null);
 
