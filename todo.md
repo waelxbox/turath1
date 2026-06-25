@@ -434,3 +434,15 @@
 - [x] Mobile: collapsible image panel with tap to show/hide
 - [x] Pyramid is always visible as progress indicator
 - [x] Polished visual style with desert night sky, gradient stones, gold capstone
+
+## Pyramid Mode v3 - Canvas & Quarry + Locked Deck (Round 43)
+- [x] Desktop: Split screen - document image left, pyramid+review right
+- [x] Desktop: Digital Ruler overlay on document image (draggable golden bar)
+- [x] Desktop: Large pyramid as main focus on right panel (not tiny widget)
+- [x] Desktop: Block-fly animation when approving (text transforms to stone, flies into pyramid)
+- [x] Desktop: Stats bar (XP, Level, Streak, blocks verified count)
+- [x] Mobile: Top 40% locked document viewer (pinch-zoom then stays)
+- [x] Mobile: Bottom 60% swipe card deck with pyramid integrated
+- [x] Mobile: Swipe right = verify (card to block animation), swipe left = skip
+- [x] Mobile: Correct/Edit/Skip buttons at bottom
+- [x] 3D isometric pyramid with warm lighting, glowing capstone, incoming block animation

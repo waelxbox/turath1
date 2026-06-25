@@ -3,19 +3,18 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
 import {
   CheckCircle2, Edit3, SkipForward, Loader2,
-  Flame, Zap, Star, Trophy, ChevronUp, ChevronDown,
-  Minus, Plus, Maximize2, X
+  Flame, Zap, Star, Trophy, Minus, Plus
 } from "lucide-react";
 
 interface Props {
   projectId: number;
 }
 
-// Pyramid config: 8 rows, bottom-up
-const ROWS = [9, 8, 7, 6, 5, 4, 3, 1]; // bottom to top
+// Pyramid config
+const ROWS = [9, 8, 7, 6, 5, 4, 3, 1];
 const TOTAL_BLOCKS = ROWS.reduce((a, b) => a + b, 0); // 43
 
 function getBlockPosition(idx: number) {
@@ -27,262 +26,321 @@ function getBlockPosition(idx: number) {
   return { row: ROWS.length - 1, col: 0, rowWidth: 1 };
 }
 
-/**
- * Compact isometric pyramid widget — sits in the header area.
- * Small, elegant, always visible. Shows progress as filled stone blocks.
- */
-function CompactPyramid({ filled, total, animIdx }: { filled: number; total: number; animIdx: number | null }) {
-  const W = 160;
-  const H = 100;
-  const bH = (H - 10) / ROWS.length;
-  const maxW = W - 20;
+// ─── ISOMETRIC PYRAMID (Large, central, warm lighting) ───────────────────────
+function IsometricPyramid({ filled, total, animIdx, showIncoming }: {
+  filled: number; total: number; animIdx: number | null; showIncoming: boolean;
+}) {
+  const W = 320;
+  const H = 280;
+  const bH = 22;
+  const maxRowW = 240;
+  const baseY = H - 30;
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full" preserveAspectRatio="xMidYMid meet">
-      <defs>
-        <linearGradient id="pStone" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor="#e8c170" />
-          <stop offset="100%" stopColor="#a67c3d" />
-        </linearGradient>
-        <linearGradient id="pGold" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#ffd700" />
-          <stop offset="100%" stopColor="#f59e0b" />
-        </linearGradient>
-        <linearGradient id="pSky" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor="#1a0a2e" />
-          <stop offset="60%" stopColor="#2d1854" />
-          <stop offset="100%" stopColor="#4a2c17" />
-        </linearGradient>
-      </defs>
+    <div className="relative w-full h-full flex items-center justify-center">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          {/* Warm stone gradients */}
+          <linearGradient id="iso-stone-face" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#c9a05c" />
+            <stop offset="100%" stopColor="#8b6b3a" />
+          </linearGradient>
+          <linearGradient id="iso-stone-side" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#a07d42" />
+            <stop offset="100%" stopColor="#6b4f2a" />
+          </linearGradient>
+          <linearGradient id="iso-stone-top" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#e0c080" />
+            <stop offset="100%" stopColor="#c9a05c" />
+          </linearGradient>
+          <linearGradient id="iso-gold-face" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#ffd700" />
+            <stop offset="100%" stopColor="#b8860b" />
+          </linearGradient>
+          <linearGradient id="iso-glow" x1="50%" y1="0%" x2="50%" y2="100%">
+            <stop offset="0%" stopColor="#ffd700" stopOpacity="0.6" />
+            <stop offset="100%" stopColor="#ff8c00" stopOpacity="0" />
+          </linearGradient>
+          {/* Capstone triangle gradient */}
+          <linearGradient id="capstone-grad" x1="50%" y1="0%" x2="50%" y2="100%">
+            <stop offset="0%" stopColor="#ffd700" stopOpacity="0.9" />
+            <stop offset="50%" stopColor="#e6ac00" stopOpacity="0.5" />
+            <stop offset="100%" stopColor="#b8860b" stopOpacity="0.2" />
+          </linearGradient>
+          <filter id="glow-filter">
+            <feGaussianBlur stdDeviation="3" result="blur" />
+            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+        </defs>
 
-      {/* Background */}
-      <rect x="0" y="0" width={W} height={H} rx="8" fill="url(#pSky)" />
+        {/* Capstone triangle (ghost outline, always visible) */}
+        <polygon
+          points={`${W / 2},${baseY - ROWS.length * bH - 30} ${W / 2 - maxRowW / 2 - 10},${baseY + 5} ${W / 2 + maxRowW / 2 + 10},${baseY + 5}`}
+          fill="url(#capstone-grad)"
+          stroke="rgba(255,215,0,0.15)"
+          strokeWidth="1"
+        />
 
-      {/* Sand ground */}
-      <rect x="0" y={H - 12} width={W} height="12" rx="0" fill="#3d2a14" opacity="0.6" />
-      <ellipse cx={W / 2} cy={H - 6} rx={W * 0.45} ry="5" fill="#5c3d1e" opacity="0.4" />
+        {/* Ground shadow */}
+        <ellipse cx={W / 2} cy={baseY + 8} rx={maxRowW / 2 + 20} ry="8" fill="rgba(0,0,0,0.3)" />
 
-      {/* Pyramid blocks */}
-      {Array.from({ length: Math.min(filled, total) }).map((_, i) => {
-        const { row, col, rowWidth } = getBlockPosition(i);
-        const rowW = (rowWidth / ROWS[0]) * maxW;
-        const rowX = (W - rowW) / 2;
-        const singleW = rowW / rowWidth;
-        const bx = rowX + col * singleW;
-        const by = H - 16 - (row + 1) * bH;
-        const isAnim = animIdx === i;
-        const isTop = row >= 6;
+        {/* Filled blocks as isometric cubes */}
+        {Array.from({ length: Math.min(filled, total) }).map((_, i) => {
+          const { row, col, rowWidth } = getBlockPosition(i);
+          const rowW = (rowWidth / ROWS[0]) * maxRowW;
+          const singleW = rowW / rowWidth;
+          const rowX = (W - rowW) / 2 + col * singleW;
+          const rowY = baseY - (row + 1) * bH;
+          const isAnim = animIdx === i;
+          const isGold = row >= 6;
+          const depth = 6; // isometric depth
 
-        return (
-          <motion.rect
-            key={i}
-            x={bx + 0.5}
-            y={by + 0.5}
-            width={singleW - 1}
-            height={bH - 1}
-            rx={1}
-            fill={isTop ? "url(#pGold)" : "url(#pStone)"}
-            stroke="rgba(0,0,0,0.3)"
-            strokeWidth={0.3}
-            initial={isAnim ? { opacity: 0, y: by - 15, scale: 0.6 } : false}
-            animate={{ opacity: 1, y: by + 0.5, scale: 1 }}
-            transition={isAnim ? { type: "spring", stiffness: 500, damping: 20 } : { duration: 0 }}
-          />
-        );
-      })}
+          // Isometric block: front face + top face + right face
+          const frontPath = `M${rowX + 1},${rowY + bH - 1} L${rowX + 1},${rowY + 1} L${rowX + singleW - 1},${rowY + 1} L${rowX + singleW - 1},${rowY + bH - 1} Z`;
+          const topPath = `M${rowX + 1},${rowY + 1} L${rowX + 1 + depth / 2},${rowY + 1 - depth} L${rowX + singleW - 1 + depth / 2},${rowY + 1 - depth} L${rowX + singleW - 1},${rowY + 1} Z`;
+          const rightPath = `M${rowX + singleW - 1},${rowY + 1} L${rowX + singleW - 1 + depth / 2},${rowY + 1 - depth} L${rowX + singleW - 1 + depth / 2},${rowY + bH - 1 - depth} L${rowX + singleW - 1},${rowY + bH - 1} Z`;
 
-      {/* Ghost outline for unfilled */}
-      {ROWS.map((rowWidth, row) => {
-        const rowW = (rowWidth / ROWS[0]) * maxW;
-        const rowX = (W - rowW) / 2;
-        const by = H - 16 - (row + 1) * bH;
-        // Only show ghost for rows that aren't fully filled
-        let startBlock = 0;
-        for (let r = 0; r < row; r++) startBlock += ROWS[r];
-        if (filled >= startBlock + rowWidth) return null;
-        return (
-          <rect
-            key={`g-${row}`}
-            x={rowX}
-            y={by}
-            width={rowW}
-            height={bH}
-            rx={1}
-            fill="none"
-            stroke="rgba(255,255,255,0.08)"
-            strokeWidth={0.5}
-            strokeDasharray="2 1.5"
-          />
-        );
-      })}
+          return (
+            <motion.g
+              key={i}
+              initial={isAnim ? { opacity: 0, y: -40, scale: 0.5 } : false}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={isAnim ? { type: "spring", stiffness: 300, damping: 18, delay: 0.1 } : { duration: 0 }}
+            >
+              {/* Front face */}
+              <path d={frontPath} fill={isGold ? "url(#iso-gold-face)" : "url(#iso-stone-face)"} stroke="rgba(0,0,0,0.3)" strokeWidth="0.5" />
+              {/* Top face */}
+              <path d={topPath} fill={isGold ? "#ffe44d" : "url(#iso-stone-top)"} stroke="rgba(0,0,0,0.2)" strokeWidth="0.3" />
+              {/* Right face */}
+              <path d={rightPath} fill={isGold ? "#b8860b" : "url(#iso-stone-side)"} stroke="rgba(0,0,0,0.3)" strokeWidth="0.3" />
+              {/* Glow on newly placed block */}
+              {isAnim && (
+                <rect
+                  x={rowX}
+                  y={rowY}
+                  width={singleW}
+                  height={bH}
+                  fill="rgba(255,215,0,0.4)"
+                  filter="url(#glow-filter)"
+                  rx="1"
+                >
+                  <animate attributeName="opacity" values="0.6;0;0" dur="1s" fill="freeze" />
+                </rect>
+              )}
+            </motion.g>
+          );
+        })}
 
-      {/* Stars */}
-      <circle cx="15" cy="12" r="0.8" fill="white" opacity="0.5" />
-      <circle cx="35" cy="8" r="0.5" fill="white" opacity="0.3" />
-      <circle cx={W - 20} cy="15" r="0.7" fill="white" opacity="0.4" />
-      <circle cx={W - 40} cy="10" r="0.5" fill="white" opacity="0.3" />
-    </svg>
+        {/* Ghost blocks for unfilled rows */}
+        {ROWS.map((rowWidth, row) => {
+          let startBlock = 0;
+          for (let r = 0; r < row; r++) startBlock += ROWS[r];
+          if (filled >= startBlock + rowWidth) return null;
+          const rowW = (rowWidth / ROWS[0]) * maxRowW;
+          const rowX = (W - rowW) / 2;
+          const rowY = baseY - (row + 1) * bH;
+          return (
+            <rect
+              key={`ghost-${row}`}
+              x={rowX}
+              y={rowY}
+              width={rowW}
+              height={bH}
+              fill="none"
+              stroke="rgba(255,255,255,0.06)"
+              strokeWidth="0.5"
+              strokeDasharray="3 2"
+              rx="1"
+            />
+          );
+        })}
+
+        {/* Incoming block animation arrow (when showIncoming) */}
+        {showIncoming && (
+          <motion.g
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+          >
+            {/* Curved arrow */}
+            <path
+              d={`M${W / 2 + 60},${baseY - filled * 0.5 - 20} Q${W / 2 + 30},${baseY - filled * 0.8 - 50} ${W / 2},${baseY - (Math.floor(filled / ROWS[0]) + 1) * bH - 10}`}
+              fill="none"
+              stroke="#d4a020"
+              strokeWidth="2"
+              strokeDasharray="4 3"
+              opacity="0.7"
+              markerEnd="url(#arrowhead)"
+            />
+            <defs>
+              <marker id="arrowhead" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+                <polygon points="0 0, 6 3, 0 6" fill="#d4a020" />
+              </marker>
+            </defs>
+          </motion.g>
+        )}
+      </svg>
+    </div>
   );
 }
 
-/**
- * Pan & Zoom image viewer (reusable)
- */
-function ImageViewer({ src, alt, compact }: { src: string; alt: string; compact?: boolean }) {
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [fullscreen, setFullscreen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+// ─── DIGITAL RULER (Draggable golden bar overlay) ────────────────────────────
+function DigitalRuler({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) {
+  const [position, setPosition] = useState(40); // percentage from top
   const dragging = useRef(false);
-  const lastPos = useRef({ x: 0, y: 0 });
-  const lastPinchDist = useRef(0);
-  const lastTap = useRef(0);
+  const startY = useRef(0);
+  const startPos = useRef(0);
 
-  const handleZoomIn = () => setZoom(prev => Math.min(prev + 0.5, 6));
-  const handleZoomOut = () => { const nz = Math.max(zoom - 0.5, 1); setZoom(nz); if (nz === 1) setPan({ x: 0, y: 0 }); };
-  const handleReset = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
-
-  const handleDoubleTap = (cx: number, cy: number) => {
-    if (zoom > 1.5) { setZoom(1); setPan({ x: 0, y: 0 }); }
-    else {
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) { setZoom(2.5); return; }
-      setZoom(2.5);
-      setPan({ x: -(cx - rect.left - rect.width / 2) * 1.5, y: -(cy - rect.top - rect.height / 2) * 1.5 });
-    }
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    dragging.current = true;
+    startY.current = e.clientY;
+    startPos.current = position;
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
   };
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!dragging.current || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const dy = e.clientY - startY.current;
+    const pctChange = (dy / rect.height) * 100;
+    setPosition(Math.max(5, Math.min(90, startPos.current + pctChange)));
+  }, [containerRef]);
+
+  const handleMouseUp = useCallback(() => {
+    dragging.current = false;
+    document.removeEventListener("mousemove", handleMouseMove);
+    document.removeEventListener("mouseup", handleMouseUp);
+  }, [handleMouseMove]);
 
   const handleTouchStart = (e: React.TouchEvent) => {
-    e.stopPropagation();
-    if (e.touches.length === 1) {
-      const now = Date.now();
-      if (now - lastTap.current < 300) { handleDoubleTap(e.touches[0].clientX, e.touches[0].clientY); lastTap.current = 0; return; }
-      lastTap.current = now;
-      if (zoom > 1) { dragging.current = true; lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }
-    } else if (e.touches.length === 2) {
-      dragging.current = false;
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      lastPinchDist.current = Math.sqrt(dx * dx + dy * dy);
-    }
+    dragging.current = true;
+    startY.current = e.touches[0].clientY;
+    startPos.current = position;
   };
+
   const handleTouchMove = (e: React.TouchEvent) => {
-    e.stopPropagation();
-    if (e.touches.length === 1 && dragging.current) {
-      const dx = e.touches[0].clientX - lastPos.current.x;
-      const dy = e.touches[0].clientY - lastPos.current.y;
-      lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
-    } else if (e.touches.length === 2) {
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (lastPinchDist.current > 0) setZoom(prev => Math.max(1, Math.min(6, prev * (dist / lastPinchDist.current))));
-      lastPinchDist.current = dist;
-    }
-  };
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    e.stopPropagation();
-    dragging.current = false;
-    if (e.touches.length < 2) lastPinchDist.current = 0;
-    if (zoom < 1.1) { setZoom(1); setPan({ x: 0, y: 0 }); }
+    if (!dragging.current || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const dy = e.touches[0].clientY - startY.current;
+    const pctChange = (dy / rect.height) * 100;
+    setPosition(Math.max(5, Math.min(90, startPos.current + pctChange)));
   };
 
-  const handleMouseDown = (e: React.MouseEvent) => { if (zoom <= 1) return; e.preventDefault(); dragging.current = true; lastPos.current = { x: e.clientX, y: e.clientY }; };
-  const handleMouseMove = (e: React.MouseEvent) => { if (!dragging.current) return; setPan(prev => ({ x: prev.x + e.clientX - lastPos.current.x, y: prev.y + e.clientY - lastPos.current.y })); lastPos.current = { x: e.clientX, y: e.clientY }; };
-  const handleMouseUp = () => { dragging.current = false; };
-  const handleWheel = (e: React.WheelEvent) => { e.preventDefault(); const nz = Math.max(1, Math.min(6, zoom + (e.deltaY > 0 ? -0.2 : 0.2))); setZoom(nz); if (nz === 1) setPan({ x: 0, y: 0 }); };
+  const handleTouchEnd = () => { dragging.current = false; };
 
-  const viewer = (
-    <div className={`relative flex flex-col ${fullscreen ? "fixed inset-0 z-[100] bg-black" : "h-full"}`}>
-      {/* Controls */}
-      <div className={`flex-shrink-0 flex items-center justify-between px-2 py-1 bg-black/70 ${compact ? "" : "border-b border-white/10"}`}>
-        <div className="flex items-center gap-0.5">
-          <button onClick={handleZoomOut} disabled={zoom <= 1} className="p-1 rounded text-white/70 hover:text-white disabled:text-white/30"><Minus className="w-3.5 h-3.5" /></button>
-          <span className="text-[10px] text-white/60 font-mono w-8 text-center">{Math.round(zoom * 100)}%</span>
-          <button onClick={handleZoomIn} disabled={zoom >= 6} className="p-1 rounded text-white/70 hover:text-white disabled:text-white/30"><Plus className="w-3.5 h-3.5" /></button>
-          {zoom > 1 && <button onClick={handleReset} className="ml-1 px-1.5 py-0.5 rounded text-[9px] text-white/50 bg-white/10">Reset</button>}
+  return (
+    <div
+      className="absolute left-0 right-0 z-20 cursor-ns-resize select-none"
+      style={{ top: `${position}%` }}
+      onMouseDown={handleMouseDown}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      {/* Golden ruler bar */}
+      <div className="relative h-8 mx-2">
+        <div className="absolute inset-0 rounded bg-gradient-to-r from-amber-600/70 via-amber-400/80 to-amber-600/70 border border-amber-500/60 shadow-lg shadow-amber-500/20 backdrop-blur-sm" />
+        {/* Ruler markings */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-[10px] font-semibold text-amber-900/80 tracking-wider uppercase">Digital Ruler</span>
         </div>
-        <div className="flex items-center gap-1">
-          {zoom <= 1 && <span className="text-[8px] text-white/30">double-tap to zoom</span>}
-          {!fullscreen ? (
-            <button onClick={() => setFullscreen(true)} className="p-1 rounded text-white/60 hover:text-white"><Maximize2 className="w-3.5 h-3.5" /></button>
-          ) : (
-            <button onClick={() => setFullscreen(false)} className="p-1 rounded text-white/60 hover:text-white"><X className="w-3.5 h-3.5" /></button>
-          )}
-        </div>
-      </div>
-      {/* Image */}
-      <div
-        ref={containerRef}
-        className="flex-1 overflow-hidden flex items-center justify-center bg-neutral-900"
-        style={{ cursor: zoom > 1 ? "grab" : "default", touchAction: "none" }}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onWheel={handleWheel}
-        onDoubleClick={(e) => handleDoubleTap(e.clientX, e.clientY)}
-      >
-        <img
-          src={src}
-          alt={alt}
-          className="max-w-full max-h-full object-contain select-none pointer-events-none"
-          style={{ transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`, transition: dragging.current ? "none" : "transform 0.15s ease-out" }}
-          draggable={false}
-        />
+        {/* Grab handles */}
+        <div className="absolute left-1/2 -translate-x-1/2 -top-1.5 w-8 h-1.5 rounded-full bg-amber-300/60" />
+        <div className="absolute left-1/2 -translate-x-1/2 -bottom-1.5 w-8 h-1.5 rounded-full bg-amber-300/60" />
       </div>
     </div>
   );
-
-  if (fullscreen) return <>{viewer}</>;
-  return viewer;
 }
 
-/**
- * XP popup animation
- */
+// ─── SWIPE CARD (Mobile) ─────────────────────────────────────────────────────
+function SwipeCard({
+  line,
+  lineIndex,
+  totalLines,
+  onApprove,
+  onSkip,
+  onEdit,
+  isPending,
+}: {
+  line: string;
+  lineIndex: number;
+  totalLines: number;
+  onApprove: () => void;
+  onSkip: () => void;
+  onEdit: () => void;
+  isPending: boolean;
+}) {
+  const x = useMotionValue(0);
+  const rotate = useTransform(x, [-200, 0, 200], [-8, 0, 8]);
+  const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0.5, 0.8, 1, 0.8, 0.5]);
+  const approveOpacity = useTransform(x, [0, 80, 150], [0, 0.5, 1]);
+  const skipOpacity = useTransform(x, [-150, -80, 0], [1, 0.5, 0]);
+
+  const handleDragEnd = (_: any, info: PanInfo) => {
+    if (info.offset.x > 100) onApprove();
+    else if (info.offset.x < -100) onSkip();
+  };
+
+  return (
+    <div className="relative w-full">
+      {/* Swipe indicators */}
+      <motion.div
+        className="absolute left-3 top-1/2 -translate-y-1/2 text-red-400 font-bold text-sm z-10"
+        style={{ opacity: skipOpacity }}
+      >
+        ← SKIP
+      </motion.div>
+      <motion.div
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-400 font-bold text-sm z-10"
+        style={{ opacity: approveOpacity }}
+      >
+        VERIFY →
+      </motion.div>
+
+      {/* The card */}
+      <motion.div
+        className="relative mx-auto w-[90%] rounded-xl border-2 border-amber-500/40 bg-card/90 backdrop-blur-sm p-4 shadow-xl cursor-grab active:cursor-grabbing"
+        style={{ x, rotate, opacity }}
+        drag="x"
+        dragConstraints={{ left: 0, right: 0 }}
+        dragElastic={0.8}
+        onDragEnd={handleDragEnd}
+        whileDrag={{ scale: 1.02 }}
+      >
+        {/* Card header */}
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[10px] text-muted-foreground">← skip</span>
+          <span className="text-xs text-amber-400 font-semibold">Line {lineIndex + 1}/{totalLines}</span>
+          <span className="text-[10px] text-muted-foreground">verify →</span>
+        </div>
+
+        {/* Line text */}
+        <div className="text-base font-medium leading-relaxed min-h-[2.5rem] text-center py-2">
+          {line}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+// ─── XP POPUP ────────────────────────────────────────────────────────────────
 function XpPopup({ xp, show }: { xp: number; show: boolean }) {
   if (!show) return null;
   return (
     <motion.div
-      className="absolute -top-5 left-1/2 -translate-x-1/2 text-amber-400 font-bold text-xs pointer-events-none z-50"
-      initial={{ opacity: 1, y: 0, scale: 1.2 }}
-      animate={{ opacity: 0, y: -16, scale: 0.8 }}
-      transition={{ duration: 0.7 }}
+      className="absolute top-0 left-1/2 -translate-x-1/2 text-amber-400 font-bold text-lg pointer-events-none z-50"
+      initial={{ opacity: 1, y: 0, scale: 1.3 }}
+      animate={{ opacity: 0, y: -30, scale: 0.7 }}
+      transition={{ duration: 0.8 }}
     >
       +{xp} XP
     </motion.div>
   );
 }
 
-/**
- * Row completion celebration
- */
-function RowCelebration({ show, row }: { show: boolean; row: number }) {
-  if (!show) return null;
-  return (
-    <motion.div
-      className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-    >
-      <motion.div
-        className="bg-amber-900/60 backdrop-blur-sm rounded-lg px-4 py-2 border border-amber-500/40"
-        initial={{ scale: 0.7 }}
-        animate={{ scale: 1 }}
-        exit={{ scale: 0.7, opacity: 0 }}
-      >
-        <p className="text-amber-200 font-semibold text-sm text-center">Row {row} sealed!</p>
-      </motion.div>
-    </motion.div>
-  );
-}
-
+// ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
 export default function PyramidReviewMode({ projectId }: Props) {
   const [currentDocIndex, setCurrentDocIndex] = useState(0);
   const [currentLineIndex, setCurrentLineIndex] = useState(0);
@@ -292,18 +350,20 @@ export default function PyramidReviewMode({ projectId }: Props) {
   const [showXp, setShowXp] = useState(false);
   const [lastXp, setLastXp] = useState(0);
   const [animatingBlock, setAnimatingBlock] = useState<number | null>(null);
-  const [lastBlockIsCorrection, setLastBlockIsCorrection] = useState(false);
-  const [showRowComplete, setShowRowComplete] = useState(false);
-  const [completedRow, setCompletedRow] = useState(0);
   const [selectedLanguage, setSelectedLanguage] = useState<string>("");
-  const [mobileImageOpen, setMobileImageOpen] = useState(false);
+  const [showIncoming, setShowIncoming] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
+  const imageContainerRef = useRef<HTMLDivElement>(null);
 
-  // Swipe refs for review card
-  const swipeStartX = useRef(0);
-  const swipeStartY = useRef(0);
+  // Image viewer state
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const imgDragging = useRef(false);
+  const imgLastPos = useRef({ x: 0, y: 0 });
+  const imgLastPinch = useRef(0);
+  const imgLastTap = useRef(0);
 
-  // Detect mobile
+  // Mobile detection
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -319,14 +379,12 @@ export default function PyramidReviewMode({ projectId }: Props) {
     { enabled: !!projectId }
   );
   const { data: stats, refetch: refetchStats } = trpc.gamification.myStats.useQuery({ projectId }, { enabled: !!projectId });
-
   const currentDoc = documents?.documents?.[currentDocIndex];
   const { data: transcription } = trpc.transcriptions.getByDocument.useQuery(
     { documentId: currentDoc?.id ?? 0, projectId },
     { enabled: !!currentDoc?.id }
   );
 
-  // Extract lines
   const lines = useMemo(() => {
     if (!transcription?.rawJson) return [];
     const raw = transcription.rawJson as Record<string, unknown>;
@@ -346,68 +404,51 @@ export default function PyramidReviewMode({ projectId }: Props) {
   const historicalBlocks = stats ? (stats.pagesCompleted * 8 + stats.linesReviewed) % TOTAL_BLOCKS : 0;
   const pyramidBlocks = Math.min((historicalBlocks + sessionBlocks) % TOTAL_BLOCKS, TOTAL_BLOCKS);
 
-  const checkRowCompletion = useCallback((newCount: number) => {
-    let cum = 0;
-    for (let row = 0; row < ROWS.length; row++) {
-      cum += ROWS[row];
-      if (newCount === cum) {
-        setShowRowComplete(true);
-        setCompletedRow(row + 1);
-        setTimeout(() => setShowRowComplete(false), 2000);
-        return;
-      }
-    }
-  }, []);
-
   // Mutations
   const submitLine = trpc.gamification.submitLineReview.useMutation();
   const completePage = trpc.gamification.completePage.useMutation();
 
   const handleApprove = useCallback(async () => {
     if (!currentDoc || !transcription) return;
+    setShowIncoming(false);
     const result = await submitLine.mutateAsync({
       projectId, documentId: currentDoc.id, transcriptionId: transcription.id,
       lineIndex: currentLineIndex, originalLine: currentLine, reviewedLine: currentLine, isCorrection: false,
     });
     const newReviewed = new Map(reviewedLines).set(currentLineIndex, { original: currentLine, reviewed: currentLine });
     setReviewedLines(newReviewed);
-    setLastXp(result.xpEarned); setShowXp(true); setLastBlockIsCorrection(false);
+    setLastXp(result.xpEarned); setShowXp(true);
     setAnimatingBlock(pyramidBlocks);
-    setTimeout(() => { setShowXp(false); setAnimatingBlock(null); }, 800);
-    checkRowCompletion((historicalBlocks + newReviewed.size) % TOTAL_BLOCKS);
+    setTimeout(() => { setShowXp(false); setAnimatingBlock(null); setShowIncoming(true); }, 900);
     if (result.leveledUp) toast.success(`Level up! Now Level ${result.level}!`);
     refetchStats();
     advanceLine(newReviewed);
-  }, [currentDoc, transcription, currentLineIndex, currentLine, projectId, reviewedLines, pyramidBlocks, historicalBlocks]);
+  }, [currentDoc, transcription, currentLineIndex, currentLine, projectId, reviewedLines, pyramidBlocks]);
 
   const handleCorrect = useCallback(async () => {
     if (!currentDoc || !transcription || !editedLine.trim()) return;
+    setShowIncoming(false);
     const result = await submitLine.mutateAsync({
       projectId, documentId: currentDoc.id, transcriptionId: transcription.id,
       lineIndex: currentLineIndex, originalLine: currentLine, reviewedLine: editedLine.trim(), isCorrection: true,
     });
     const newReviewed = new Map(reviewedLines).set(currentLineIndex, { original: currentLine, reviewed: editedLine.trim() });
     setReviewedLines(newReviewed);
-    setLastXp(result.xpEarned); setShowXp(true); setLastBlockIsCorrection(true);
+    setLastXp(result.xpEarned); setShowXp(true);
     setAnimatingBlock(pyramidBlocks);
-    setTimeout(() => { setShowXp(false); setAnimatingBlock(null); }, 800);
+    setTimeout(() => { setShowXp(false); setAnimatingBlock(null); setShowIncoming(true); }, 900);
     setEditMode(false); setEditedLine("");
-    checkRowCompletion((historicalBlocks + newReviewed.size) % TOTAL_BLOCKS);
     if (result.leveledUp) toast.success(`Level up! Now Level ${result.level}!`);
     refetchStats();
     advanceLine(newReviewed);
-  }, [currentDoc, transcription, currentLineIndex, currentLine, editedLine, projectId, reviewedLines, pyramidBlocks, historicalBlocks]);
+  }, [currentDoc, transcription, currentLineIndex, currentLine, editedLine, projectId, reviewedLines, pyramidBlocks]);
 
   const advanceLine = useCallback((reviewed: Map<number, any>) => {
     for (let i = currentLineIndex + 1; i < totalLines; i++) {
       if (!reviewed.has(i)) { setCurrentLineIndex(i); return; }
     }
-    if (reviewed.size >= totalLines) { handlePageComplete(reviewed); }
-    else {
-      for (let i = 0; i < currentLineIndex; i++) {
-        if (!reviewed.has(i)) { setCurrentLineIndex(i); return; }
-      }
-    }
+    if (reviewed.size >= totalLines) handlePageComplete(reviewed);
+    else { for (let i = 0; i < currentLineIndex; i++) { if (!reviewed.has(i)) { setCurrentLineIndex(i); return; } } }
   }, [currentLineIndex, totalLines]);
 
   const handlePageComplete = useCallback(async (reviewed: Map<number, any>) => {
@@ -422,32 +463,19 @@ export default function PyramidReviewMode({ projectId }: Props) {
       refetchStats();
       if (documents?.documents && currentDocIndex < documents.documents.length - 1) {
         setCurrentDocIndex(prev => prev + 1); setCurrentLineIndex(0); setReviewedLines(new Map()); setEditMode(false);
-      } else { toast.success("All documents reviewed!"); }
+      } else toast.success("All documents reviewed!");
     } catch { toast.error("Failed to save"); }
   }, [currentDoc, transcription, projectId, currentDocIndex, documents]);
 
   const startEdit = useCallback(() => { setEditMode(true); setEditedLine(currentLine); setTimeout(() => inputRef.current?.focus(), 50); }, [currentLine]);
   const skipLine = useCallback(() => { if (currentLineIndex < totalLines - 1) setCurrentLineIndex(prev => prev + 1); setEditMode(false); }, [currentLineIndex, totalLines]);
 
-  // Swipe handlers for review card
-  const handleSwipeStart = useCallback((e: React.TouchEvent) => {
-    swipeStartX.current = e.touches[0].clientX;
-    swipeStartY.current = e.touches[0].clientY;
-  }, []);
-  const handleSwipeEnd = useCallback((e: React.TouchEvent) => {
-    const dx = e.changedTouches[0].clientX - swipeStartX.current;
-    const dy = e.changedTouches[0].clientY - swipeStartY.current;
-    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 60) {
-      if (dx > 0) handleApprove(); else skipLine();
-    }
-  }, [handleApprove, skipLine]);
-
-  // Keyboard shortcuts
+  // Keyboard shortcuts (desktop)
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
       if (editMode) return;
       if (e.key === "Enter") { e.preventDefault(); handleApprove(); }
-      else if (e.key === "e" || e.key === "E") { e.preventDefault(); startEdit(); }
+      else if (e.key === "e" || e.key === "E" || e.key === "Tab") { e.preventDefault(); startEdit(); }
       else if (e.key === "ArrowRight") { e.preventDefault(); skipLine(); }
       else if (e.key === "ArrowLeft" && currentLineIndex > 0) { e.preventDefault(); setCurrentLineIndex(prev => prev - 1); }
     };
@@ -457,106 +485,182 @@ export default function PyramidReviewMode({ projectId }: Props) {
 
   useEffect(() => { setCurrentLineIndex(0); setReviewedLines(new Map()); setEditMode(false); }, [currentDoc?.id]);
 
+  // Image pan/zoom handlers
+  const handleImgDoubleTap = (cx: number, cy: number) => {
+    if (zoom > 1.5) { setZoom(1); setPan({ x: 0, y: 0 }); }
+    else {
+      const rect = imageContainerRef.current?.getBoundingClientRect();
+      if (!rect) { setZoom(2.5); return; }
+      setZoom(2.5);
+      setPan({ x: -(cx - rect.left - rect.width / 2) * 1.5, y: -(cy - rect.top - rect.height / 2) * 1.5 });
+    }
+  };
+  const handleImgTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      const now = Date.now();
+      if (now - imgLastTap.current < 300) { handleImgDoubleTap(e.touches[0].clientX, e.touches[0].clientY); imgLastTap.current = 0; return; }
+      imgLastTap.current = now;
+      if (zoom > 1) { imgDragging.current = true; imgLastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }
+    } else if (e.touches.length === 2) {
+      imgDragging.current = false;
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      imgLastPinch.current = Math.sqrt(dx * dx + dy * dy);
+    }
+  };
+  const handleImgTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 1 && imgDragging.current) {
+      const dx = e.touches[0].clientX - imgLastPos.current.x;
+      const dy = e.touches[0].clientY - imgLastPos.current.y;
+      imgLastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (imgLastPinch.current > 0) setZoom(prev => Math.max(1, Math.min(6, prev * (dist / imgLastPinch.current))));
+      imgLastPinch.current = dist;
+    }
+  };
+  const handleImgTouchEnd = (e: React.TouchEvent) => {
+    imgDragging.current = false;
+    if (e.touches.length < 2) imgLastPinch.current = 0;
+    if (zoom < 1.1) { setZoom(1); setPan({ x: 0, y: 0 }); }
+  };
+  const handleImgMouseDown = (e: React.MouseEvent) => { if (zoom <= 1) return; e.preventDefault(); imgDragging.current = true; imgLastPos.current = { x: e.clientX, y: e.clientY }; };
+  const handleImgMouseMove = (e: React.MouseEvent) => { if (!imgDragging.current) return; setPan(prev => ({ x: prev.x + e.clientX - imgLastPos.current.x, y: prev.y + e.clientY - imgLastPos.current.y })); imgLastPos.current = { x: e.clientX, y: e.clientY }; };
+  const handleImgMouseUp = () => { imgDragging.current = false; };
+  const handleImgWheel = (e: React.WheelEvent) => { e.preventDefault(); const nz = Math.max(1, Math.min(6, zoom + (e.deltaY > 0 ? -0.3 : 0.3))); setZoom(nz); if (nz === 1) setPan({ x: 0, y: 0 }); };
+
   if (docsLoading) return <div className="flex items-center justify-center h-full"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
   if (!documents?.documents?.length) return (
-    <div className="flex flex-col items-center justify-center h-full gap-4 text-muted-foreground p-6">
+    <div className="flex flex-col items-center justify-center h-full gap-4 p-6">
       <Trophy className="w-12 h-12 text-yellow-400" />
-      <h2 className="text-xl font-semibold text-foreground">All caught up!</h2>
-      <p className="text-center">No documents need review.</p>
+      <h2 className="text-xl font-semibold">All caught up!</h2>
+      <p className="text-muted-foreground text-center">No documents need review.</p>
     </div>
   );
 
-  const lineProgress = totalLines > 0 ? Math.round((reviewedLines.size / totalLines) * 100) : 0;
+  const blocksText = `${pyramidBlocks}/${TOTAL_BLOCKS} blocks verified`;
 
-  // === DESKTOP LAYOUT: side-by-side (image left, review right) with compact pyramid in header ===
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DESKTOP: Canvas & Quarry
+  // ═══════════════════════════════════════════════════════════════════════════
   if (!isMobile) {
     return (
-      <div className="flex flex-col h-full overflow-hidden">
-        {/* Header bar: pyramid + stats + doc info */}
-        <div className="flex-shrink-0 flex items-center gap-3 px-4 py-2 border-b border-border bg-card/50">
-          {/* Compact pyramid */}
-          <div className="w-[120px] h-[75px] flex-shrink-0 rounded-lg overflow-hidden border border-amber-900/30">
-            <CompactPyramid filled={pyramidBlocks} total={TOTAL_BLOCKS} animIdx={animatingBlock} />
-          </div>
-          {/* Stats */}
-          <div className="flex flex-col gap-1 flex-1 min-w-0">
-            <div className="flex items-center gap-3">
-              {stats && (
-                <>
-                  <div className="flex items-center gap-1">
-                    <Zap className="w-4 h-4 text-yellow-400" />
-                    <span className="text-sm font-bold text-foreground">{stats.totalXp} XP</span>
+      <div className="flex flex-col h-full overflow-hidden bg-background">
+        {/* Top nav bar */}
+        <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 border-b border-border bg-card/50">
+          <div className="flex items-center gap-3">
+            {stats && (
+              <>
+                <div className="flex items-center gap-1">
+                  <Zap className="w-4 h-4 text-yellow-400" />
+                  <span className="text-sm font-bold">{stats.totalXp} XP</span>
+                </div>
+                <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-900/40 text-amber-300 border border-amber-700/30">
+                  <Star className="w-3 h-3" /> Lvl {stats.level}
+                </span>
+                {stats.currentStreak > 0 && (
+                  <div className="flex items-center gap-0.5 text-orange-400">
+                    <Flame className="w-3.5 h-3.5" />
+                    <span className="text-xs font-semibold">{stats.currentStreak} Streak</span>
                   </div>
-                  <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-900/40 text-amber-300 border border-amber-700/30">
-                    <Star className="w-3 h-3" /> Lvl {stats.level}
-                  </span>
-                  {stats.currentStreak > 0 && (
-                    <div className="flex items-center gap-0.5 text-orange-400">
-                      <Flame className="w-3.5 h-3.5" />
-                      <span className="text-xs font-semibold">{stats.currentStreak}</span>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="truncate max-w-[200px]">{currentDoc?.filename}</span>
-              <span>•</span>
-              <span>{pyramidBlocks}/{TOTAL_BLOCKS} blocks</span>
-              {languages && languages.length > 1 && (
-                <select
-                  value={selectedLanguage}
-                  onChange={e => { setSelectedLanguage(e.target.value); setCurrentDocIndex(0); setCurrentLineIndex(0); setReviewedLines(new Map()); }}
-                  className="bg-background border border-border rounded px-1.5 py-0.5 text-xs ml-2"
-                >
-                  <option value="">All</option>
-                  {languages.map(lang => <option key={lang} value={lang}>{lang}</option>)}
-                </select>
-              )}
-              <span className="ml-auto">{currentDocIndex + 1}/{documents.documents.length} docs</span>
-            </div>
+                )}
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="truncate max-w-[180px]">{currentDoc?.filename}</span>
+            {languages && languages.length > 1 && (
+              <select
+                value={selectedLanguage}
+                onChange={e => { setSelectedLanguage(e.target.value); setCurrentDocIndex(0); setCurrentLineIndex(0); setReviewedLines(new Map()); }}
+                className="bg-background border border-border rounded px-2 py-1 text-xs"
+              >
+                <option value="">All</option>
+                {languages.map(lang => <option key={lang} value={lang}>{lang}</option>)}
+              </select>
+            )}
+            <span>{currentDocIndex + 1}/{documents.documents.length} docs</span>
           </div>
         </div>
 
-        {/* Main content: side-by-side */}
+        {/* Main split */}
         <div className="flex-1 flex min-h-0">
-          {/* Left: Document image */}
-          <div className="w-1/2 border-r border-border flex flex-col min-h-0">
-            {currentDoc?.storageUrl ? (
-              <ImageViewer src={currentDoc.storageUrl} alt={currentDoc.filename} />
-            ) : (
-              <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-                No image available
-              </div>
-            )}
+          {/* LEFT: Document image with digital ruler */}
+          <div className="w-[45%] flex flex-col min-h-0 border-r border-border relative">
+            {/* Zoom controls */}
+            <div className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 bg-black/80 border-b border-white/10">
+              <button onClick={() => { const nz = Math.max(zoom - 0.3, 1); setZoom(nz); if (nz === 1) setPan({ x: 0, y: 0 }); }} disabled={zoom <= 1} className="p-1 text-white/60 hover:text-white disabled:text-white/30"><Minus className="w-4 h-4" /></button>
+              <span className="text-[11px] text-white/60 font-mono w-12 text-center">{Math.round(zoom * 100)}%</span>
+              <button onClick={() => setZoom(prev => Math.min(prev + 0.3, 6))} disabled={zoom >= 6} className="p-1 text-white/60 hover:text-white disabled:text-white/30"><Plus className="w-4 h-4" /></button>
+              {zoom > 1 && <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} className="ml-2 px-2 py-0.5 text-[10px] text-white/50 bg-white/10 rounded">Reset</button>}
+            </div>
+            {/* Image area */}
+            <div
+              ref={imageContainerRef}
+              className="flex-1 overflow-hidden bg-neutral-900 relative"
+              style={{ cursor: zoom > 1 ? "grab" : "default", touchAction: "none" }}
+              onMouseDown={handleImgMouseDown}
+              onMouseMove={handleImgMouseMove}
+              onMouseUp={handleImgMouseUp}
+              onMouseLeave={handleImgMouseUp}
+              onTouchStart={handleImgTouchStart}
+              onTouchMove={handleImgTouchMove}
+              onTouchEnd={handleImgTouchEnd}
+              onWheel={handleImgWheel}
+              onDoubleClick={(e) => handleImgDoubleTap(e.clientX, e.clientY)}
+            >
+              {currentDoc?.storageUrl ? (
+                <img
+                  src={currentDoc.storageUrl}
+                  alt={currentDoc.filename}
+                  className="absolute inset-0 w-full h-full object-contain select-none pointer-events-none"
+                  style={{ transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`, transition: imgDragging.current ? "none" : "transform 0.15s ease-out" }}
+                  draggable={false}
+                />
+              ) : (
+                <div className="flex items-center justify-center h-full text-muted-foreground">No image</div>
+              )}
+              {/* Digital Ruler */}
+              <DigitalRuler containerRef={imageContainerRef} />
+            </div>
           </div>
 
-          {/* Right: Review panel */}
-          <div className="w-1/2 flex flex-col min-h-0">
-            {/* Progress bar */}
-            <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 border-b border-border">
-              <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                <div className="h-full bg-amber-500 rounded-full transition-all duration-300" style={{ width: `${lineProgress}%` }} />
-              </div>
-              <span className="text-[10px] text-muted-foreground">{lineProgress}%</span>
+          {/* RIGHT: Pyramid + Review */}
+          <div className="w-[55%] flex flex-col min-h-0 bg-gradient-to-b from-[#0a0515] via-[#120a25] to-background">
+            {/* Stats row */}
+            <div className="flex-shrink-0 flex items-center justify-between px-4 py-2">
+              <span className="text-xs text-amber-400/80">{blocksText}</span>
+              <span className="text-xs text-muted-foreground">{currentDocIndex + 1}/{documents.documents.length} docs</span>
             </div>
 
-            {/* Lines */}
-            <div className="flex-1 overflow-y-auto px-4 py-4">
-              {/* Context lines */}
-              <div className="space-y-1 mb-3">
-                {lines.slice(Math.max(0, currentLineIndex - 3), currentLineIndex).map((line, i) => {
-                  const idx = Math.max(0, currentLineIndex - 3) + i;
-                  return (
-                    <div key={idx} className={`text-sm px-3 py-1 rounded ${reviewedLines.has(idx) ? "text-muted-foreground/40 line-through" : "text-muted-foreground/60"}`}>
-                      {line}
-                    </div>
-                  );
-                })}
-              </div>
+            {/* Pyramid visualization (main focus) */}
+            <div className="flex-1 min-h-0 relative px-4">
+              <IsometricPyramid
+                filled={pyramidBlocks}
+                total={TOTAL_BLOCKS}
+                animIdx={animatingBlock}
+                showIncoming={showIncoming}
+              />
+              <AnimatePresence>
+                {showXp && (
+                  <motion.div
+                    className="absolute top-4 left-1/2 -translate-x-1/2 text-amber-400 font-bold text-xl z-50"
+                    initial={{ opacity: 1, y: 0 }}
+                    animate={{ opacity: 0, y: -30 }}
+                    transition={{ duration: 0.8 }}
+                  >
+                    +{lastXp} XP
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
 
-              {/* Active line */}
-              <div className="relative border-2 border-amber-500/60 rounded-xl p-4 bg-amber-500/5 shadow-lg shadow-amber-500/5">
+            {/* Current line card */}
+            <div className="flex-shrink-0 px-4 pb-2">
+              <div className="relative border-2 border-amber-500/50 rounded-xl p-4 bg-card/50 backdrop-blur-sm">
                 <div className="absolute -top-2.5 left-4 bg-background px-2 text-[11px] text-amber-400 font-semibold">
                   Line {currentLineIndex + 1}/{totalLines}
                 </div>
@@ -573,86 +677,66 @@ export default function PyramidReviewMode({ projectId }: Props) {
                     autoFocus
                   />
                 )}
-                <XpPopup xp={lastXp} show={showXp} />
-              </div>
-
-              {/* Next lines */}
-              <div className="space-y-1 mt-3">
-                {lines.slice(currentLineIndex + 1, currentLineIndex + 4).map((line, i) => (
-                  <div key={currentLineIndex + 1 + i} className="text-sm px-3 py-1 text-muted-foreground/30">{line}</div>
-                ))}
               </div>
             </div>
 
             {/* Action buttons */}
-            <div className="flex-shrink-0 border-t border-border px-4 py-3">
+            <div className="flex-shrink-0 px-4 pb-4">
               {!editMode ? (
-                <div className="flex items-center gap-2">
-                  <Button onClick={handleApprove} className="flex-1 h-11 bg-emerald-600 hover:bg-emerald-700 font-semibold" disabled={submitLine.isPending}>
-                    <CheckCircle2 className="w-4 h-4 mr-1.5" /> Correct
+                <div className="flex items-center gap-3">
+                  <Button onClick={handleApprove} className="flex-1 h-12 bg-emerald-600 hover:bg-emerald-700 text-base font-semibold" disabled={submitLine.isPending}>
+                    <CheckCircle2 className="w-5 h-5 mr-2" /> Correct
                   </Button>
-                  <Button onClick={startEdit} variant="outline" className="flex-1 h-11 font-semibold border-amber-500/30 text-amber-300 hover:bg-amber-500/10">
-                    <Edit3 className="w-4 h-4 mr-1.5" /> Edit
+                  <Button onClick={startEdit} className="flex-1 h-12 bg-amber-500 hover:bg-amber-600 text-black text-base font-semibold">
+                    <Edit3 className="w-5 h-5 mr-2" /> Edit
                   </Button>
-                  <Button onClick={skipLine} variant="ghost" className="h-11 w-11 p-0"><SkipForward className="w-4 h-4" /></Button>
                 </div>
               ) : (
-                <div className="flex items-center gap-2">
-                  <Button onClick={handleCorrect} className="flex-1 h-11 bg-amber-600 hover:bg-amber-700 font-semibold" disabled={submitLine.isPending || !editedLine.trim()}>
-                    <CheckCircle2 className="w-4 h-4 mr-1.5" /> Submit
+                <div className="flex items-center gap-3">
+                  <Button onClick={handleCorrect} className="flex-1 h-12 bg-amber-600 hover:bg-amber-700 text-base font-semibold" disabled={submitLine.isPending || !editedLine.trim()}>
+                    <CheckCircle2 className="w-5 h-5 mr-2" /> Submit
                   </Button>
-                  <Button onClick={() => { setEditMode(false); setEditedLine(""); }} variant="ghost" className="h-11">Cancel</Button>
+                  <Button onClick={() => { setEditMode(false); setEditedLine(""); }} variant="ghost" className="h-12 text-base">Cancel</Button>
                 </div>
               )}
+              {/* Keyboard hints */}
+              <div className="flex items-center justify-center gap-6 mt-2 text-[10px] text-muted-foreground/50">
+                <span>Enter = approve</span>
+                <span>Tab = edit</span>
+                <span>→ = skip</span>
+                <span>← = back</span>
+              </div>
             </div>
           </div>
         </div>
-
-        {/* Row celebration overlay */}
-        <AnimatePresence><RowCelebration show={showRowComplete} row={completedRow} /></AnimatePresence>
       </div>
     );
   }
 
-  // === MOBILE LAYOUT: pyramid header, collapsible image, review card ===
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MOBILE: Locked Deck
+  // ═══════════════════════════════════════════════════════════════════════════
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Mobile header: compact pyramid + stats */}
-      <div className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5 border-b border-border bg-card/30">
-        {/* Tiny pyramid */}
-        <div className="w-[72px] h-[48px] flex-shrink-0 rounded-md overflow-hidden border border-amber-900/20">
-          <CompactPyramid filled={pyramidBlocks} total={TOTAL_BLOCKS} animIdx={animatingBlock} />
-        </div>
-        {/* Stats */}
-        <div className="flex-1 min-w-0">
+    <div className="flex flex-col h-full overflow-hidden bg-background">
+      {/* Mobile header */}
+      <div className="flex-shrink-0 flex items-center justify-between px-3 py-1.5 border-b border-border">
+        {stats && (
           <div className="flex items-center gap-2">
-            {stats && (
-              <>
-                <div className="flex items-center gap-0.5">
-                  <Zap className="w-3 h-3 text-yellow-400" />
-                  <span className="text-xs font-bold">{stats.totalXp}</span>
-                </div>
-                <span className="text-[9px] px-1 py-0.5 rounded-full bg-amber-900/40 text-amber-300 font-semibold">
-                  Lvl {stats.level}
-                </span>
-                {stats.currentStreak > 0 && (
-                  <span className="flex items-center gap-0.5 text-orange-400 text-[10px]">
-                    <Flame className="w-2.5 h-2.5" />{stats.currentStreak}
-                  </span>
-                )}
-              </>
+            <div className="flex items-center gap-0.5">
+              <Zap className="w-3.5 h-3.5 text-yellow-400" />
+              <span className="text-xs font-bold">{stats.totalXp} XP</span>
+            </div>
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-900/40 text-amber-300 font-semibold">
+              <Star className="w-2.5 h-2.5 inline mr-0.5" />Lvl {stats.level}
+            </span>
+            {stats.currentStreak > 0 && (
+              <span className="flex items-center gap-0.5 text-orange-400 text-[10px]">
+                <Flame className="w-3 h-3" />{stats.currentStreak} Streak
+              </span>
             )}
           </div>
-          <div className="flex items-center gap-1 mt-0.5">
-            <span className="text-[9px] text-muted-foreground truncate max-w-[100px]">{currentDoc?.filename}</span>
-            <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
-              <div className="h-full bg-amber-500 rounded-full" style={{ width: `${lineProgress}%` }} />
-            </div>
-            <span className="text-[9px] text-muted-foreground">{lineProgress}%</span>
-          </div>
-        </div>
-        {/* Language + doc count */}
-        <div className="flex flex-col items-end gap-0.5">
+        )}
+        <div className="flex items-center gap-2">
           {languages && languages.length > 1 && (
             <select
               value={selectedLanguage}
@@ -663,115 +747,113 @@ export default function PyramidReviewMode({ projectId }: Props) {
               {languages.map(lang => <option key={lang} value={lang}>{lang}</option>)}
             </select>
           )}
-          <span className="text-[9px] text-muted-foreground">{currentDocIndex + 1}/{documents.documents.length}</span>
         </div>
       </div>
 
-      {/* Collapsible image panel */}
-      {currentDoc?.storageUrl && (
-        <>
-          <button
-            onClick={() => setMobileImageOpen(!mobileImageOpen)}
-            className="flex-shrink-0 flex items-center justify-center gap-1 py-1 bg-neutral-900/50 border-b border-border text-[10px] text-muted-foreground hover:text-foreground"
-          >
-            {mobileImageOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            {mobileImageOpen ? "Hide document" : "View document"}
-          </button>
-          {mobileImageOpen && (
-            <motion.div
-              className="flex-shrink-0 border-b border-border"
-              style={{ height: "35vh" }}
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "35vh", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              <ImageViewer src={currentDoc.storageUrl} alt={currentDoc.filename} compact />
-            </motion.div>
-          )}
-        </>
-      )}
-
-      {/* Review card with swipe */}
+      {/* Top 40%: Locked document viewer */}
       <div
-        className="flex-1 flex flex-col min-h-0 overflow-hidden"
-        onTouchStart={handleSwipeStart}
-        onTouchEnd={handleSwipeEnd}
+        ref={imageContainerRef}
+        className="flex-shrink-0 relative overflow-hidden bg-neutral-900 border-b border-border"
+        style={{ height: "40%", touchAction: "none", cursor: zoom > 1 ? "grab" : "default" }}
+        onTouchStart={handleImgTouchStart}
+        onTouchMove={handleImgTouchMove}
+        onTouchEnd={handleImgTouchEnd}
+        onDoubleClick={(e) => handleImgDoubleTap(e.clientX, e.clientY)}
       >
-        <div className="flex-1 overflow-y-auto px-3 py-3">
-          {/* Context */}
-          <div className="space-y-1 mb-2">
-            {lines.slice(Math.max(0, currentLineIndex - 2), currentLineIndex).map((line, i) => {
-              const idx = Math.max(0, currentLineIndex - 2) + i;
-              return (
-                <div key={idx} className={`text-xs px-2 py-0.5 rounded ${reviewedLines.has(idx) ? "text-muted-foreground/30 line-through" : "text-muted-foreground/50"}`}>
-                  {line}
-                </div>
-              );
-            })}
+        {currentDoc?.storageUrl ? (
+          <img
+            src={currentDoc.storageUrl}
+            alt={currentDoc.filename}
+            className="absolute inset-0 w-full h-full object-contain select-none pointer-events-none"
+            style={{ transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`, transition: imgDragging.current ? "none" : "transform 0.12s ease-out" }}
+            draggable={false}
+          />
+        ) : (
+          <div className="flex items-center justify-center h-full text-muted-foreground text-sm">No image</div>
+        )}
+        {/* Zoom indicator */}
+        {zoom > 1 && (
+          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/70 rounded-full px-2 py-0.5 text-[9px] text-white/60">
+            {Math.round(zoom * 100)}% • double-tap to reset
           </div>
+        )}
+      </div>
 
-          {/* Active line */}
-          <div className="relative border-2 border-amber-500/50 rounded-lg p-3 bg-amber-500/5">
-            <div className="absolute -top-2.5 left-3 bg-background px-2 text-[10px] text-amber-400 font-medium">
-              Line {currentLineIndex + 1}/{totalLines}
-            </div>
-            {!editMode ? (
-              <div className="text-sm font-medium leading-relaxed min-h-[2rem]">{currentLine}</div>
-            ) : (
+      {/* Bottom 60%: Swipe deck + pyramid + buttons */}
+      <div className="flex-1 flex flex-col min-h-0 bg-gradient-to-b from-[#0a0515] to-background">
+        {/* Mini pyramid + swipe card area */}
+        <div className="flex-1 flex flex-col items-center justify-center min-h-0 px-3 py-2 relative">
+          {/* Swipe card */}
+          {!editMode ? (
+            <SwipeCard
+              line={currentLine}
+              lineIndex={currentLineIndex}
+              totalLines={totalLines}
+              onApprove={handleApprove}
+              onSkip={skipLine}
+              onEdit={startEdit}
+              isPending={submitLine.isPending}
+            />
+          ) : (
+            <div className="w-[90%] mx-auto rounded-xl border-2 border-amber-500/40 bg-card/90 backdrop-blur-sm p-4">
+              <div className="text-xs text-amber-400 font-semibold mb-2">Line {currentLineIndex + 1}/{totalLines} — Editing</div>
               <Input
                 ref={inputRef}
                 value={editedLine}
                 onChange={e => setEditedLine(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter") handleCorrect(); if (e.key === "Escape") { setEditMode(false); setEditedLine(""); } }}
-                className="text-sm font-medium"
+                className="text-base font-medium"
                 style={{ fontSize: "16px" }}
                 placeholder="Type corrected text..."
                 autoFocus
               />
+            </div>
+          )}
+
+          {/* Mini pyramid below card */}
+          <div className="w-full max-w-[200px] h-[100px] mt-2">
+            <IsometricPyramid filled={pyramidBlocks} total={TOTAL_BLOCKS} animIdx={animatingBlock} showIncoming={false} />
+          </div>
+
+          {/* XP popup */}
+          <AnimatePresence>
+            {showXp && (
+              <motion.div
+                className="absolute top-2 left-1/2 -translate-x-1/2 text-amber-400 font-bold text-lg z-50"
+                initial={{ opacity: 1, y: 0 }}
+                animate={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.7 }}
+              >
+                +{lastXp} XP
+              </motion.div>
             )}
-            <XpPopup xp={lastXp} show={showXp} />
-          </div>
-
-          {/* Swipe hints */}
-          <div className="flex justify-between mt-1.5 text-[9px] text-muted-foreground/30 px-2">
-            <span>← skip</span>
-            <span>approve →</span>
-          </div>
-
-          {/* Next lines */}
-          <div className="space-y-1 mt-2">
-            {lines.slice(currentLineIndex + 1, currentLineIndex + 3).map((line, i) => (
-              <div key={currentLineIndex + 1 + i} className="text-xs px-2 py-0.5 text-muted-foreground/25">{line}</div>
-            ))}
-          </div>
+          </AnimatePresence>
         </div>
 
         {/* Action buttons */}
-        <div className="flex-shrink-0 border-t border-border px-3 py-2.5 bg-background/80 backdrop-blur-sm">
+        <div className="flex-shrink-0 px-3 pb-3 pt-1">
           {!editMode ? (
             <div className="flex items-center gap-2">
-              <Button onClick={handleApprove} className="flex-1 h-12 bg-emerald-600 hover:bg-emerald-700 text-sm font-semibold" disabled={submitLine.isPending}>
-                <CheckCircle2 className="w-5 h-5 mr-1.5" /> Correct
+              <Button onClick={handleApprove} className="flex-1 h-11 bg-emerald-600 hover:bg-emerald-700 text-sm font-semibold" disabled={submitLine.isPending}>
+                <CheckCircle2 className="w-4 h-4 mr-1" /> Correct
               </Button>
-              <Button onClick={startEdit} variant="outline" className="flex-1 h-12 text-sm font-semibold border-amber-500/30 text-amber-300 hover:bg-amber-500/10">
-                <Edit3 className="w-5 h-5 mr-1.5" /> Edit
+              <Button onClick={startEdit} className="flex-1 h-11 bg-amber-500 hover:bg-amber-600 text-black text-sm font-semibold">
+                <Edit3 className="w-4 h-4 mr-1" /> Edit
               </Button>
-              <Button onClick={skipLine} variant="ghost" className="h-12 w-12 p-0"><SkipForward className="w-5 h-5" /></Button>
+              <Button onClick={skipLine} variant="ghost" className="h-11 px-3 text-sm text-muted-foreground">
+                Skip
+              </Button>
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <Button onClick={handleCorrect} className="flex-1 h-12 bg-amber-600 hover:bg-amber-700 text-sm font-semibold" disabled={submitLine.isPending || !editedLine.trim()}>
-                <CheckCircle2 className="w-5 h-5 mr-1.5" /> Submit
+              <Button onClick={handleCorrect} className="flex-1 h-11 bg-amber-600 hover:bg-amber-700 text-sm font-semibold" disabled={submitLine.isPending || !editedLine.trim()}>
+                <CheckCircle2 className="w-4 h-4 mr-1" /> Submit
               </Button>
-              <Button onClick={() => { setEditMode(false); setEditedLine(""); }} variant="ghost" className="h-12">Cancel</Button>
+              <Button onClick={() => { setEditMode(false); setEditedLine(""); }} variant="ghost" className="h-11">Cancel</Button>
             </div>
           )}
         </div>
       </div>
-
-      {/* Row celebration */}
-      <AnimatePresence><RowCelebration show={showRowComplete} row={completedRow} /></AnimatePresence>
     </div>
   );
 }
