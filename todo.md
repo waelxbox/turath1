@@ -398,3 +398,15 @@
 - [x] Add language selector dropdown to Quick Review page
 - [x] Filter document queue by selected language (server-side via transcription metadata)
 - [x] Backend endpoint to get distinct languages for a project
+
+## Mobile Quick Review (Round 39)
+- [x] Mobile-first responsive layout for Quick Review (stacked: image top, review bottom)
+- [x] Thumb-friendly action buttons (large tap targets, bottom of screen)
+- [x] Compact stats bar for mobile (XP/streak/progress in minimal space)
+- [x] Swipe gestures (swipe right = approve, swipe left = skip)
+- [x] Pinch-to-zoom on document image
+- [x] Mobile metadata verification (card-style yes/no swipe)
+- [x] Hide keyboard shortcuts hint on mobile
+- [x] Touch-optimized edit mode (auto-focus, larger input)
+- [x] Mobile-responsive sidebar (slide-out overlay menu replaces always-visible sidebar)
+- [x] Quick Review gets full-screen treatment on mobile (minimal header, no sidebar)

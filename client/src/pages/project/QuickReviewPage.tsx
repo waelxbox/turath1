@@ -20,7 +20,7 @@ type ReviewPhase = "lines" | "metadata" | "complete";
 function XpPopup({ xp, show }: { xp: number; show: boolean }) {
   if (!show) return null;
   return (
-    <div className="absolute -top-8 left-1/2 -translate-x-1/2 animate-bounce text-yellow-400 font-bold text-sm pointer-events-none">
+    <div className="absolute -top-8 left-1/2 -translate-x-1/2 animate-bounce text-yellow-400 font-bold text-lg pointer-events-none z-50">
       +{xp} XP
     </div>
   );
@@ -55,6 +55,68 @@ const SKIP_FIELDS = new Set([
   "page_number", "section_of_act", "folio_number"
 ]);
 
+// Hook to detect mobile viewport
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+  return isMobile;
+}
+
+// Swipe gesture hook
+function useSwipe(
+  ref: React.RefObject<HTMLElement | null>,
+  { onSwipeLeft, onSwipeRight, threshold = 50 }: {
+    onSwipeLeft?: () => void;
+    onSwipeRight?: () => void;
+    threshold?: number;
+  }
+) {
+  const startX = useRef(0);
+  const startY = useRef(0);
+  const swiping = useRef(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      startX.current = e.touches[0].clientX;
+      startY.current = e.touches[0].clientY;
+      swiping.current = true;
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (!swiping.current) return;
+      swiping.current = false;
+      const endX = e.changedTouches[0].clientX;
+      const endY = e.changedTouches[0].clientY;
+      const deltaX = endX - startX.current;
+      const deltaY = endY - startY.current;
+
+      // Only trigger if horizontal movement is dominant
+      if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > threshold) {
+        if (deltaX > 0 && onSwipeRight) {
+          onSwipeRight();
+        } else if (deltaX < 0 && onSwipeLeft) {
+          onSwipeLeft();
+        }
+      }
+    };
+
+    el.addEventListener("touchstart", handleTouchStart, { passive: true });
+    el.addEventListener("touchend", handleTouchEnd, { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", handleTouchStart);
+      el.removeEventListener("touchend", handleTouchEnd);
+    };
+  }, [ref, onSwipeLeft, onSwipeRight, threshold]);
+}
+
 export default function QuickReviewPage({ projectId }: Props) {
   const [currentDocIndex, setCurrentDocIndex] = useState(0);
   const [currentLineIndex, setCurrentLineIndex] = useState(0);
@@ -70,8 +132,13 @@ export default function QuickReviewPage({ projectId }: Props) {
   const [editingMetaField, setEditingMetaField] = useState<string | null>(null);
   const [editingMetaValue, setEditingMetaValue] = useState("");
   const [selectedLanguage, setSelectedLanguage] = useState<string>("");
+  const [showImage, setShowImage] = useState(false); // mobile image toggle
   const inputRef = useRef<HTMLInputElement>(null);
   const metaInputRef = useRef<HTMLInputElement>(null);
+  const swipeRef = useRef<HTMLDivElement>(null);
+  const metaSwipeRef = useRef<HTMLDivElement>(null);
+
+  const isMobile = useIsMobile();
 
   // Fetch available languages for this project
   const { data: languages } = trpc.documents.getLanguages.useQuery(
@@ -220,27 +287,22 @@ export default function QuickReviewPage({ projectId }: Props) {
 
   // Advance to next line or transition to metadata phase
   const advanceLine = useCallback(() => {
-    // Find next unreviewed line
     for (let i = currentLineIndex + 1; i < totalLines; i++) {
       if (!reviewedLines.has(i)) {
         setCurrentLineIndex(i);
         return;
       }
     }
-    // Check if all lines are done (current one was just added so +1)
     if (reviewedLines.size + 1 >= totalLines) {
-      // All lines done — transition to metadata verification
       if (metadataFields.length > 0) {
         setPhase("metadata");
         setMetadataIndex(0);
         setMetadataVerifications(new Map());
         setMetadataCorrections(new Map());
       } else {
-        // No metadata to verify — complete immediately
         handlePageComplete();
       }
     } else {
-      // Wrap around to find unreviewed lines
       for (let i = 0; i < currentLineIndex; i++) {
         if (!reviewedLines.has(i)) {
           setCurrentLineIndex(i);
@@ -258,7 +320,6 @@ export default function QuickReviewPage({ projectId }: Props) {
     if (metadataIndex < totalMetaFields - 1) {
       setMetadataIndex(prev => prev + 1);
     } else {
-      // All metadata verified — complete the page
       handlePageComplete();
     }
   }, [currentMetaField, metadataIndex, totalMetaFields]);
@@ -296,7 +357,6 @@ export default function QuickReviewPage({ projectId }: Props) {
       reviewed: data.reviewed,
     }));
 
-    // If we're coming from advanceLine (last line just reviewed), add it
     if (!reviewedLines.has(currentLineIndex) && phase === "lines") {
       allReviewed.push({ index: currentLineIndex, original: currentLine, reviewed: editMode ? editedLine : currentLine });
     }
@@ -313,7 +373,6 @@ export default function QuickReviewPage({ projectId }: Props) {
       toast.success(`🎉 Page complete! +${result.xpEarned} XP bonus!`);
       refetchStats();
 
-      // Move to next document
       if (documents?.documents && currentDocIndex < documents.documents.length - 1) {
         setCurrentDocIndex(prev => prev + 1);
         setCurrentLineIndex(0);
@@ -347,7 +406,21 @@ export default function QuickReviewPage({ projectId }: Props) {
     setEditMode(false);
   }, [currentLineIndex, totalLines]);
 
-  // Keyboard shortcuts
+  // Swipe gestures for line review
+  useSwipe(swipeRef, {
+    onSwipeRight: handleApprove,
+    onSwipeLeft: skipLine,
+    threshold: 60,
+  });
+
+  // Swipe gestures for metadata verification
+  useSwipe(metaSwipeRef, {
+    onSwipeRight: handleMetaConfirm,
+    onSwipeLeft: handleMetaReject,
+    threshold: 60,
+  });
+
+  // Keyboard shortcuts (hidden on mobile)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (phase === "metadata") {
@@ -360,7 +433,6 @@ export default function QuickReviewPage({ projectId }: Props) {
         else if (e.key === "n" || e.key === "N") { e.preventDefault(); handleMetaReject(); }
         return;
       }
-      // Lines phase
       if (editMode) return;
       if (e.key === "Enter") { e.preventDefault(); handleApprove(); }
       else if (e.key === "e" || e.key === "E") { e.preventDefault(); startEdit(); }
@@ -384,6 +456,7 @@ export default function QuickReviewPage({ projectId }: Props) {
     setMetadataVerifications(new Map());
     setMetadataCorrections(new Map());
     setEditingMetaField(null);
+    setShowImage(false);
   }, [currentDoc?.id]);
 
   // Loading state
@@ -398,10 +471,10 @@ export default function QuickReviewPage({ projectId }: Props) {
   // No documents to review
   if (!documents?.documents?.length || phase === "complete") {
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-4 text-muted-foreground">
+      <div className="flex flex-col items-center justify-center h-full gap-4 text-muted-foreground p-6">
         <Trophy className="w-12 h-12 text-yellow-400" />
         <h2 className="text-xl font-semibold text-foreground">All caught up!</h2>
-        <p>No documents need review right now. Check back later.</p>
+        <p className="text-center">No documents need review right now. Check back later.</p>
         {stats && stats.totalXp > 0 && (
           <div className="mt-4 text-center">
             <p className="text-sm">Your total XP: <span className="text-yellow-400 font-bold">{stats.totalXp}</span></p>
@@ -413,29 +486,30 @@ export default function QuickReviewPage({ projectId }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Top stats bar */}
-      <div className="flex-shrink-0 border-b border-border bg-card/50 px-6 py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Compact stats bar — single row on mobile */}
+      <div className="flex-shrink-0 border-b border-border bg-card/50 px-3 md:px-6 py-2 md:py-3">
+        <div className="flex items-center justify-between gap-2">
+          {/* Left: XP + Level + Streak */}
+          <div className="flex items-center gap-2 md:gap-4 min-w-0">
             {stats && (
               <>
-                <div className="flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-yellow-400" />
-                  <span className="text-sm font-semibold">{stats.totalXp} XP</span>
+                <div className="flex items-center gap-1">
+                  <Zap className="w-3.5 h-3.5 md:w-4 md:h-4 text-yellow-400 flex-shrink-0" />
+                  <span className="text-xs md:text-sm font-semibold whitespace-nowrap">{stats.totalXp}</span>
                 </div>
                 <LevelBadge level={stats.level} />
                 {stats.currentStreak > 0 && (
-                  <div className="flex items-center gap-1 text-orange-400">
-                    <Flame className="w-4 h-4" />
-                    <span className="text-sm font-semibold">{stats.currentStreak} day streak</span>
+                  <div className="flex items-center gap-0.5 text-orange-400">
+                    <Flame className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span className="text-xs font-semibold">{stats.currentStreak}</span>
                   </div>
                 )}
               </>
             )}
           </div>
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            {/* Language selector */}
+          {/* Right: Language + Doc/Line counter */}
+          <div className="flex items-center gap-2 text-[10px] md:text-xs text-muted-foreground flex-shrink-0">
             {languages && languages.length > 1 && (
               <select
                 value={selectedLanguage}
@@ -446,25 +520,27 @@ export default function QuickReviewPage({ projectId }: Props) {
                   setPhase("lines");
                   setReviewedLines(new Map());
                 }}
-                className="bg-background border border-border rounded px-2 py-1 text-xs"
+                className="bg-background border border-border rounded px-1.5 py-0.5 text-[10px] md:text-xs max-w-[80px] md:max-w-none"
               >
-                <option value="">All languages</option>
+                <option value="">All</option>
                 {languages.map(lang => (
                   <option key={lang} value={lang}>{lang}</option>
                 ))}
               </select>
             )}
-            <span>Doc {currentDocIndex + 1}/{documents.documents.length}</span>
-            <span>•</span>
+            <span className="hidden md:inline">Doc {currentDocIndex + 1}/{documents.documents.length}</span>
+            <span className="md:hidden">{currentDocIndex + 1}/{documents.documents.length}</span>
+            <span className="hidden md:inline">•</span>
             {phase === "lines" ? (
-              <span>Line {currentLineIndex + 1}/{totalLines}</span>
+              <span className="hidden md:inline">Line {currentLineIndex + 1}/{totalLines}</span>
             ) : (
-              <span className="text-blue-400">Metadata {metadataIndex + 1}/{totalMetaFields}</span>
+              <span className="text-blue-400 hidden md:inline">Meta {metadataIndex + 1}/{totalMetaFields}</span>
             )}
           </div>
         </div>
+        {/* XP progress bar — hidden on mobile to save space */}
         {stats && (
-          <div className="mt-2">
+          <div className="hidden md:block mt-2">
             <Progress value={stats.progress.needed > 0 ? (stats.progress.current / stats.progress.needed) * 100 : 0} className="h-1.5" />
             <p className="text-[10px] text-muted-foreground mt-0.5">
               {stats.progress.current}/{stats.progress.needed} XP to Level {stats.level + 1}
@@ -473,29 +549,64 @@ export default function QuickReviewPage({ projectId }: Props) {
         )}
       </div>
 
-      {/* Main review area */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left: Document image */}
-        <div className="w-1/2 border-r border-border bg-black/20 flex items-center justify-center overflow-hidden p-4">
-          {currentDoc?.storageUrl ? (
-            <img
-              src={currentDoc.storageUrl}
-              alt={currentDoc.filename}
-              className="max-w-full max-h-full object-contain rounded"
-            />
-          ) : (
-            <div className="flex flex-col items-center gap-2 text-muted-foreground">
-              <ImageIcon className="w-12 h-12" />
-              <span className="text-sm">No image available</span>
-            </div>
-          )}
-        </div>
+      {/* Main review area — stacked on mobile, side-by-side on desktop */}
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+        {/* Document image — top on mobile (collapsible), left on desktop */}
+        {isMobile ? (
+          <>
+            {/* Mobile: tap to toggle image viewer */}
+            <button
+              onClick={() => setShowImage(!showImage)}
+              className="flex-shrink-0 flex items-center justify-center gap-2 px-3 py-2 bg-black/20 border-b border-border text-xs text-muted-foreground active:bg-black/30"
+            >
+              <ImageIcon className="w-3.5 h-3.5" />
+              <span>{showImage ? "Hide document" : "View document"}</span>
+              {showImage ? <ChevronLeft className="w-3 h-3 rotate-90" /> : <ChevronRight className="w-3 h-3 rotate-90" />}
+            </button>
+            {showImage && (
+              <div
+                className="flex-shrink-0 bg-black/20 flex items-center justify-center overflow-auto p-2"
+                style={{ height: "40vh", touchAction: "pan-x pan-y pinch-zoom" }}
+              >
+                {currentDoc?.storageUrl ? (
+                  <img
+                    src={currentDoc.storageUrl}
+                    alt={currentDoc.filename}
+                    className="max-w-full max-h-full object-contain rounded"
+                    style={{ touchAction: "pinch-zoom" }}
+                  />
+                ) : (
+                  <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                    <ImageIcon className="w-10 h-10" />
+                    <span className="text-xs">No image</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        ) : (
+          /* Desktop: side-by-side left panel */
+          <div className="w-1/2 border-r border-border bg-black/20 flex items-center justify-center overflow-hidden p-4">
+            {currentDoc?.storageUrl ? (
+              <img
+                src={currentDoc.storageUrl}
+                alt={currentDoc.filename}
+                className="max-w-full max-h-full object-contain rounded"
+              />
+            ) : (
+              <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                <ImageIcon className="w-12 h-12" />
+                <span className="text-sm">No image available</span>
+              </div>
+            )}
+          </div>
+        )}
 
-        {/* Right: Review panel */}
-        <div className="w-1/2 flex flex-col">
-          {/* Document info */}
-          <div className="px-6 py-3 border-b border-border bg-card/30">
-            <h3 className="text-sm font-medium truncate">{currentDoc?.filename}</h3>
+        {/* Review panel — bottom on mobile, right on desktop */}
+        <div className="flex-1 md:w-1/2 flex flex-col min-h-0 overflow-hidden">
+          {/* Document info bar */}
+          <div className="px-3 md:px-6 py-2 md:py-3 border-b border-border bg-card/30 flex-shrink-0">
+            <h3 className="text-xs md:text-sm font-medium truncate">{currentDoc?.filename}</h3>
             <div className="flex items-center gap-2 mt-1">
               {phase === "lines" ? (
                 <>
@@ -504,9 +615,9 @@ export default function QuickReviewPage({ projectId }: Props) {
                 </>
               ) : (
                 <>
-                  <div className="flex items-center gap-1 text-xs text-blue-400">
+                  <div className="flex items-center gap-1 text-[10px] md:text-xs text-blue-400">
                     <ClipboardCheck className="w-3 h-3" />
-                    <span>Verifying metadata</span>
+                    <span>Metadata</span>
                   </div>
                   <Progress value={totalMetaFields > 0 ? (metadataIndex / totalMetaFields) * 100 : 0} className="h-1.5 flex-1" />
                   <span className="text-[10px] text-muted-foreground">{metadataIndex}/{totalMetaFields}</span>
@@ -518,28 +629,29 @@ export default function QuickReviewPage({ projectId }: Props) {
           {/* Phase: Line review */}
           {phase === "lines" && (
             <>
-              <div className="flex-1 overflow-y-auto px-6 py-4">
+              {/* Scrollable line content with swipe area */}
+              <div ref={swipeRef} className="flex-1 overflow-y-auto px-3 md:px-6 py-3 md:py-4 min-h-0">
                 {/* Previous lines context */}
-                <div className="space-y-2 mb-6">
-                  {lines.slice(Math.max(0, currentLineIndex - 3), currentLineIndex).map((line, i) => {
-                    const actualIdx = Math.max(0, currentLineIndex - 3) + i;
+                <div className="space-y-1.5 md:space-y-2 mb-4 md:mb-6">
+                  {lines.slice(Math.max(0, currentLineIndex - 2), currentLineIndex).map((line, i) => {
+                    const actualIdx = Math.max(0, currentLineIndex - 2) + i;
                     const isReviewed = reviewedLines.has(actualIdx);
                     return (
-                      <div key={actualIdx} className={`text-sm py-1 px-2 rounded ${isReviewed ? "text-muted-foreground/50 line-through" : "text-muted-foreground/70"}`}>
+                      <div key={actualIdx} className={`text-xs md:text-sm py-1 px-2 rounded ${isReviewed ? "text-muted-foreground/50 line-through" : "text-muted-foreground/70"}`}>
                         {line}
                       </div>
                     );
                   })}
                 </div>
 
-                {/* Current line */}
-                <div className="relative border-2 border-primary/50 rounded-lg p-4 bg-primary/5">
-                  <div className="absolute -top-3 left-3 bg-background px-2 text-xs text-primary font-medium">
-                    Line {currentLineIndex + 1}
+                {/* Current line — the card users swipe */}
+                <div className="relative border-2 border-primary/50 rounded-lg p-3 md:p-4 bg-primary/5">
+                  <div className="absolute -top-2.5 left-3 bg-background px-2 text-[10px] md:text-xs text-primary font-medium">
+                    Line {currentLineIndex + 1}/{totalLines}
                   </div>
 
                   {!editMode ? (
-                    <div className="text-base font-medium leading-relaxed">
+                    <div className="text-sm md:text-base font-medium leading-relaxed">
                       {currentLine}
                     </div>
                   ) : (
@@ -551,72 +663,86 @@ export default function QuickReviewPage({ projectId }: Props) {
                         if (e.key === "Enter") handleCorrect();
                         if (e.key === "Escape") { setEditMode(false); setEditedLine(""); }
                       }}
-                      className="text-base font-medium"
+                      className="text-base font-medium p-3"
+                      style={{ fontSize: "16px" }} // prevent iOS zoom
                       placeholder="Type the corrected text..."
+                      autoFocus
                     />
                   )}
 
                   <XpPopup xp={lastXp} show={showXp} />
                 </div>
 
+                {/* Swipe hint — mobile only, shown briefly */}
+                {isMobile && !editMode && (
+                  <div className="flex items-center justify-between mt-3 text-[10px] text-muted-foreground/50 px-2">
+                    <span>← swipe skip</span>
+                    <span>swipe approve →</span>
+                  </div>
+                )}
+
                 {/* Next lines preview */}
-                <div className="space-y-2 mt-6">
-                  {lines.slice(currentLineIndex + 1, currentLineIndex + 4).map((line, i) => (
-                    <div key={currentLineIndex + 1 + i} className="text-sm py-1 px-2 text-muted-foreground/40">
+                <div className="space-y-1.5 md:space-y-2 mt-4 md:mt-6">
+                  {lines.slice(currentLineIndex + 1, currentLineIndex + 3).map((line, i) => (
+                    <div key={currentLineIndex + 1 + i} className="text-xs md:text-sm py-1 px-2 text-muted-foreground/40">
                       {line}
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Line action buttons */}
-              <div className="flex-shrink-0 border-t border-border px-6 py-4">
+              {/* Line action buttons — large and thumb-friendly on mobile */}
+              <div className="flex-shrink-0 border-t border-border px-3 md:px-6 py-3 md:py-4 bg-background">
                 {!editMode ? (
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 md:gap-3">
                     <Button
                       onClick={handleApprove}
-                      className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+                      className="flex-1 h-12 md:h-10 bg-emerald-600 hover:bg-emerald-700 text-sm md:text-sm font-semibold"
                       disabled={submitLine.isPending}
                     >
-                      <CheckCircle2 className="w-4 h-4 mr-2" />
-                      Correct (+2 XP)
+                      <CheckCircle2 className="w-5 h-5 md:w-4 md:h-4 mr-1.5" />
+                      <span className="md:hidden">Correct</span>
+                      <span className="hidden md:inline">Correct (+2 XP)</span>
                     </Button>
                     <Button
                       onClick={startEdit}
                       variant="outline"
-                      className="flex-1"
+                      className="flex-1 h-12 md:h-10 text-sm font-semibold"
                     >
-                      <Edit3 className="w-4 h-4 mr-2" />
-                      Edit (+5 XP)
+                      <Edit3 className="w-5 h-5 md:w-4 md:h-4 mr-1.5" />
+                      <span className="md:hidden">Edit</span>
+                      <span className="hidden md:inline">Edit (+5 XP)</span>
                     </Button>
                     <Button
                       onClick={skipLine}
                       variant="ghost"
-                      size="icon"
+                      className="h-12 md:h-10 w-12 md:w-10 p-0"
                       title="Skip this line"
                     >
-                      <SkipForward className="w-4 h-4" />
+                      <SkipForward className="w-5 h-5 md:w-4 md:h-4" />
                     </Button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 md:gap-3">
                     <Button
                       onClick={handleCorrect}
-                      className="flex-1 bg-blue-600 hover:bg-blue-700"
+                      className="flex-1 h-12 md:h-10 bg-blue-600 hover:bg-blue-700 text-sm font-semibold"
                       disabled={submitLine.isPending || !editedLine.trim()}
                     >
-                      <CheckCircle2 className="w-4 h-4 mr-2" />
-                      Submit correction (+5 XP)
+                      <CheckCircle2 className="w-5 h-5 md:w-4 md:h-4 mr-1.5" />
+                      Submit
                     </Button>
                     <Button
                       onClick={() => { setEditMode(false); setEditedLine(""); }}
                       variant="ghost"
+                      className="h-12 md:h-10"
                     >
                       Cancel
                     </Button>
                   </div>
                 )}
-                <p className="text-[10px] text-muted-foreground mt-2 text-center">
+                {/* Keyboard hints — desktop only */}
+                <p className="hidden md:block text-[10px] text-muted-foreground mt-2 text-center">
                   Keyboard: Enter = approve/submit • E = edit • → = skip • ← = back
                 </p>
               </div>
@@ -626,54 +752,56 @@ export default function QuickReviewPage({ projectId }: Props) {
           {/* Phase: Metadata verification */}
           {phase === "metadata" && currentMetaField && (
             <>
-              <div className="flex-1 overflow-y-auto px-6 py-6">
+              <div ref={metaSwipeRef} className="flex-1 overflow-y-auto px-3 md:px-6 py-4 md:py-6 min-h-0">
                 {/* Phase transition header */}
-                <div className="mb-6 p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                <div className="mb-4 md:mb-6 p-3 md:p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
                   <div className="flex items-center gap-2 text-blue-400 mb-1">
                     <ClipboardCheck className="w-4 h-4" />
-                    <span className="text-sm font-semibold">Metadata Verification</span>
+                    <span className="text-xs md:text-sm font-semibold">Metadata Verification</span>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Lines are done! Now verify the document's metadata fields. Confirm each one is correct or fix it.
+                  <p className="text-[10px] md:text-xs text-muted-foreground">
+                    Lines done! Verify each metadata field — swipe right to confirm, left to fix.
                   </p>
                 </div>
 
                 {/* Previously verified fields */}
                 {metadataIndex > 0 && (
-                  <div className="space-y-2 mb-6">
-                    {metadataFields.slice(0, metadataIndex).map(field => {
+                  <div className="space-y-1.5 md:space-y-2 mb-4 md:mb-6">
+                    {metadataFields.slice(Math.max(0, metadataIndex - 3), metadataIndex).map(field => {
                       const wasConfirmed = metadataVerifications.get(field.key);
                       const correction = metadataCorrections.get(field.key);
                       return (
-                        <div key={field.key} className="flex items-center gap-2 text-xs text-muted-foreground/60">
+                        <div key={field.key} className="flex items-center gap-2 text-[10px] md:text-xs text-muted-foreground/60">
                           {wasConfirmed ? (
-                            <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                            <CheckCircle2 className="w-3 h-3 text-emerald-500 flex-shrink-0" />
                           ) : (
-                            <Edit3 className="w-3 h-3 text-blue-400" />
+                            <Edit3 className="w-3 h-3 text-blue-400 flex-shrink-0" />
                           )}
-                          <span className="font-medium">{field.label}:</span>
-                          <span className={correction ? "line-through" : ""}>{field.value}</span>
-                          {correction && <span className="text-blue-400">→ {correction}</span>}
+                          <span className="font-medium truncate">{field.label}:</span>
+                          <span className={`truncate ${correction ? "line-through" : ""}`}>{field.value}</span>
+                          {correction && <span className="text-blue-400 truncate">→ {correction}</span>}
                         </div>
                       );
                     })}
                   </div>
                 )}
 
-                {/* Current metadata field */}
-                <div className="relative border-2 border-blue-500/50 rounded-lg p-6 bg-blue-500/5">
-                  <div className="absolute -top-3 left-3 bg-background px-2 text-xs text-blue-400 font-medium">
-                    {currentMetaField.label}
+                {/* Current metadata field — card style for swipe */}
+                <div className="relative border-2 border-blue-500/50 rounded-lg p-4 md:p-6 bg-blue-500/5">
+                  <div className="absolute -top-2.5 left-3 bg-background px-2 text-[10px] md:text-xs text-blue-400 font-medium">
+                    {currentMetaField.label} ({metadataIndex + 1}/{totalMetaFields})
                   </div>
 
                   {!editingMetaField ? (
-                    <div className="text-center">
-                      <p className="text-lg font-medium mb-2">{currentMetaField.value}</p>
-                      <p className="text-sm text-muted-foreground">Is this correct?</p>
+                    <div className="text-center py-2">
+                      <p className="text-base md:text-lg font-medium mb-2 break-words">{currentMetaField.value}</p>
+                      <p className="text-xs md:text-sm text-muted-foreground">Is this correct?</p>
                     </div>
                   ) : (
                     <div>
-                      <p className="text-xs text-muted-foreground mb-2">Original: <span className="line-through">{currentMetaField.value}</span></p>
+                      <p className="text-[10px] md:text-xs text-muted-foreground mb-2">
+                        Original: <span className="line-through">{currentMetaField.value}</span>
+                      </p>
                       <Input
                         ref={metaInputRef}
                         value={editingMetaValue}
@@ -682,18 +810,28 @@ export default function QuickReviewPage({ projectId }: Props) {
                           if (e.key === "Enter") handleMetaCorrectionSubmit();
                           if (e.key === "Escape") { setEditingMetaField(null); setEditingMetaValue(""); }
                         }}
-                        className="text-base"
+                        className="text-base p-3"
+                        style={{ fontSize: "16px" }} // prevent iOS zoom
                         placeholder="Type the correct value..."
+                        autoFocus
                       />
                     </div>
                   )}
                 </div>
 
+                {/* Swipe hint — mobile only */}
+                {isMobile && !editingMetaField && (
+                  <div className="flex items-center justify-between mt-3 text-[10px] text-muted-foreground/50 px-2">
+                    <span>← swipe to fix</span>
+                    <span>swipe to confirm →</span>
+                  </div>
+                )}
+
                 {/* Remaining fields preview */}
                 {metadataIndex < totalMetaFields - 1 && (
-                  <div className="space-y-2 mt-6">
-                    {metadataFields.slice(metadataIndex + 1, metadataIndex + 4).map(field => (
-                      <div key={field.key} className="text-xs text-muted-foreground/40 py-1 px-2">
+                  <div className="space-y-1.5 md:space-y-2 mt-4 md:mt-6">
+                    {metadataFields.slice(metadataIndex + 1, metadataIndex + 3).map(field => (
+                      <div key={field.key} className="text-[10px] md:text-xs text-muted-foreground/40 py-1 px-2">
                         <span className="font-medium">{field.label}:</span> {field.value}
                       </div>
                     ))}
@@ -701,45 +839,49 @@ export default function QuickReviewPage({ projectId }: Props) {
                 )}
               </div>
 
-              {/* Metadata action buttons */}
-              <div className="flex-shrink-0 border-t border-border px-6 py-4">
+              {/* Metadata action buttons — large on mobile */}
+              <div className="flex-shrink-0 border-t border-border px-3 md:px-6 py-3 md:py-4 bg-background">
                 {!editingMetaField ? (
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 md:gap-3">
                     <Button
                       onClick={handleMetaConfirm}
-                      className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+                      className="flex-1 h-12 md:h-10 bg-emerald-600 hover:bg-emerald-700 text-sm font-semibold"
                     >
-                      <ThumbsUp className="w-4 h-4 mr-2" />
-                      Yes, correct (+2 XP)
+                      <ThumbsUp className="w-5 h-5 md:w-4 md:h-4 mr-1.5" />
+                      <span className="md:hidden">Yes</span>
+                      <span className="hidden md:inline">Yes, correct (+2 XP)</span>
                     </Button>
                     <Button
                       onClick={handleMetaReject}
                       variant="outline"
-                      className="flex-1 border-red-500/30 text-red-400 hover:bg-red-500/10"
+                      className="flex-1 h-12 md:h-10 border-red-500/30 text-red-400 hover:bg-red-500/10 text-sm font-semibold"
                     >
-                      <ThumbsDown className="w-4 h-4 mr-2" />
-                      No, fix it (+5 XP)
+                      <ThumbsDown className="w-5 h-5 md:w-4 md:h-4 mr-1.5" />
+                      <span className="md:hidden">Fix</span>
+                      <span className="hidden md:inline">No, fix it (+5 XP)</span>
                     </Button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 md:gap-3">
                     <Button
                       onClick={handleMetaCorrectionSubmit}
-                      className="flex-1 bg-blue-600 hover:bg-blue-700"
+                      className="flex-1 h-12 md:h-10 bg-blue-600 hover:bg-blue-700 text-sm font-semibold"
                       disabled={!editingMetaValue.trim()}
                     >
-                      <CheckCircle2 className="w-4 h-4 mr-2" />
-                      Submit correction
+                      <CheckCircle2 className="w-5 h-5 md:w-4 md:h-4 mr-1.5" />
+                      Submit
                     </Button>
                     <Button
                       onClick={() => { setEditingMetaField(null); setEditingMetaValue(""); }}
                       variant="ghost"
+                      className="h-12 md:h-10"
                     >
                       Cancel
                     </Button>
                   </div>
                 )}
-                <p className="text-[10px] text-muted-foreground mt-2 text-center">
+                {/* Keyboard hints — desktop only */}
+                <p className="hidden md:block text-[10px] text-muted-foreground mt-2 text-center">
                   Keyboard: Enter/Y = confirm • N = reject/fix
                 </p>
               </div>
@@ -748,24 +890,22 @@ export default function QuickReviewPage({ projectId }: Props) {
         </div>
       </div>
 
-      {/* Bottom: Mini leaderboard */}
+      {/* Bottom: Mini leaderboard — hidden on mobile to save space */}
       {leaderboard && leaderboard.length > 0 && (
-        <div className="flex-shrink-0 border-t border-border bg-card/30 px-6 py-2">
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Trophy className="w-3 h-3 text-yellow-400" />
-              <span>Leaderboard:</span>
-            </div>
-            {leaderboard.slice(0, 5).map((entry, i) => (
-              <div key={entry.userId} className="flex items-center gap-1.5 text-xs">
-                <span className={`font-bold ${i === 0 ? "text-yellow-400" : i === 1 ? "text-zinc-300" : i === 2 ? "text-amber-600" : "text-muted-foreground"}`}>
-                  #{entry.rank}
-                </span>
-                <span className="text-foreground truncate max-w-[80px]">{entry.name}</span>
-                <span className="text-muted-foreground">{entry.totalXp} XP</span>
-              </div>
-            ))}
+        <div className="hidden md:flex flex-shrink-0 border-t border-border bg-card/30 px-6 py-2 items-center gap-6">
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Trophy className="w-3 h-3 text-yellow-400" />
+            <span>Leaderboard:</span>
           </div>
+          {leaderboard.slice(0, 5).map((entry, i) => (
+            <div key={entry.userId} className="flex items-center gap-1.5 text-xs">
+              <span className={`font-bold ${i === 0 ? "text-yellow-400" : i === 1 ? "text-zinc-300" : i === 2 ? "text-amber-600" : "text-muted-foreground"}`}>
+                #{entry.rank}
+              </span>
+              <span className="text-foreground truncate max-w-[80px]">{entry.name}</span>
+              <span className="text-muted-foreground">{entry.totalXp} XP</span>
+            </div>
+          ))}
         </div>
       )}
     </div>
