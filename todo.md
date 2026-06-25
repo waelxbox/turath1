@@ -365,3 +365,4 @@
 
 - [x] Persist Search tab state (query, results) when navigating away to view a document
 - [x] Persist Ask Archive tab state (conversation history, input) when navigating away to view a document
+- [x] Persist Entities page state (search query, type filter) when navigating away

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
+import { useSessionState } from "@/hooks/useSessionState";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -56,8 +57,8 @@ const TYPE_DOT_COLORS: Record<string, string> = {
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export default function EntityDirectoryPage({ projectId }: { projectId: number }) {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useSessionState(`turath-entities-search-${projectId}`, "");
+  const [typeFilter, setTypeFilter] = useSessionState(`turath-entities-filter-${projectId}`, "all");
   const [selectedEntityId, setSelectedEntityId] = useState<number | null>(() => {
     // Check URL hash for pre-selected entity (e.g., #entity=42)
     const hash = window.location.hash;
