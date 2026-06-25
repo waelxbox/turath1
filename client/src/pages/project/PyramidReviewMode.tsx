@@ -9,6 +9,7 @@ import {
   Flame, Zap, Star, Trophy
 } from "lucide-react";
 import { PanZoomImageViewer } from "./QuickReviewPage";
+import { useReviewSession } from "@/hooks/useReviewSession";
 
 interface Props {
   projectId: number;
@@ -372,6 +373,21 @@ export default function PyramidReviewMode({ projectId }: Props) {
   );
   const { data: stats, refetch: refetchStats } = trpc.gamification.myStats.useQuery({ projectId }, { enabled: !!projectId });
   const currentDoc = documents?.documents?.[currentDocIndex];
+
+  // Persistent session (auto-save/restore across reloads)
+  useReviewSession({
+    projectId,
+    mode: "pyramid",
+    currentDocumentId: currentDoc?.id ?? null,
+    currentLineIndex,
+    reviewedLines,
+    selectedLanguage,
+    setCurrentDocIndex,
+    setCurrentLineIndex,
+    setReviewedLines,
+    setSelectedLanguage,
+    documents: documents?.documents,
+  });
   const { data: transcription } = trpc.transcriptions.getByDocument.useQuery(
     { documentId: currentDoc?.id ?? 0, projectId },
     { enabled: !!currentDoc?.id }

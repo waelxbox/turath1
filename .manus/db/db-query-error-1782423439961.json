@@ -1,0 +1,17 @@
+{
+  "query": "CREATE TABLE \"review_sessions\" (\n\t\"id\" serial PRIMARY KEY NOT NULL,\n\t\"userId\" integer NOT NULL,\n\t\"projectId\" integer NOT NULL,\n\t\"mode\" varchar(20) DEFAULT 'classic' NOT NULL,\n\t\"currentDocumentId\" integer,\n\t\"currentLineIndex\" integer DEFAULT 0 NOT NULL,\n\t\"reviewedLines\" jsonb DEFAULT '{}' NOT NULL,\n\t\"selectedLanguage\" varchar(50) DEFAULT '',\n\t\"updatedAt\" timestamp DEFAULT now() NOT NULL\n);\nALTER TABLE \"review_sessions\" ADD CONSTRAINT \"review_sessions_userId_users_id_fk\" FOREIGN KEY (\"userId\") REFERENCES \"public\".\"users\"(\"id\") ON DELETE cascade ON UPDATE no action;\nALTER TABLE \"review_sessions\" ADD CONSTRAINT \"review_sessions_projectId_projects_id_fk\" FOREIGN KEY (\"projectId\") REFERENCES \"public\".\"projects\"(\"id\") ON DELETE cascade ON UPDATE no action;\nALTER TABLE \"review_sessions\" ADD CONSTRAINT \"review_sessions_currentDocumentId_documents_id_fk\" FOREIGN KEY (\"currentDocumentId\") REFERENCES \"public\".\"documents\"(\"id\") ON DELETE set null ON UPDATE no action;\nCREATE INDEX \"rs_userId_projectId_idx\" ON \"review_sessions\" USING btree (\"userId\",\"projectId\");",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute CREATE TABLE \"review_sessions\" (\n\t\"id\" serial PRIMARY KEY NOT NULL,\n\t\"userId\" integer NOT NULL,\n\t\"projectId\" integer NOT NULL,\n\t\"mode\" varchar(20) DEFAULT 'classic' NOT NULL,\n\t\"currentDocumentId\" integer,\n\t\"currentLineIndex\" integer DEFAULT 0 NOT NULL,\n\t\"reviewedLines\" jsonb DEFAULT '{}' NOT NULL,\n\t\"selectedLanguage\" varchar(50) DEFAULT '',\n\t\"updatedAt\" timestamp DEFAULT now() NOT NULL\n);\nALTER TABLE \"review_sessions\" ADD CONSTRAINT \"review_sessions_userId_users_id_fk\" FOREIGN KEY (\"userId\") REFERENCES \"public\".\"users\"(\"id\") ON DELETE cascade ON UPDATE no action;\nALTER TABLE \"review_sessions\" ADD CONSTRAINT \"review_sessions_projectId_projects_id_fk\" FOREIGN KEY (\"projectId\") REFERENCES \"public\".\"projects\"(\"id\") ON DELETE cascade ON UPDATE no action;\nALTER TABLE \"review_sessions\" ADD CONSTRAINT \"review_sessions_currentDocumentId_documents_id_fk\" FOREIGN KEY (\"currentDocumentId\") REFERENCES \"public\".\"documents\"(\"id\") ON DELETE set null ON UPDATE no action;\nCREATE INDEX \"rs_userId_projectId_idx\" ON \"review_sessions\" USING btree (\"userId\",\"projectId\");",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1064 (42000) at line 1: You have an error in your SQL syntax; check the manual that corresponds to your TiDB version for the right syntax to use line 1 column 30 near \"\"review_sessions\" (",
+    "\t\"id\" serial PRIMARY KEY NOT NULL,",
+    "\t\"userId\" integer NOT NULL,",
+    "\t\"projectId\" integer NOT NULL,",
+    "\t\"mode\" varchar(20) DEFAULT 'classic' NOT NULL,",
+    "\t\"currentDocumentId\" integer,",
+    "\t\"currentLineIndex\" integer DEFAULT 0 NOT NULL,",
+    "\t\"reviewedLines\" jsonb DEFAULT '{}' NOT NULL,",
+    "\t\"selectedLanguage\" varchar(50) DEFAULT '',",
+    "\t\"updatedAt\" timestamp DEFAULT now()"
+  ]
+}

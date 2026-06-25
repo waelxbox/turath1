@@ -404,3 +404,24 @@ export const userXpStats = pgTable("user_xp_stats", {
 
 export type UserXpStats = typeof userXpStats.$inferSelect;
 export type InsertUserXpStats = typeof userXpStats.$inferInsert;
+
+// ─── Review Sessions: Persistent state for Quick Review ─────────────────────
+// Stores the user's current position in a review session so they can resume
+// after reload, tab change, or browser close.
+
+export const reviewSessions = pgTable("review_sessions", {
+  id: serial("id").primaryKey(),
+  userId: integer("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  projectId: integer("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  mode: varchar("mode", { length: 20 }).notNull().default("classic"), // "classic" | "pyramid"
+  currentDocumentId: integer("currentDocumentId").references(() => documents.id, { onDelete: "set null" }),
+  currentLineIndex: integer("currentLineIndex").notNull().default(0),
+  reviewedLines: jsonb("reviewedLines").notNull().default("{}"), // { [lineIndex]: { original, reviewed } }
+  selectedLanguage: varchar("selectedLanguage", { length: 50 }).default(""),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("rs_userId_projectId_idx").on(t.userId, t.projectId),
+]);
+
+export type ReviewSession = typeof reviewSessions.$inferSelect;
+export type InsertReviewSession = typeof reviewSessions.$inferInsert;

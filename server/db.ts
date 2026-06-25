@@ -15,6 +15,7 @@ import {
   documentEntities, DocumentEntity,
   projectMembers, InsertProjectMember, ProjectMember,
   projectInvites, InsertProjectInvite, ProjectInvite,
+  reviewSessions,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -1081,4 +1082,53 @@ export async function resetStuckAndGetRetryable(projectId: number): Promise<Docu
       inArray(documents.status, ["pending", "error"])
     )
   ).orderBy(asc(documents.uploadedAt));
+}
+
+// ─── Review Sessions ─────────────────────────────────────────────────────────
+
+export async function getReviewSession(userId: number, projectId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(reviewSessions).where(
+    and(eq(reviewSessions.userId, userId), eq(reviewSessions.projectId, projectId))
+  ).limit(1);
+  return rows[0] || null;
+}
+
+export async function saveReviewSession(userId: number, projectId: number, data: {
+  mode: string;
+  currentDocumentId: number | null;
+  currentLineIndex: number;
+  reviewedLines: Record<string, unknown>;
+  selectedLanguage: string;
+}) {
+  const db = await getDb();
+  if (!db) return null;
+  // Upsert: try update first, insert if not exists
+  const existing = await db.select({ id: reviewSessions.id }).from(reviewSessions).where(
+    and(eq(reviewSessions.userId, userId), eq(reviewSessions.projectId, projectId))
+  ).limit(1);
+
+  if (existing.length > 0) {
+    await db.update(reviewSessions).set({
+      mode: data.mode,
+      currentDocumentId: data.currentDocumentId,
+      currentLineIndex: data.currentLineIndex,
+      reviewedLines: data.reviewedLines,
+      selectedLanguage: data.selectedLanguage,
+      updatedAt: new Date(),
+    }).where(eq(reviewSessions.id, existing[0].id));
+    return existing[0].id;
+  } else {
+    const [row] = await db.insert(reviewSessions).values({
+      userId,
+      projectId,
+      mode: data.mode,
+      currentDocumentId: data.currentDocumentId,
+      currentLineIndex: data.currentLineIndex,
+      reviewedLines: data.reviewedLines,
+      selectedLanguage: data.selectedLanguage,
+    }).returning({ id: reviewSessions.id });
+    return row.id;
+  }
 }

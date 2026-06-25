@@ -446,3 +446,10 @@
 - [x] Mobile: Swipe right = verify (card to block animation), swipe left = skip
 - [x] Mobile: Correct/Edit/Skip buttons at bottom
 - [x] 3D isometric pyramid with warm lighting, glowing capstone, incoming block animation
+
+## Persistent Review Session State (Round 44)
+- [x] Database table for review_sessions (user, project, current doc, line index, reviewed lines JSON, mode)
+- [x] tRPC endpoints: saveReviewSession, getReviewSession
+- [x] Auto-save on every approve/skip/edit action (debounced 500ms)
+- [x] Auto-restore on page load (both Classic and Pyramid modes)
+- [x] Persist across reload, tab change, and browser close (visibilitychange + beforeunload)

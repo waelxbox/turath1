@@ -43,6 +43,13 @@
       "when": 1782402492126,
       "tag": "0005_tiresome_blob",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782423426541,
+      "tag": "0006_wide_green_goblin",
+      "breakpoints": true
     }
   ]
 }

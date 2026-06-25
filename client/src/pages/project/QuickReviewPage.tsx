@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
+import { useReviewSession } from "@/hooks/useReviewSession";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -421,8 +422,21 @@ function ClassicReviewMode({ projectId, mode, setMode }: Props & { mode: ReviewM
     { enabled: !!projectId }
   );
 
-  // Current document
+  // Persistent session (auto-save/restore across reloads)
   const currentDoc = documents?.documents?.[currentDocIndex];
+  useReviewSession({
+    projectId,
+    mode,
+    currentDocumentId: currentDoc?.id ?? null,
+    currentLineIndex,
+    reviewedLines,
+    selectedLanguage,
+    setCurrentDocIndex,
+    setCurrentLineIndex,
+    setReviewedLines,
+    setSelectedLanguage,
+    documents: documents?.documents,
+  });
 
   // Fetch transcription for current document
   const { data: transcription } = trpc.transcriptions.getByDocument.useQuery(

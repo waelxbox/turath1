@@ -67,6 +67,7 @@ import { generateMergeSuggestions, executeMerge, rejectMerge, skipMerge, process
 import { invokeLLM } from "./_core/llm";
 import { seedDemoProject } from "./demoSeed";
 import { awardXp, getUserStats, getLeaderboard, maybeAwardStreakBonus, XP_VALUES, xpProgressInLevel } from "./gamification";
+import { getReviewSession, saveReviewSession } from "./db";
 
 // ─── Auth Router ──────────────────────────────────────────────────────────────
 
@@ -2158,6 +2159,36 @@ const gamificationRouter = router({
   xpValues: publicProcedure.query(() => XP_VALUES),
 });
 
+// ─── Review Session Router ───────────────────────────────────────────────────
+
+const reviewSessionRouter = router({
+  get: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      return getReviewSession(ctx.user.id, input.projectId);
+    }),
+
+  save: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      mode: z.string(),
+      currentDocumentId: z.number().nullable(),
+      currentLineIndex: z.number(),
+      reviewedLines: z.record(z.string(), z.unknown()),
+      selectedLanguage: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await saveReviewSession(ctx.user.id, input.projectId, {
+        mode: input.mode,
+        currentDocumentId: input.currentDocumentId,
+        currentLineIndex: input.currentLineIndex,
+        reviewedLines: input.reviewedLines,
+        selectedLanguage: input.selectedLanguage,
+      });
+      return { success: true };
+    }),
+});
+
 // ─── App Router ───────────────────────────────────────────────────────────────
 
 export const appRouter = router({
@@ -2175,6 +2206,7 @@ export const appRouter = router({
   merge: mergeRouter,
   groups: groupsRouter,
   gamification: gamificationRouter,
+  reviewSession: reviewSessionRouter,
 });
 
 export type AppRouter = typeof appRouter;
