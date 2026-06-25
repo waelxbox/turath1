@@ -393,3 +393,8 @@
 - [x] Add metadata verification step after all lines reviewed (yes/no per field)
 - [x] Only mark document as 'reviewed' after BOTH text lines AND metadata are verified
 - [x] Show metadata fields as simple yes/no questions (non-expert friendly)
+
+## Quick Review Language Filter (Round 38c)
+- [x] Add language selector dropdown to Quick Review page
+- [x] Filter document queue by selected language (server-side via transcription metadata)
+- [x] Backend endpoint to get distinct languages for a project

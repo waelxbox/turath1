@@ -29,6 +29,7 @@ import {
   deleteDocument,
   renameDocument,
   getDocumentsPaginated,
+  getProjectLanguages,
   getProjectMembers,
   addProjectMember,
   removeProjectMember,
@@ -569,6 +570,7 @@ const documentsRouter = router({
       projectId: z.number(),
       status: z.enum(["pending", "processing", "needs_review", "reviewed", "flagged", "error"]).optional(),
       search: z.string().optional(),
+      language: z.string().optional(),
       cursor: z.number().optional(),
       limit: z.number().min(1).max(100).optional(),
     }))
@@ -579,9 +581,19 @@ const documentsRouter = router({
         projectId: input.projectId,
         status: input.status,
         search: input.search,
+        language: input.language,
         cursor: input.cursor,
         limit: input.limit,
       });
+    }),
+
+  // Get distinct languages found in project transcriptions
+  getLanguages: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      return getProjectLanguages(input.projectId);
     }),
 
   // Returns a fresh presigned URL for viewing a document image (stored URLs expire)

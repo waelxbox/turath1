@@ -69,12 +69,19 @@ export default function QuickReviewPage({ projectId }: Props) {
   const [metadataCorrections, setMetadataCorrections] = useState<Map<string, string>>(new Map());
   const [editingMetaField, setEditingMetaField] = useState<string | null>(null);
   const [editingMetaValue, setEditingMetaValue] = useState("");
+  const [selectedLanguage, setSelectedLanguage] = useState<string>("");
   const inputRef = useRef<HTMLInputElement>(null);
   const metaInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch documents that need review
+  // Fetch available languages for this project
+  const { data: languages } = trpc.documents.getLanguages.useQuery(
+    { projectId },
+    { enabled: !!projectId }
+  );
+
+  // Fetch documents that need review (filtered by language if selected)
   const { data: documents, isLoading: docsLoading } = trpc.documents.listPaginated.useQuery(
-    { projectId, status: "needs_review", limit: 100 },
+    { projectId, status: "needs_review", limit: 100, language: selectedLanguage || undefined },
     { enabled: !!projectId }
   );
 
@@ -428,6 +435,25 @@ export default function QuickReviewPage({ projectId }: Props) {
             )}
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            {/* Language selector */}
+            {languages && languages.length > 1 && (
+              <select
+                value={selectedLanguage}
+                onChange={e => {
+                  setSelectedLanguage(e.target.value);
+                  setCurrentDocIndex(0);
+                  setCurrentLineIndex(0);
+                  setPhase("lines");
+                  setReviewedLines(new Map());
+                }}
+                className="bg-background border border-border rounded px-2 py-1 text-xs"
+              >
+                <option value="">All languages</option>
+                {languages.map(lang => (
+                  <option key={lang} value={lang}>{lang}</option>
+                ))}
+              </select>
+            )}
             <span>Doc {currentDocIndex + 1}/{documents.documents.length}</span>
             <span>•</span>
             {phase === "lines" ? (

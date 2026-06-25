@@ -227,10 +227,29 @@ export async function getDocumentsByProjectId(projectId: number, status?: Docume
 }
 
 /** Paginated document list with optional search and status filter */
+export async function getProjectLanguages(projectId: number): Promise<string[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({ rawJson: transcriptions.rawJson })
+    .from(transcriptions)
+    .where(eq(transcriptions.projectId, projectId));
+  const langSet = new Set<string>();
+  for (const row of rows) {
+    const raw = row.rawJson as Record<string, unknown> | null;
+    if (!raw) continue;
+    const langs = raw.languages_present || raw.language || raw.primary_language;
+    if (Array.isArray(langs)) langs.forEach((l: unknown) => { if (typeof l === "string") langSet.add(l); });
+    else if (typeof langs === "string") langSet.add(langs);
+  }
+  return Array.from(langSet).sort();
+}
+
 export async function getDocumentsPaginated(opts: {
   projectId: number;
   status?: Document["status"];
   search?: string;
+  language?: string;
   cursor?: number; // document ID to paginate after
   limit?: number;
   sortBy?: "filename" | "uploadedAt" | "status";
@@ -238,12 +257,31 @@ export async function getDocumentsPaginated(opts: {
 }) {
   const db = await getDb();
   if (!db) return { documents: [], nextCursor: null, total: 0 };
-  const { projectId, status, search, cursor, limit = 50, sortBy = "uploadedAt", sortDir = "desc" } = opts;
+  const { projectId, status, search, language, cursor, limit = 50, sortBy = "uploadedAt", sortDir = "desc" } = opts;
 
   const conditions = [eq(documents.projectId, projectId)];
   if (status) conditions.push(eq(documents.status, status));
   if (search && search.trim()) {
     conditions.push(ilike(documents.filename, `%${search.trim()}%`));
+  }
+
+  // Language filter: filter documents whose transcription contains the specified language
+  let languageDocIds: number[] | null = null;
+  if (language && language.trim()) {
+    const langRows = await db
+      .select({ documentId: transcriptions.documentId, rawJson: transcriptions.rawJson })
+      .from(transcriptions)
+      .where(eq(transcriptions.projectId, projectId));
+    languageDocIds = langRows.filter(r => {
+      const raw = r.rawJson as Record<string, unknown> | null;
+      if (!raw) return false;
+      const langs = raw.languages_present || raw.language || raw.primary_language;
+      if (Array.isArray(langs)) return langs.some((l: unknown) => typeof l === "string" && l.toLowerCase() === language.toLowerCase());
+      if (typeof langs === "string") return langs.toLowerCase() === language.toLowerCase();
+      return false;
+    }).map(r => r.documentId);
+    if (languageDocIds.length === 0) return { documents: [], nextCursor: null, total: 0 };
+    conditions.push(inArray(documents.id, languageDocIds));
   }
 
   // Get total count
