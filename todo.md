@@ -352,3 +352,11 @@
 - [x] Fix production documents disappearing — migration 0004 (document_groups + groupId/pageNumber) was never applied to the Supabase PostgreSQL database
 - [x] Applied migration directly to Supabase: CREATE TABLE document_groups, ALTER TABLE documents ADD COLUMN groupId/pageNumber, FK constraints, indexes
 - [x] Verified documents load correctly in review sidebar after fix
+
+## Multi-Page Document Improvements (Round 35)
+
+- [x] Shared metadata set once from page 1 and reused for subsequent pages (not re-generated each page)
+- [x] Per-page fields (transcription, translation, persons_mentioned, keywords, legal_references, etc.) regenerated each page
+- [x] Auto-transcribe all pages sequentially on multi-page upload (already coded, verified working — schema error was the blocker)
+- [x] Add "Transcribe all remaining" button in ReviewPage for existing grouped documents with pending pages
+- [x] Fix page 3 status stuck at 'processing' (fixed directly in DB)

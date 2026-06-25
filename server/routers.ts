@@ -1691,6 +1691,164 @@ const groupsRouter = router({
       return { success: true };
     }),
 
+  batchTranscribeAll: protectedProcedure
+    .input(z.object({
+      groupId: z.number(),
+      projectId: z.number(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+
+      // Get all pages in order
+      const pages = await getDocumentGroupPages(input.groupId);
+      if (pages.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "No pages in group" });
+
+      // Find pages that need transcription (pending or error status)
+      const pendingPages = pages.filter(p => p.status === "pending" || p.status === "error" || p.status === "processing");
+      if (pendingPages.length === 0) {
+        return { processed: 0, total: pages.length, message: "All pages already transcribed." };
+      }
+
+      // Define per-page fields (regenerated for each page) vs shared fields (set once from page 1)
+      const PER_PAGE_FIELD_NAMES = new Set([
+        "transcription", "full_arabic_transcription", "original_transcription",
+        "english_translation", "full_english_translation", "translation",
+        "summary", "notes", "description", "marginalia",
+        "page_number", "section_of_act",
+        "persons_mentioned", "keywords", "legal_references",
+        "financial_amounts", "property_boundaries",
+        "locations_mentioned", "institutions_mentioned",
+        "mentioned_entities", "stamp_markings", "keywords_items",
+        "registry_stamps", "registry_reference",
+      ]);
+
+      // Determine per-page field names from the project schema
+      const schema = project.jsonSchema as Record<string, { type: string }> | null;
+      const allFieldNames = schema ? Object.keys(schema) : [];
+      const perPageFields = allFieldNames.filter(f => {
+        const lower = f.toLowerCase();
+        return PER_PAGE_FIELD_NAMES.has(lower) ||
+          lower.includes("transcription") ||
+          lower.includes("translation") ||
+          lower.includes("page");
+      });
+      const sharedFieldNames = allFieldNames.filter(f => !perPageFields.includes(f));
+
+      // Try to get shared metadata from page 1's existing transcription
+      let sharedMetadata: Record<string, unknown> | undefined;
+      const page1Transcription = await getTranscriptionByDocumentId(pages[0].id);
+      if (page1Transcription) {
+        const page1Data = (page1Transcription.reviewedJson ?? page1Transcription.rawJson) as Record<string, unknown> | null;
+        if (page1Data) {
+          sharedMetadata = {};
+          for (const key of sharedFieldNames) {
+            if (page1Data[key] !== undefined && !key.startsWith("_")) {
+              sharedMetadata[key] = page1Data[key];
+            }
+          }
+          // Only use shared metadata if we actually got meaningful fields
+          if (Object.keys(sharedMetadata).length === 0) sharedMetadata = undefined;
+        }
+      }
+
+      // Process sequentially so we can build context from each previous page
+      let processed = 0;
+      const errors: string[] = [];
+
+      for (const page of pages) {
+        // Skip pages that already have transcriptions (unless they're in error/processing state)
+        if (page.status === "needs_review" || page.status === "reviewed") continue;
+
+        try {
+          await updateDocumentStatus(page.id, "processing");
+
+          // Build context from ALL previous pages
+          const pageIdx = pages.indexOf(page);
+          let pageContext = "";
+          for (let i = 0; i < pageIdx; i++) {
+            const prevTranscription = await getTranscriptionByDocumentId(pages[i].id);
+            if (prevTranscription?.reviewedJson) {
+              const reviewed = prevTranscription.reviewedJson as Record<string, unknown>;
+              const text = reviewed.transcription || reviewed.full_arabic_transcription || reviewed.Original_Transcription || "";
+              pageContext += `--- Page ${i + 1} ---\n${text}\n\n`;
+            } else if (prevTranscription?.rawJson) {
+              const raw = prevTranscription.rawJson as Record<string, unknown>;
+              const text = raw.transcription || raw.full_arabic_transcription || raw.Original_Transcription || "";
+              pageContext += `--- Page ${i + 1} ---\n${text}\n\n`;
+            }
+          }
+
+          // Fetch image
+          if (!page.storageUrl) {
+            await updateDocumentStatus(page.id, "error", "No image URL");
+            errors.push(`Page ${page.pageNumber}: No image URL`);
+            continue;
+          }
+          const response = await fetch(page.storageUrl);
+          const buffer = Buffer.from(await response.arrayBuffer());
+          const base64 = buffer.toString("base64");
+          const mimeType = page.mimeType || "image/jpeg";
+
+          // Process with context + shared metadata (for pages after page 1)
+          const isFirstPage = pageIdx === 0;
+          const result = await processDocument(project, base64, mimeType, page.filename, {
+            pageContext: pageContext || undefined,
+            sharedMetadata: (!isFirstPage && sharedMetadata) ? sharedMetadata : undefined,
+            perPageFields: (!isFirstPage && sharedMetadata) ? perPageFields : undefined,
+          });
+
+          if (result.error) {
+            await updateDocumentStatus(page.id, "error", result.error);
+            errors.push(`Page ${page.pageNumber}: ${result.error}`);
+          } else {
+            const existing = await getTranscriptionByDocumentId(page.id);
+            if (existing) {
+              await updateReviewedJson(existing.id, result.rawJson);
+            } else {
+              await createTranscription({
+                documentId: page.id,
+                projectId: input.projectId,
+                rawJson: result.rawJson,
+                originalText: result.originalText || null,
+                modelUsed: result.modelUsed,
+              });
+            }
+            await updateDocumentStatus(page.id, "needs_review");
+            processed++;
+
+            // If this was page 1 and we didn't have shared metadata yet, extract it now
+            if (isFirstPage && !sharedMetadata) {
+              sharedMetadata = {};
+              for (const key of sharedFieldNames) {
+                if (result.rawJson[key] !== undefined && !key.startsWith("_")) {
+                  sharedMetadata[key] = result.rawJson[key];
+                }
+              }
+              if (Object.keys(sharedMetadata).length === 0) sharedMetadata = undefined;
+            }
+          }
+        } catch (err) {
+          await updateDocumentStatus(page.id, "error", String(err));
+          errors.push(`Page ${page.pageNumber}: ${String(err)}`);
+        }
+      }
+
+      // Save shared metadata to the group record for future reference
+      if (sharedMetadata && Object.keys(sharedMetadata).length > 0) {
+        await updateDocumentGroupMetadata(input.groupId, sharedMetadata);
+      }
+
+      return {
+        processed,
+        total: pages.length,
+        errors: errors.length > 0 ? errors : undefined,
+        message: `Transcribed ${processed} of ${pendingPages.length} pending pages.`,
+      };
+    }),
+
   transcribeWithContext: protectedProcedure
     .input(z.object({
       groupId: z.number(),
@@ -1733,9 +1891,50 @@ const groupsRouter = router({
       const base64 = buffer.toString("base64");
       const mimeType = targetDoc.mimeType || "image/jpeg";
 
-      // Process with page context
+      // For pages after page 1, extract shared metadata from page 1 and pass it
+      let sharedMetadata: Record<string, unknown> | undefined;
+      let perPageFields: string[] | undefined;
+      if (targetPageIdx > 0) {
+        const PER_PAGE_FIELD_NAMES = new Set([
+          "transcription", "full_arabic_transcription", "original_transcription",
+          "english_translation", "full_english_translation", "translation",
+          "summary", "notes", "description", "marginalia",
+          "page_number", "section_of_act",
+          "persons_mentioned", "keywords", "legal_references",
+          "financial_amounts", "property_boundaries",
+          "locations_mentioned", "institutions_mentioned",
+          "mentioned_entities", "stamp_markings", "keywords_items",
+          "registry_stamps", "registry_reference",
+        ]);
+        const schema = project.jsonSchema as Record<string, { type: string }> | null;
+        const allFieldNames = schema ? Object.keys(schema) : [];
+        perPageFields = allFieldNames.filter(f => {
+          const lower = f.toLowerCase();
+          return PER_PAGE_FIELD_NAMES.has(lower) || lower.includes("transcription") || lower.includes("translation") || lower.includes("page");
+        });
+        const sharedFieldNames = allFieldNames.filter(f => !perPageFields!.includes(f));
+
+        // Get page 1's transcription for shared metadata
+        const page1Transcription = await getTranscriptionByDocumentId(pages[0].id);
+        if (page1Transcription) {
+          const page1Data = (page1Transcription.reviewedJson ?? page1Transcription.rawJson) as Record<string, unknown> | null;
+          if (page1Data) {
+            sharedMetadata = {};
+            for (const key of sharedFieldNames) {
+              if (page1Data[key] !== undefined && !key.startsWith("_")) {
+                sharedMetadata[key] = page1Data[key];
+              }
+            }
+            if (Object.keys(sharedMetadata).length === 0) sharedMetadata = undefined;
+          }
+        }
+      }
+
+      // Process with page context + shared metadata
       const result = await processDocument(project, base64, mimeType, targetDoc.filename, {
         pageContext: pageContext || undefined,
+        sharedMetadata,
+        perPageFields,
       });
 
       // Save transcription

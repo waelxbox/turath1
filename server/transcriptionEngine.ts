@@ -119,14 +119,20 @@ async function runSinglePass(
   project: Project,
   imageBase64: string,
   mimeType: string,
-  pageContext?: string
+  pageContext?: string,
+  options?: { sharedMetadata?: Record<string, unknown>; perPageFields?: string[] }
 ): Promise<Record<string, unknown>> {
   const systemPrompt = buildRuntimePrompt(project);
   const schema = project.jsonSchema as Record<string, SchemaField> | null;
 
   let userText = "Please transcribe this document and return the result as the JSON object described in your instructions.";
   if (pageContext) {
-    userText = `This is a continuation page of a multi-page document. Here are the transcriptions from the previous page(s) for context:\n\n${pageContext}\n\n---\nNow please transcribe THIS page (the image provided) and return the result as the JSON object described in your instructions. Note: shared metadata (sender, recipient, date, etc.) may be the same as previous pages.`;
+    userText = `This is a continuation page of a multi-page document. Here are the transcriptions from the previous page(s) for context:\n\n${pageContext}\n\n---\nNow please transcribe THIS page (the image provided) and return the result as the JSON object described in your instructions.`;
+  }
+  // If shared metadata is provided, instruct the AI to reuse it and only fill per-page fields
+  if (options?.sharedMetadata && options?.perPageFields) {
+    const sharedJson = JSON.stringify(options.sharedMetadata, null, 2);
+    userText += `\n\nIMPORTANT: This page is part of a multi-page document. The following shared metadata has already been determined from page 1 and MUST be reused exactly as-is in your output (copy these values verbatim into the corresponding fields):\n${sharedJson}\n\nYou MUST regenerate ONLY these per-page fields from the current page image: ${options.perPageFields.join(", ")}. All other fields should use the shared metadata values above.`;
   }
 
   const messages: Parameters<typeof invokeLLM>[0]["messages"] = [
@@ -171,7 +177,8 @@ async function runTwoPass(
   project: Project,
   imageBase64: string,
   mimeType: string,
-  pageContext?: string
+  pageContext?: string,
+  options?: { sharedMetadata?: Record<string, unknown>; perPageFields?: string[] }
 ): Promise<{ result: Record<string, unknown>; originalText: string }> {
   // Pass 1 gets glossary appended for accurate transcription of specialized terms
   const pass1Prompt = buildRuntimePrompt(project);
@@ -185,6 +192,12 @@ Output ONLY valid JSON.`;
   let pass1UserText = "Verbatim transcription of all text, please.";
   if (pageContext) {
     pass1UserText = `This is a continuation page of a multi-page document. Previous page(s) transcription for context:\n\n${pageContext}\n\n---\nNow provide a verbatim transcription of all text on THIS page (the image provided).`;
+  }
+  // For two-pass, shared metadata is injected in pass 2 (translation/JSON pass)
+  let pass2SharedInstruction = "";
+  if (options?.sharedMetadata && options?.perPageFields) {
+    const sharedJson = JSON.stringify(options.sharedMetadata, null, 2);
+    pass2SharedInstruction = `\n\nIMPORTANT: This page is part of a multi-page document. The following shared metadata has already been determined from page 1 and MUST be reused exactly as-is in your output:\n${sharedJson}\n\nYou MUST regenerate ONLY these per-page fields from the current transcription: ${options.perPageFields.join(", ")}. All other fields should use the shared metadata values above.`;
   }
 
   // Pass 1: Vision → verbatim text
@@ -211,7 +224,7 @@ Output ONLY valid JSON.`;
   const pass2Response = await callLLM({
     messages: [
       { role: "system", content: pass2Prompt },
-      { role: "user", content: `Transcription to process:\n\n${originalText}` },
+      { role: "user", content: `Transcription to process:\n\n${originalText}${pass2SharedInstruction}` },
     ],
     ...(schema ? { response_format: buildJsonSchema(schema) } : {}),
   }, project.modelName);
@@ -255,18 +268,24 @@ export async function processDocument(
   imageBase64: string,
   mimeType: string,
   filename: string,
-  options?: { pageContext?: string }  // Previous pages' transcriptions for multi-page documents
+  options?: {
+    pageContext?: string;  // Previous pages' transcriptions for multi-page documents
+    sharedMetadata?: Record<string, unknown>;  // Pre-determined shared fields from page 1 (reuse, don't regenerate)
+    perPageFields?: string[];  // Field names that should be regenerated per-page
+  }
 ): Promise<TranscriptionResult> {
   try {
     let rawJson: Record<string, unknown>;
     let originalText: string | undefined;
 
+    const subOptions = options?.sharedMetadata ? { sharedMetadata: options.sharedMetadata, perPageFields: options.perPageFields } : undefined;
+
     if (project.pipelineType === "two_pass") {
-      const { result, originalText: ot } = await runTwoPass(project, imageBase64, mimeType, options?.pageContext);
+      const { result, originalText: ot } = await runTwoPass(project, imageBase64, mimeType, options?.pageContext, subOptions);
       rawJson = result;
       originalText = ot;
     } else {
-      rawJson = await runSinglePass(project, imageBase64, mimeType, options?.pageContext);
+      rawJson = await runSinglePass(project, imageBase64, mimeType, options?.pageContext, subOptions);
     }
 
     // Apply post-processing rules

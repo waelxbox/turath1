@@ -92,8 +92,14 @@ function setNestedValue(obj: Record<string, unknown>, key: string, value: unknow
 // Fields that are per-page (not shared across a multi-page document)
 const PER_PAGE_FIELDS = new Set([
   "transcription", "full_arabic_transcription", "original_transcription",
-  "english_translation", "full_english_translation", "summary", "notes",
-  "keywords_items", "mentioned_entities", "stamp_markings"
+  "english_translation", "full_english_translation", "translation",
+  "summary", "notes", "description", "marginalia",
+  "page_number", "section_of_act",
+  "persons_mentioned", "keywords", "legal_references",
+  "financial_amounts", "property_boundaries",
+  "locations_mentioned", "institutions_mentioned",
+  "mentioned_entities", "stamp_markings", "keywords_items",
+  "registry_stamps", "registry_reference",
 ]);
 
 function isPerPageField(key: string): boolean {
@@ -119,6 +125,7 @@ function ReviewDocPanel({
   const [editedFields, setEditedFields] = useState<Record<string, unknown>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isBatchTranscribing, setIsBatchTranscribing] = useState(false);
   const [activePageDocId, setActivePageDocId] = useState(currentDocId);
   const utils = trpc.useUtils();
 
@@ -158,6 +165,8 @@ function ReviewDocPanel({
     { documentId: effectiveDocId, projectId },
     { enabled: !!transcription }
   );
+
+  const batchTranscribe = trpc.groups.batchTranscribeAll.useMutation();
 
   const transcribeDoc = trpc.documents.transcribe.useMutation({
     onSuccess: async (result) => {
@@ -317,6 +326,37 @@ function ReviewDocPanel({
               {page.pageNumber || groupPages.indexOf(page) + 1}
             </button>
           ))}
+          {/* Batch transcribe button — shows when there are pending pages */}
+          {groupPages.some((p: any) => p.status === "pending" || p.status === "error" || p.status === "processing") && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto gap-1.5 text-xs"
+              disabled={isBatchTranscribing}
+              onClick={async () => {
+                setIsBatchTranscribing(true);
+                try {
+                  const result = await batchTranscribe.mutateAsync({ groupId: groupId!, projectId });
+                  toast.success(result.message);
+                  if (result.errors?.length) {
+                    result.errors.forEach((e: string) => toast.error(e));
+                  }
+                  utils.groups.getById.invalidate({ groupId: groupId!, projectId });
+                  utils.documents.list.invalidate({ projectId });
+                  utils.projects.stats.invalidate({ id: projectId });
+                  await refetchTranscription();
+                } catch (err: any) {
+                  toast.error(err.message || "Batch transcription failed");
+                } finally {
+                  setIsBatchTranscribing(false);
+                }
+              }}
+            >
+              {isBatchTranscribing
+                ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Transcribing all…</>
+                : <><Zap className="w-3.5 h-3.5" /> Transcribe all remaining</>}
+            </Button>
+          )}
         </div>
       )}
 
