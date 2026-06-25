@@ -410,3 +410,14 @@
 - [x] Touch-optimized edit mode (auto-focus, larger input)
 - [x] Mobile-responsive sidebar (slide-out overlay menu replaces always-visible sidebar)
 - [x] Quick Review gets full-screen treatment on mobile (minimal header, no sidebar)
+
+## Pyramid Mode - Gamified Quick Review (Round 40)
+- [x] Pyramid Mode as new mode toggle in Quick Review (classic vs pyramid)
+- [x] Animated SVG pyramid that grows block by block as lines are reviewed
+- [x] Desert theme background (gradient sky, sand particles)
+- [x] Block placement animation on approve/correct
+- [x] Golden/glowing blocks for corrections
+- [x] Row completion celebration (hieroglyphic seal animation)
+- [x] Pyramid progress persists across sessions (tied to XP/stats)
+- [x] Mobile-first layout (pyramid top 30%, review card bottom 70%)
+- [x] Mode toggle accessible from Quick Review header

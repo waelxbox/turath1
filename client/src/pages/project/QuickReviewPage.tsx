@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,9 +7,13 @@ import {
   CheckCircle2, Edit3, ChevronRight, ChevronLeft, Zap,
   Flame, Trophy, Star, SkipForward, Loader2, ImageIcon,
   ThumbsUp, ThumbsDown, ClipboardCheck,
-  Maximize2, X, Minus, Plus
+  Maximize2, X, Minus, Plus, Pyramid
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
+import { useSessionState } from "@/hooks/useSessionState";
+import PyramidReviewMode from "./PyramidReviewMode";
+
+type ReviewMode = "classic" | "pyramid";
 
 interface Props {
   projectId: number;
@@ -339,6 +343,38 @@ function PanZoomImageViewer({
 }
 
 export default function QuickReviewPage({ projectId }: Props) {
+  const [mode, setMode] = useSessionState<ReviewMode>(`turath-review-mode-${projectId}`, "classic");
+
+  // Mode toggle — shown at top of both modes
+  if (mode === "pyramid") {
+    return (
+      <div className="flex flex-col h-full overflow-hidden">
+        {/* Mode toggle bar */}
+        <div className="flex-shrink-0 flex items-center justify-center gap-1 px-3 py-1.5 bg-card/30 border-b border-border">
+          <button
+            onClick={() => setMode("classic")}
+            className="px-3 py-1 rounded-full text-[10px] font-medium transition-colors text-muted-foreground hover:text-foreground"
+          >
+            Classic
+          </button>
+          <button
+            onClick={() => setMode("pyramid")}
+            className="px-3 py-1 rounded-full text-[10px] font-medium transition-colors bg-amber-500/20 text-amber-300 border border-amber-500/30"
+          >
+            <span className="inline-flex items-center gap-1"><Pyramid className="w-3 h-3" /> Pyramid</span>
+          </button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <PyramidReviewMode projectId={projectId} />
+        </div>
+      </div>
+    );
+  }
+
+  return <ClassicReviewMode projectId={projectId} mode={mode} setMode={setMode} />;
+}
+
+function ClassicReviewMode({ projectId, mode, setMode }: Props & { mode: ReviewMode; setMode: (m: ReviewMode) => void }) {
   const [currentDocIndex, setCurrentDocIndex] = useState(0);
   const [currentLineIndex, setCurrentLineIndex] = useState(0);
   const [editMode, setEditMode] = useState(false);
@@ -708,6 +744,21 @@ export default function QuickReviewPage({ projectId }: Props) {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {/* Mode toggle bar */}
+      <div className="flex-shrink-0 flex items-center justify-center gap-1 px-3 py-1.5 bg-card/30 border-b border-border">
+        <button
+          onClick={() => setMode("classic")}
+          className="px-3 py-1 rounded-full text-[10px] font-medium transition-colors bg-primary/20 text-primary border border-primary/30"
+        >
+          Classic
+        </button>
+        <button
+          onClick={() => setMode("pyramid")}
+          className="px-3 py-1 rounded-full text-[10px] font-medium transition-colors text-muted-foreground hover:text-foreground"
+        >
+          <span className="inline-flex items-center gap-1"><Pyramid className="w-3 h-3" /> Pyramid</span>
+        </button>
+      </div>
       {/* Compact stats bar — single row on mobile */}
       <div className="flex-shrink-0 border-b border-border bg-card/50 px-3 md:px-6 py-2 md:py-3">
         <div className="flex items-center justify-between gap-2">
