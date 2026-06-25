@@ -73,11 +73,12 @@ function RetryAllButton({ projectId }: { projectId: number }) {
       variant="outline"
       size="sm"
       className="h-8 text-xs gap-1 whitespace-nowrap"
+      title="Transcribe all pending and stuck documents"
       onClick={() => retryAll.mutate({ projectId })}
       disabled={retryAll.isPending}
     >
       {retryAll.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
-      Retry all
+      Retry pending
     </Button>
   );
 }
