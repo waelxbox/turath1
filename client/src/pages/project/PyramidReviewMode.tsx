@@ -256,26 +256,28 @@ function DigitalRuler({ containerRef }: { containerRef: React.RefObject<HTMLDivE
   );
 }
 
-// ─── SWIPE CARD (Mobile) ─────────────────────────────────────────────────────
-function SwipeCard({
+// ─── INTEGRATED SWIPE CARD (Mobile) — Card + Pyramid unified ────────────────
+function IntegratedSwipeCard({
   line,
   lineIndex,
   totalLines,
   onApprove,
   onSkip,
-  onEdit,
   isPending,
+  pyramidBlocks,
+  animatingBlock,
 }: {
   line: string;
   lineIndex: number;
   totalLines: number;
   onApprove: () => void;
   onSkip: () => void;
-  onEdit: () => void;
   isPending: boolean;
+  pyramidBlocks: number;
+  animatingBlock: number | null;
 }) {
   const x = useMotionValue(0);
-  const rotate = useTransform(x, [-200, 0, 200], [-8, 0, 8]);
+  const rotate = useTransform(x, [-200, 0, 200], [-6, 0, 6]);
   const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0.5, 0.8, 1, 0.8, 0.5]);
   const approveOpacity = useTransform(x, [0, 80, 150], [0, 0.5, 1]);
   const skipOpacity = useTransform(x, [-150, -80, 0], [1, 0.5, 0]);
@@ -287,23 +289,23 @@ function SwipeCard({
 
   return (
     <div className="relative w-full">
-      {/* Swipe indicators */}
+      {/* Swipe indicators outside card */}
       <motion.div
-        className="absolute left-3 top-1/2 -translate-y-1/2 text-red-400 font-bold text-sm z-10"
+        className="absolute left-1 top-1/3 -translate-y-1/2 text-red-400 font-bold text-xs z-10"
         style={{ opacity: skipOpacity }}
       >
         ← SKIP
       </motion.div>
       <motion.div
-        className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-400 font-bold text-sm z-10"
+        className="absolute right-1 top-1/3 -translate-y-1/2 text-emerald-400 font-bold text-xs z-10"
         style={{ opacity: approveOpacity }}
       >
         VERIFY →
       </motion.div>
 
-      {/* The card */}
+      {/* The unified card */}
       <motion.div
-        className="relative mx-auto w-[90%] rounded-xl border-2 border-amber-500/40 bg-card/90 backdrop-blur-sm p-4 shadow-xl cursor-grab active:cursor-grabbing"
+        className="relative mx-auto w-[92%] rounded-xl border-2 border-amber-500/40 bg-card/90 backdrop-blur-sm shadow-xl cursor-grab active:cursor-grabbing overflow-hidden"
         style={{ x, rotate, opacity }}
         drag="x"
         dragConstraints={{ left: 0, right: 0 }}
@@ -311,16 +313,21 @@ function SwipeCard({
         onDragEnd={handleDragEnd}
         whileDrag={{ scale: 1.02 }}
       >
-        {/* Card header */}
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[10px] text-muted-foreground">← skip</span>
-          <span className="text-xs text-amber-400 font-semibold">Line {lineIndex + 1}/{totalLines}</span>
-          <span className="text-[10px] text-muted-foreground">verify →</span>
+        {/* Top section: transcription line */}
+        <div className="px-4 pt-3 pb-2">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] text-muted-foreground">← skip</span>
+            <span className="text-xs text-amber-400 font-semibold">Line {lineIndex + 1}/{totalLines}</span>
+            <span className="text-[10px] text-muted-foreground">verify →</span>
+          </div>
+          <div className="text-base font-medium leading-relaxed min-h-[2rem] text-center py-1">
+            {line}
+          </div>
         </div>
 
-        {/* Line text */}
-        <div className="text-base font-medium leading-relaxed min-h-[2.5rem] text-center py-2">
-          {line}
+        {/* Bottom section: pyramid integrated */}
+        <div className="w-full h-[120px] bg-gradient-to-t from-black/40 to-transparent">
+          <IsometricPyramid filled={pyramidBlocks} total={TOTAL_BLOCKS} animIdx={animatingBlock} showIncoming={false} />
         </div>
       </motion.div>
     </div>
@@ -726,23 +733,37 @@ export default function PyramidReviewMode({ projectId }: Props) {
         )}
       </div>
 
-      {/* Bottom 60%: Swipe deck + pyramid + buttons */}
-      <div className="flex-1 flex flex-col min-h-0 bg-gradient-to-b from-[#0a0515] to-background">
-        {/* Mini pyramid + swipe card area */}
-        <div className="flex-1 flex flex-col items-center justify-center min-h-0 px-3 py-2 relative">
-          {/* Swipe card */}
+      {/* Bottom 60%: Unified swipe card with integrated pyramid */}
+      <div className="flex-1 flex flex-col min-h-0 bg-gradient-to-b from-[#0a0515] to-background relative">
+        {/* XP popup */}
+        <AnimatePresence>
+          {showXp && (
+            <motion.div
+              className="absolute top-2 left-1/2 -translate-x-1/2 text-amber-400 font-bold text-lg z-50"
+              initial={{ opacity: 1, y: 0 }}
+              animate={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.7 }}
+            >
+              +{lastXp} XP
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Unified card: text + pyramid integrated */}
+        <div className="flex-1 flex items-center justify-center px-3 py-2">
           {!editMode ? (
-            <SwipeCard
+            <IntegratedSwipeCard
               line={currentLine}
               lineIndex={currentLineIndex}
               totalLines={totalLines}
               onApprove={handleApprove}
               onSkip={skipLine}
-              onEdit={startEdit}
               isPending={submitLine.isPending}
+              pyramidBlocks={pyramidBlocks}
+              animatingBlock={animatingBlock}
             />
           ) : (
-            <div className="w-[90%] mx-auto rounded-xl border-2 border-amber-500/40 bg-card/90 backdrop-blur-sm p-4">
+            <div className="w-[92%] mx-auto rounded-xl border-2 border-amber-500/40 bg-card/90 backdrop-blur-sm p-4">
               <div className="text-xs text-amber-400 font-semibold mb-2">Line {currentLineIndex + 1}/{totalLines} — Editing</div>
               <Input
                 ref={inputRef}
@@ -754,27 +775,11 @@ export default function PyramidReviewMode({ projectId }: Props) {
                 placeholder="Type corrected text..."
                 autoFocus
               />
+              <div className="w-full max-w-[160px] h-[80px] mt-3 mx-auto">
+                <IsometricPyramid filled={pyramidBlocks} total={TOTAL_BLOCKS} animIdx={animatingBlock} showIncoming={false} />
+              </div>
             </div>
           )}
-
-          {/* Mini pyramid below card */}
-          <div className="w-full max-w-[200px] h-[100px] mt-2">
-            <IsometricPyramid filled={pyramidBlocks} total={TOTAL_BLOCKS} animIdx={animatingBlock} showIncoming={false} />
-          </div>
-
-          {/* XP popup */}
-          <AnimatePresence>
-            {showXp && (
-              <motion.div
-                className="absolute top-2 left-1/2 -translate-x-1/2 text-amber-400 font-bold text-lg z-50"
-                initial={{ opacity: 1, y: 0 }}
-                animate={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.7 }}
-              >
-                +{lastXp} XP
-              </motion.div>
-            )}
-          </AnimatePresence>
         </div>
 
         {/* Action buttons */}
