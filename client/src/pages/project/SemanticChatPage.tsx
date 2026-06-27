@@ -267,7 +267,7 @@ export default function SemanticChatPage({ projectId, project }: Props) {
                   )}
 
                   <span className="text-[10px] text-muted-foreground/50">
-                    {msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                   </span>
                 </div>
               </div>
