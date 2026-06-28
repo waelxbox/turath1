@@ -2226,12 +2226,24 @@ const validationRouter = router({
       let lines: { index: number; text: string }[] = [];
       if (transcription) {
         const json = (transcription.reviewedJson || transcription.rawJson) as Record<string, unknown>;
-        // Look for full_transcription_ar or any long text field
+        // Look for Arabic text fields in priority order, then fall back to longest Arabic-containing string
         let rawText = "";
-        if (json.full_transcription_ar && typeof json.full_transcription_ar === "string") {
-          rawText = json.full_transcription_ar;
-        } else {
-          // Find the longest string field as fallback
+        const arabicFieldPriority = ["full_transcription_ar", "transcription", "Original_Transcription", "original_transcription"];
+        for (const field of arabicFieldPriority) {
+          if (json[field] && typeof json[field] === "string" && (json[field] as string).length > 50) {
+            rawText = json[field] as string;
+            break;
+          }
+        }
+        if (!rawText) {
+          // Fall back to longest string field that contains Arabic characters
+          const arabicTest = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+          for (const [, val] of Object.entries(json)) {
+            if (typeof val === "string" && val.length > rawText.length && arabicTest.test(val)) rawText = val;
+          }
+        }
+        if (!rawText) {
+          // Absolute fallback: longest string field regardless
           for (const [, val] of Object.entries(json)) {
             if (typeof val === "string" && val.length > rawText.length) rawText = val;
           }

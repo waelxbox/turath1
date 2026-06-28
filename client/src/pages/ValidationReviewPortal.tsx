@@ -258,10 +258,41 @@ function ReviewInterface({
   }
 
   // Loading state
-  if (!assignment || !lines.length) {
+  if (!assignment) {
     return (
       <div className="min-h-screen bg-neutral-950 flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
+      </div>
+    );
+  }
+
+  // If assignment loaded but no lines (no Arabic text in this doc), auto-skip to next
+  if (lines.length === 0) {
+    return (
+      <div className="min-h-screen bg-neutral-950 flex items-center justify-center p-4">
+        <div className="text-center space-y-4">
+          <p className="text-neutral-400">No Arabic text found in this document. Skipping...</p>
+          <button
+            onClick={() => {
+              completeAssignmentMut.mutate(
+                { assignmentId: assignment.id, totalLines: 0 },
+                {
+                  onSuccess: () => {
+                    setAssignment(null);
+                    setDocument(null);
+                    setLines([]);
+                    setReviewedVerdicts({});
+                    setCurrentLineIdx(0);
+                    loadNextAssignment();
+                  },
+                }
+              );
+            }}
+            className="px-6 py-3 bg-orange-600 hover:bg-orange-500 text-white font-semibold rounded-lg transition-colors inline-flex items-center gap-2"
+          >
+            Skip to Next <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
       </div>
     );
   }
