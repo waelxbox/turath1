@@ -48,129 +48,110 @@ function UsernameGate({ onSubmit }: { onSubmit: (username: string) => void }) {
   );
 }
 
-// ─── Pinch-to-Zoom Image Viewer ─────────────────────────────────────────────
+// ─── Dynamic Magnifying Glass (Loupe) Image Viewer ──────────────────────────
 
-function ZoomableImage({ src }: { src: string }) {
+function LoupeImageViewer({ src }: { src: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
-  const [translate, setTranslate] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const dragStart = useRef({ x: 0, y: 0 });
-  const translateStart = useRef({ x: 0, y: 0 });
-  const lastPinchDist = useRef<number | null>(null);
+  const [showLoupe, setShowLoupe] = useState(false);
+  const [loupePos, setLoupePos] = useState({ x: 0, y: 0 });
+  const [imgNatural, setImgNatural] = useState({ w: 1, h: 1 });
+  const imgRef = useRef<HTMLImageElement>(null);
 
-  const resetView = () => {
-    setScale(1);
-    setTranslate({ x: 0, y: 0 });
-  };
-
-  const zoomIn = () => setScale((s) => Math.min(s * 1.3, 5));
-  const zoomOut = () => {
-    setScale((s) => {
-      const next = Math.max(s / 1.3, 1);
-      if (next <= 1) setTranslate({ x: 0, y: 0 });
-      return next;
-    });
-  };
-
-  // Mouse drag for panning
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (scale <= 1) return;
-    setIsDragging(true);
-    dragStart.current = { x: e.clientX, y: e.clientY };
-    translateStart.current = { ...translate };
-  };
+  const LOUPE_SIZE = 180;
+  const ZOOM_LEVEL = 2.5;
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
-    const dx = e.clientX - dragStart.current.x;
-    const dy = e.clientY - dragStart.current.y;
-    setTranslate({ x: translateStart.current.x + dx, y: translateStart.current.y + dy });
+    if (!containerRef.current || !imgRef.current) return;
+    const rect = imgRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    // Only show loupe when over the image
+    if (x >= 0 && y >= 0 && x <= rect.width && y <= rect.height) {
+      setShowLoupe(true);
+      setLoupePos({ x: e.clientX, y: e.clientY });
+    } else {
+      setShowLoupe(false);
+    }
   };
 
-  const handleMouseUp = () => setIsDragging(false);
+  const handleMouseLeave = () => setShowLoupe(false);
 
-  // Touch pinch-to-zoom and pan
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (e.touches.length === 2) {
-      e.preventDefault();
-      const dist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      if (lastPinchDist.current !== null) {
-        const delta = dist / lastPinchDist.current;
-        setScale((s) => Math.max(1, Math.min(s * delta, 5)));
-      }
-      lastPinchDist.current = dist;
-    } else if (e.touches.length === 1 && scale > 1) {
-      const touch = e.touches[0];
-      if (dragStart.current.x !== 0 || dragStart.current.y !== 0) {
-        const dx = touch.clientX - dragStart.current.x;
-        const dy = touch.clientY - dragStart.current.y;
-        setTranslate({ x: translateStart.current.x + dx, y: translateStart.current.y + dy });
-      }
+    if (!imgRef.current || e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    const rect = imgRef.current.getBoundingClientRect();
+    const x = touch.clientX - rect.left;
+    const y = touch.clientY - rect.top;
+    if (x >= 0 && y >= 0 && x <= rect.width && y <= rect.height) {
+      setShowLoupe(true);
+      setLoupePos({ x: touch.clientX, y: touch.clientY });
     }
   };
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 1 && scale > 1) {
-      dragStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      translateStart.current = { ...translate };
-    }
-  };
+  const handleTouchEnd = () => setShowLoupe(false);
 
-  const handleTouchEnd = () => {
-    lastPinchDist.current = null;
-  };
+  // Compute background position for the loupe
+  const getLoupeStyle = () => {
+    if (!imgRef.current) return {};
+    const rect = imgRef.current.getBoundingClientRect();
+    const relX = loupePos.x - rect.left;
+    const relY = loupePos.y - rect.top;
 
-  // Wheel zoom
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setScale((s) => {
-      const next = Math.max(1, Math.min(s * delta, 5));
-      if (next <= 1) setTranslate({ x: 0, y: 0 });
-      return next;
-    });
+    // Scale factors
+    const scaleX = imgNatural.w / rect.width;
+    const scaleY = imgNatural.h / rect.height;
+
+    // Background size = natural image size * zoom
+    const bgW = imgNatural.w * ZOOM_LEVEL;
+    const bgH = imgNatural.h * ZOOM_LEVEL;
+
+    // Background position: center the loupe on the cursor point
+    const bgX = -(relX * scaleX * ZOOM_LEVEL - LOUPE_SIZE / 2);
+    const bgY = -(relY * scaleY * ZOOM_LEVEL - LOUPE_SIZE / 2);
+
+    return {
+      position: "fixed" as const,
+      left: loupePos.x - LOUPE_SIZE / 2,
+      top: loupePos.y - LOUPE_SIZE / 2,
+      width: LOUPE_SIZE,
+      height: LOUPE_SIZE,
+      borderRadius: "50%",
+      border: "3px solid rgba(34, 197, 94, 0.7)",
+      boxShadow: "0 0 20px rgba(34, 197, 94, 0.3), 0 4px 20px rgba(0,0,0,0.5)",
+      backgroundImage: `url(${src})`,
+      backgroundSize: `${bgW}px ${bgH}px`,
+      backgroundPosition: `${bgX}px ${bgY}px`,
+      backgroundRepeat: "no-repeat",
+      pointerEvents: "none" as const,
+      zIndex: 1000,
+    };
   };
 
   return (
-    <div className="relative w-full h-full">
-      <div
-        ref={containerRef}
-        className="w-full h-full overflow-hidden cursor-grab active:cursor-grabbing bg-neutral-900"
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onWheel={handleWheel}
-      >
-        <img
-          src={src}
-          alt="Document"
-          className="w-full h-full object-contain select-none"
-          draggable={false}
-          style={{
-            transform: `translate(${translate.x}px, ${translate.y}px) scale(${scale})`,
-            transformOrigin: "center center",
-          }}
-        />
-      </div>
-      {/* Zoom controls */}
-      <div className="absolute top-2 right-2 flex gap-1">
-        <button onClick={zoomIn} className="p-1.5 bg-neutral-800/80 hover:bg-neutral-700 rounded text-white">
-          <ZoomIn className="w-4 h-4" />
-        </button>
-        <button onClick={zoomOut} className="p-1.5 bg-neutral-800/80 hover:bg-neutral-700 rounded text-white">
-          <ZoomOut className="w-4 h-4" />
-        </button>
-        <button onClick={resetView} className="p-1.5 bg-neutral-800/80 hover:bg-neutral-700 rounded text-white">
-          <RotateCcw className="w-4 h-4" />
-        </button>
+    <div
+      ref={containerRef}
+      className="w-full h-full relative bg-neutral-900 flex items-center justify-center overflow-hidden"
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      <img
+        ref={imgRef}
+        src={src}
+        alt="Document"
+        className="max-w-full max-h-full object-contain select-none"
+        draggable={false}
+        onLoad={(e) => {
+          const img = e.currentTarget;
+          setImgNatural({ w: img.naturalWidth, h: img.naturalHeight });
+        }}
+      />
+      {/* Loupe overlay */}
+      {showLoupe && <div style={getLoupeStyle()} />}
+      {/* Hint */}
+      <div className="absolute bottom-2 left-2 text-[10px] text-neutral-500 bg-neutral-900/80 px-2 py-0.5 rounded">
+        Hover to magnify
       </div>
     </div>
   );
@@ -189,6 +170,7 @@ function ReviewInterface({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
   const [allDocsComplete, setAllDocsComplete] = useState(false);
+  const [showFullContext, setShowFullContext] = useState(false);
 
   // Fetch assignment
   const getAssignment = trpc.validation.getNextAssignment.useMutation();
@@ -230,6 +212,7 @@ function ReviewInterface({
       setAssignment(result.assignment);
       setDocument(result.document);
       setLines(result.lines);
+      setShowFullContext(false);
       // Restore already-reviewed lines
       const existing: Record<number, "correct" | "incorrect"> = {};
       for (const r of result.existingReviews) {
@@ -298,7 +281,7 @@ function ReviewInterface({
     }
   };
 
-  // Swipe gesture handling for verdict buttons area
+  // Swipe gesture handling
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const handleSwipeStart = (e: React.TouchEvent) => {
@@ -382,7 +365,7 @@ function ReviewInterface({
     );
   }
 
-  // If assignment loaded but no lines (no Arabic text in this doc), auto-skip to next
+  // If assignment loaded but no lines, auto-skip
   if (lines.length === 0) {
     return (
       <div className="min-h-screen bg-neutral-950 flex items-center justify-center p-4">
@@ -417,6 +400,12 @@ function ReviewInterface({
   const reviewedCount = Object.keys(reviewedVerdicts).length;
   const progressPct = lines.length > 0 ? (reviewedCount / lines.length) * 100 : 0;
 
+  // Context lines: 2 before and 2 after current
+  const CONTEXT_LINES = 2;
+  const contextStart = Math.max(0, currentLineIdx - CONTEXT_LINES);
+  const contextEnd = Math.min(lines.length - 1, currentLineIdx + CONTEXT_LINES);
+  const contextLines = lines.slice(contextStart, contextEnd + 1);
+
   return (
     <div className="h-screen bg-neutral-950 flex flex-col overflow-hidden">
       {/* Compact header with progress */}
@@ -437,26 +426,77 @@ function ReviewInterface({
         </div>
       </div>
 
-      {/* Document image - takes most of the screen, zoomable */}
+      {/* Document image with loupe — ~55% of screen */}
       {document?.storageUrl && (
-        <div className="flex-1 min-h-0">
-          <ZoomableImage src={document.storageUrl} />
+        <div className="flex-shrink-0" style={{ height: "55vh" }}>
+          <LoupeImageViewer src={document.storageUrl} />
         </div>
       )}
 
-      {/* Current line display - single line, no scrolling */}
+      {/* Context lines section */}
       <div
-        className="flex-shrink-0 border-t border-orange-500/50 bg-orange-500/5 px-4 py-3"
+        className="flex-1 min-h-0 overflow-y-auto border-t border-neutral-800 px-4 py-2"
         onTouchStart={handleSwipeStart}
         onTouchEnd={handleSwipeEnd}
       >
-        <div
-          className="text-center text-white text-lg leading-relaxed font-medium min-h-[2.5rem] flex items-center justify-center"
-          dir="rtl"
-          style={{ fontFamily: "'Noto Naskh Arabic', serif" }}
-        >
-          {currentLine?.text}
-        </div>
+        {!showFullContext ? (
+          <div className="space-y-1">
+            {contextLines.map((line, i) => {
+              const actualIdx = contextStart + i;
+              const isCurrent = actualIdx === currentLineIdx;
+              return (
+                <div
+                  key={line.index}
+                  className={`px-3 py-1.5 text-right leading-relaxed rounded ${
+                    isCurrent
+                      ? "border border-orange-500 bg-orange-500/5"
+                      : ""
+                  }`}
+                  dir="rtl"
+                  style={{ fontFamily: "'Noto Naskh Arabic', serif" }}
+                >
+                  <span className={`text-white ${isCurrent ? "text-base font-medium" : "text-sm"}`}>
+                    {line.text}
+                  </span>
+                </div>
+              );
+            })}
+            <button
+              onClick={() => setShowFullContext(true)}
+              className="w-full mt-2 py-1.5 text-xs text-neutral-400 hover:text-white border border-neutral-700 hover:border-neutral-500 rounded transition-colors"
+            >
+              View Full Context
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {lines.map((line, idx) => {
+              const isCurrent = idx === currentLineIdx;
+              return (
+                <div
+                  key={line.index}
+                  className={`px-3 py-1 text-right leading-relaxed rounded ${
+                    isCurrent
+                      ? "border border-orange-500 bg-orange-500/5"
+                      : ""
+                  }`}
+                  dir="rtl"
+                  style={{ fontFamily: "'Noto Naskh Arabic', serif" }}
+                >
+                  <span className={`text-white ${isCurrent ? "text-sm font-medium" : "text-xs"}`}>
+                    {line.text}
+                  </span>
+                </div>
+              );
+            })}
+            <button
+              onClick={() => setShowFullContext(false)}
+              className="w-full mt-2 py-1.5 text-xs text-neutral-400 hover:text-white border border-neutral-700 hover:border-neutral-500 rounded transition-colors"
+            >
+              Collapse Context
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Action buttons - fixed at bottom */}
@@ -465,7 +505,7 @@ function ReviewInterface({
           <button
             onClick={() => handleVerdict("incorrect")}
             disabled={isSubmitting}
-            className="flex-1 py-4 bg-red-600/20 hover:bg-red-600/30 border border-red-600/50 text-red-400 font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 active:scale-95"
+            className="flex-1 py-3.5 bg-red-600/20 hover:bg-red-600/30 border border-red-600/50 text-red-400 font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 active:scale-95"
           >
             <XCircle className="w-5 h-5" />
             Incorrect
@@ -473,13 +513,13 @@ function ReviewInterface({
           <button
             onClick={() => handleVerdict("correct")}
             disabled={isSubmitting}
-            className="flex-1 py-4 bg-green-600/20 hover:bg-green-600/30 border border-green-600/50 text-green-400 font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 active:scale-95"
+            className="flex-1 py-3.5 bg-green-600/20 hover:bg-green-600/30 border border-green-600/50 text-green-400 font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 active:scale-95"
           >
             <CheckCircle2 className="w-5 h-5" />
             Correct
           </button>
         </div>
-        <p className="text-center text-[10px] text-neutral-600 mt-1.5">
+        <p className="text-center text-[10px] text-neutral-600 mt-1">
           Swipe right = correct · Swipe left = incorrect
         </p>
       </div>

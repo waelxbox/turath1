@@ -495,3 +495,7 @@
 - [x] "Create Validation Session" flow in project settings (select docs, generate link)
 - [x] Validation stats dashboard (accuracy per doc, per line, reviewer breakdown, inter-rater agreement)
 - [x] Copy shareable link button
+
+### Review Portal UX Enhancements (Round 47)
+- [x] Dynamic Magnifying Glass (Loupe) on document image — circular magnification follows cursor/finger, enlarges localized area
+- [x] "View Full Context" section below current line — show preceding/succeeding lines in white with bordered box on current, "View Full Context" expand button
