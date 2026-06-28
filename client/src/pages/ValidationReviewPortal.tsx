@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRoute } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { CheckCircle2, XCircle, Loader2, ChevronRight } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2, ChevronRight, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 
 // ─── Username Gate ──────────────────────────────────────────────────────────
 
@@ -48,7 +48,135 @@ function UsernameGate({ onSubmit }: { onSubmit: (username: string) => void }) {
   );
 }
 
-// ─── Fixed Highlight Review Interface ───────────────────────────────────────
+// ─── Pinch-to-Zoom Image Viewer ─────────────────────────────────────────────
+
+function ZoomableImage({ src }: { src: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  const [translate, setTranslate] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStart = useRef({ x: 0, y: 0 });
+  const translateStart = useRef({ x: 0, y: 0 });
+  const lastPinchDist = useRef<number | null>(null);
+
+  const resetView = () => {
+    setScale(1);
+    setTranslate({ x: 0, y: 0 });
+  };
+
+  const zoomIn = () => setScale((s) => Math.min(s * 1.3, 5));
+  const zoomOut = () => {
+    setScale((s) => {
+      const next = Math.max(s / 1.3, 1);
+      if (next <= 1) setTranslate({ x: 0, y: 0 });
+      return next;
+    });
+  };
+
+  // Mouse drag for panning
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (scale <= 1) return;
+    setIsDragging(true);
+    dragStart.current = { x: e.clientX, y: e.clientY };
+    translateStart.current = { ...translate };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging) return;
+    const dx = e.clientX - dragStart.current.x;
+    const dy = e.clientY - dragStart.current.y;
+    setTranslate({ x: translateStart.current.x + dx, y: translateStart.current.y + dy });
+  };
+
+  const handleMouseUp = () => setIsDragging(false);
+
+  // Touch pinch-to-zoom and pan
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      if (lastPinchDist.current !== null) {
+        const delta = dist / lastPinchDist.current;
+        setScale((s) => Math.max(1, Math.min(s * delta, 5)));
+      }
+      lastPinchDist.current = dist;
+    } else if (e.touches.length === 1 && scale > 1) {
+      const touch = e.touches[0];
+      if (dragStart.current.x !== 0 || dragStart.current.y !== 0) {
+        const dx = touch.clientX - dragStart.current.x;
+        const dy = touch.clientY - dragStart.current.y;
+        setTranslate({ x: translateStart.current.x + dx, y: translateStart.current.y + dy });
+      }
+    }
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1 && scale > 1) {
+      dragStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      translateStart.current = { ...translate };
+    }
+  };
+
+  const handleTouchEnd = () => {
+    lastPinchDist.current = null;
+  };
+
+  // Wheel zoom
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setScale((s) => {
+      const next = Math.max(1, Math.min(s * delta, 5));
+      if (next <= 1) setTranslate({ x: 0, y: 0 });
+      return next;
+    });
+  };
+
+  return (
+    <div className="relative w-full h-full">
+      <div
+        ref={containerRef}
+        className="w-full h-full overflow-hidden cursor-grab active:cursor-grabbing bg-neutral-900"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onWheel={handleWheel}
+      >
+        <img
+          src={src}
+          alt="Document"
+          className="w-full h-full object-contain select-none"
+          draggable={false}
+          style={{
+            transform: `translate(${translate.x}px, ${translate.y}px) scale(${scale})`,
+            transformOrigin: "center center",
+          }}
+        />
+      </div>
+      {/* Zoom controls */}
+      <div className="absolute top-2 right-2 flex gap-1">
+        <button onClick={zoomIn} className="p-1.5 bg-neutral-800/80 hover:bg-neutral-700 rounded text-white">
+          <ZoomIn className="w-4 h-4" />
+        </button>
+        <button onClick={zoomOut} className="p-1.5 bg-neutral-800/80 hover:bg-neutral-700 rounded text-white">
+          <ZoomOut className="w-4 h-4" />
+        </button>
+        <button onClick={resetView} className="p-1.5 bg-neutral-800/80 hover:bg-neutral-700 rounded text-white">
+          <RotateCcw className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Review Interface ───────────────────────────────────────────────────────
 
 function ReviewInterface({
   shareToken,
@@ -61,8 +189,6 @@ function ReviewInterface({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
   const [allDocsComplete, setAllDocsComplete] = useState(false);
-  const linesContainerRef = useRef<HTMLDivElement>(null);
-  const highlightRef = useRef<HTMLDivElement>(null);
 
   // Fetch assignment
   const getAssignment = trpc.validation.getNextAssignment.useMutation();
@@ -125,22 +251,6 @@ function ReviewInterface({
     loadNextAssignment();
   }, []);
 
-  // Scroll to keep current line centered in the highlight zone
-  useEffect(() => {
-    if (!linesContainerRef.current) return;
-    const container = linesContainerRef.current;
-    const lineElements = container.querySelectorAll("[data-line-idx]");
-    const targetEl = lineElements[currentLineIdx] as HTMLElement | undefined;
-    if (targetEl) {
-      const containerHeight = container.clientHeight;
-      const targetTop = targetEl.offsetTop;
-      const targetHeight = targetEl.offsetHeight;
-      // Center the target line in the container
-      const scrollTo = targetTop - containerHeight / 2 + targetHeight / 2;
-      container.scrollTo({ top: scrollTo, behavior: "smooth" });
-    }
-  }, [currentLineIdx, lines]);
-
   const handleVerdict = async (verdict: "correct" | "incorrect") => {
     if (!assignment || isSubmitting || currentLineIdx >= lines.length) return;
     setIsSubmitting(true);
@@ -157,23 +267,29 @@ function ReviewInterface({
         verdict,
       });
 
-      setReviewedVerdicts((prev) => ({ ...prev, [line.index]: verdict }));
+      const newVerdicts = { ...reviewedVerdicts, [line.index]: verdict };
+      setReviewedVerdicts(newVerdicts);
 
       // Move to next unreviewed line
       const nextIdx = lines.findIndex(
-        (l, i) =>
-          i > currentLineIdx && !reviewedVerdicts[l.index] && l.index !== line.index
+        (l, i) => i > currentLineIdx && !newVerdicts[l.index]
       );
 
       if (nextIdx >= 0) {
         setCurrentLineIdx(nextIdx);
       } else {
-        // All lines reviewed - complete assignment
-        await completeAssignmentMut.mutateAsync({
-          assignmentId: assignment.id,
-          totalLines: lines.length,
-        });
-        setIsComplete(true);
+        // Check if there are any unreviewed lines before current
+        const prevIdx = lines.findIndex((l) => !newVerdicts[l.index]);
+        if (prevIdx >= 0) {
+          setCurrentLineIdx(prevIdx);
+        } else {
+          // All lines reviewed - complete assignment
+          await completeAssignmentMut.mutateAsync({
+            assignmentId: assignment.id,
+            totalLines: lines.length,
+          });
+          setIsComplete(true);
+        }
       }
     } catch (err) {
       console.error("Failed to submit verdict:", err);
@@ -182,17 +298,17 @@ function ReviewInterface({
     }
   };
 
-  // Swipe gesture handling
+  // Swipe gesture handling for verdict buttons area
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
-  const handleTouchStart = (e: React.TouchEvent) => {
+  const handleSwipeStart = (e: React.TouchEvent) => {
     touchStartRef.current = {
       x: e.touches[0].clientX,
       y: e.touches[0].clientY,
     };
   };
 
-  const handleTouchEnd = (e: React.TouchEvent) => {
+  const handleSwipeEnd = (e: React.TouchEvent) => {
     if (!touchStartRef.current) return;
     const dx = e.changedTouches[0].clientX - touchStartRef.current.x;
     const dy = e.changedTouches[0].clientY - touchStartRef.current.y;
@@ -302,22 +418,17 @@ function ReviewInterface({
   const progressPct = lines.length > 0 ? (reviewedCount / lines.length) * 100 : 0;
 
   return (
-    <div
-      className="min-h-screen bg-neutral-950 flex flex-col"
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-    >
-      {/* Header */}
-      <div className="flex-shrink-0 border-b border-neutral-800 px-4 py-2">
+    <div className="h-screen bg-neutral-950 flex flex-col overflow-hidden">
+      {/* Compact header with progress */}
+      <div className="flex-shrink-0 border-b border-neutral-800 px-3 py-1.5">
         <div className="flex items-center justify-between">
-          <div className="text-xs text-neutral-500 truncate max-w-[50%]">
+          <div className="text-[11px] text-neutral-500 truncate max-w-[40%]">
             {document?.filename}
           </div>
-          <div className="text-xs text-neutral-400">
-            {reviewedCount}/{lines.length} lines
+          <div className="text-[11px] text-neutral-400 font-mono">
+            {reviewedCount}/{lines.length} · Line {currentLineIdx + 1}
           </div>
         </div>
-        {/* Progress bar */}
         <div className="mt-1 h-1 bg-neutral-800 rounded-full overflow-hidden">
           <div
             className="h-full bg-orange-500 transition-all duration-300"
@@ -326,71 +437,30 @@ function ReviewInterface({
         </div>
       </div>
 
-      {/* Document image (collapsible on mobile) */}
+      {/* Document image - takes most of the screen, zoomable */}
       {document?.storageUrl && (
-        <div className="flex-shrink-0 h-[30vh] border-b border-neutral-800 bg-neutral-900 overflow-hidden">
-          <img
-            src={document.storageUrl}
-            alt="Document"
-            className="w-full h-full object-contain"
-          />
+        <div className="flex-1 min-h-0">
+          <ZoomableImage src={document.storageUrl} />
         </div>
       )}
 
-      {/* Lines viewport with fixed orange highlight */}
-      <div className="flex-1 relative overflow-hidden">
-        {/* Fixed orange highlight box - centered vertically */}
+      {/* Current line display - single line, no scrolling */}
+      <div
+        className="flex-shrink-0 border-t border-orange-500/50 bg-orange-500/5 px-4 py-3"
+        onTouchStart={handleSwipeStart}
+        onTouchEnd={handleSwipeEnd}
+      >
         <div
-          ref={highlightRef}
-          className="absolute left-2 right-2 top-1/2 -translate-y-1/2 border-2 border-orange-500 rounded-lg bg-orange-500/10 pointer-events-none z-10"
-          style={{ minHeight: "3rem", padding: "0.5rem 0" }}
-        />
-
-        {/* Scrollable lines container */}
-        <div
-          ref={linesContainerRef}
-          className="absolute inset-0 overflow-y-auto px-4"
-          style={{ scrollBehavior: "smooth" }}
+          className="text-center text-white text-lg leading-relaxed font-medium min-h-[2.5rem] flex items-center justify-center"
+          dir="rtl"
+          style={{ fontFamily: "'Noto Naskh Arabic', serif" }}
         >
-          {/* Top spacer to allow first line to reach center */}
-          <div style={{ height: "45vh" }} />
-
-          {lines.map((line, idx) => {
-            const isCurrentLine = idx === currentLineIdx;
-            const verdict = reviewedVerdicts[line.index];
-            return (
-              <div
-                key={line.index}
-                data-line-idx={idx}
-                className={`py-2 px-3 text-right leading-relaxed transition-all duration-200 rounded-lg mb-1 ${
-                  isCurrentLine
-                    ? "text-white text-lg font-medium"
-                    : verdict === "correct"
-                    ? "text-green-400/70 text-base"
-                    : verdict === "incorrect"
-                    ? "text-red-400/70 text-base line-through"
-                    : "text-white/80 text-base"
-                }`}
-                dir="rtl"
-                style={{ fontFamily: "'Noto Naskh Arabic', serif" }}
-              >
-                {line.text}
-                {verdict && (
-                  <span className="inline-block ml-2 text-xs">
-                    {verdict === "correct" ? "✓" : "✗"}
-                  </span>
-                )}
-              </div>
-            );
-          })}
-
-          {/* Bottom spacer */}
-          <div style={{ height: "45vh" }} />
+          {currentLine?.text}
         </div>
       </div>
 
       {/* Action buttons - fixed at bottom */}
-      <div className="flex-shrink-0 border-t border-neutral-800 p-4 bg-neutral-950">
+      <div className="flex-shrink-0 border-t border-neutral-800 px-4 py-3 bg-neutral-950">
         <div className="flex gap-3 max-w-md mx-auto">
           <button
             onClick={() => handleVerdict("incorrect")}
@@ -409,7 +479,7 @@ function ReviewInterface({
             Correct
           </button>
         </div>
-        <p className="text-center text-xs text-neutral-600 mt-2">
+        <p className="text-center text-[10px] text-neutral-600 mt-1.5">
           Swipe right = correct · Swipe left = incorrect
         </p>
       </div>
