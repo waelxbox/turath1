@@ -126,14 +126,24 @@ function LoupeImageViewer({ src }: { src: string }) {
   };
 
   // ── Touch handlers (pinch zoom + single-finger pan) ──
+  // Track midpoint for two-finger pan
+  const lastMidpoint = useRef<{ x: number; y: number } | null>(null);
+
   const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 1 && scale > 1) {
+    if (e.touches.length === 2) {
+      // Two-finger: start pinch-zoom + pan
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      lastMidpoint.current = { x: midX, y: midY };
+      translateStart.current = { ...translate };
+      setShowLoupe(false);
+    } else if (e.touches.length === 1 && scale > 1) {
+      // Single finger pan when zoomed
       setIsDragging(true);
       dragStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       translateStart.current = { ...translate };
-    }
-    // Single touch on non-zoomed = loupe
-    if (e.touches.length === 1 && scale <= 1 && loupeEnabled && imgRef.current) {
+    } else if (e.touches.length === 1 && scale <= 1 && loupeEnabled && imgRef.current) {
+      // Single touch on non-zoomed = loupe
       const touch = e.touches[0];
       const rect = imgRef.current.getBoundingClientRect();
       const x = touch.clientX - rect.left;
@@ -147,9 +157,11 @@ function LoupeImageViewer({ src }: { src: string }) {
 
   const handleTouchMove = (e: React.TouchEvent) => {
     if (e.touches.length === 2) {
-      // Pinch zoom
+      // Two-finger: pinch zoom + drag pan simultaneously
       e.preventDefault();
       setShowLoupe(false);
+
+      // Pinch zoom
       const dist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
@@ -159,9 +171,19 @@ function LoupeImageViewer({ src }: { src: string }) {
         setScale((s) => Math.max(1, Math.min(s * delta, 5)));
       }
       lastPinchDist.current = dist;
+
+      // Two-finger drag pan
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      if (lastMidpoint.current) {
+        const dx = midX - lastMidpoint.current.x;
+        const dy = midY - lastMidpoint.current.y;
+        setTranslate((t) => ({ x: t.x + dx, y: t.y + dy }));
+      }
+      lastMidpoint.current = { x: midX, y: midY };
     } else if (e.touches.length === 1) {
       if (scale > 1 && isDragging) {
-        // Pan
+        // Single-finger pan when zoomed
         const touch = e.touches[0];
         const dx = touch.clientX - dragStart.current.x;
         const dy = touch.clientY - dragStart.current.y;
@@ -186,6 +208,7 @@ function LoupeImageViewer({ src }: { src: string }) {
   const handleTouchEnd = () => {
     setIsDragging(false);
     lastPinchDist.current = null;
+    lastMidpoint.current = null;
     setShowLoupe(false);
   };
 
