@@ -55,48 +55,66 @@ function LoupeImageViewer({ src }: { src: string }) {
   const imgRef = useRef<HTMLImageElement>(null);
   const [imgNatural, setImgNatural] = useState({ w: 1, h: 1 });
 
-  // Zoom & Pan state
-  const [scale, setScale] = useState(1);
-  const [translate, setTranslate] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const dragStart = useRef({ x: 0, y: 0 });
-  const translateStart = useRef({ x: 0, y: 0 });
-  const lastPinchDist = useRef<number | null>(null);
+  // Zoom & Pan state (same approach as Quick Review PanZoomImageViewer)
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const dragging = useRef(false);
+  const lastPos = useRef({ x: 0, y: 0 });
+  const lastPinchDist = useRef(0);
+  const lastTap = useRef(0);
+  const lastMidpoint = useRef<{ x: number; y: number } | null>(null);
 
   // Loupe state
   const [showLoupe, setShowLoupe] = useState(false);
   const [loupePos, setLoupePos] = useState({ x: 0, y: 0 });
   const [loupeEnabled, setLoupeEnabled] = useState(true);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isLongPress = useRef(false);
 
   const LOUPE_SIZE = 180;
   const LOUPE_ZOOM = 2.5;
 
   const resetView = () => {
-    setScale(1);
-    setTranslate({ x: 0, y: 0 });
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
   };
 
-  // ── Mouse handlers ──
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (scale > 1) {
-      // Pan mode when zoomed in
-      setIsDragging(true);
-      dragStart.current = { x: e.clientX, y: e.clientY };
-      translateStart.current = { ...translate };
+  // ── Double-tap to toggle zoom (like Quick Review) ──
+  const handleDoubleTap = (clientX: number, clientY: number) => {
+    if (zoom > 1.5) {
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
+    } else {
+      const container = containerRef.current;
+      if (!container) { setZoom(2.5); return; }
+      const rect = container.getBoundingClientRect();
+      const tapX = clientX - rect.left - rect.width / 2;
+      const tapY = clientY - rect.top - rect.height / 2;
+      setZoom(2.5);
+      setPan({ x: -tapX * 1.5, y: -tapY * 1.5 });
     }
   };
 
+  // ── Mouse handlers (desktop) ──
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (zoom <= 1) return;
+    e.preventDefault();
+    dragging.current = true;
+    lastPos.current = { x: e.clientX, y: e.clientY };
+  };
+
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (isDragging && scale > 1) {
-      const dx = e.clientX - dragStart.current.x;
-      const dy = e.clientY - dragStart.current.y;
-      setTranslate({ x: translateStart.current.x + dx, y: translateStart.current.y + dy });
+    if (dragging.current) {
+      const dx = e.clientX - lastPos.current.x;
+      const dy = e.clientY - lastPos.current.y;
+      lastPos.current = { x: e.clientX, y: e.clientY };
+      setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
       setShowLoupe(false);
       return;
     }
 
-    // Loupe on hover (only when not dragging and loupe is enabled)
-    if (!loupeEnabled || !imgRef.current) return;
+    // Loupe on hover (desktop only, when not zoomed)
+    if (!loupeEnabled || !imgRef.current || zoom > 1) return;
     const rect = imgRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -108,108 +126,137 @@ function LoupeImageViewer({ src }: { src: string }) {
     }
   };
 
-  const handleMouseUp = () => setIsDragging(false);
+  const handleMouseUp = () => { dragging.current = false; };
   const handleMouseLeave = () => {
-    setIsDragging(false);
+    dragging.current = false;
     setShowLoupe(false);
   };
 
-  // ── Wheel zoom ──
+  // ── Wheel zoom (desktop) ──
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setScale((s) => {
-      const next = Math.max(1, Math.min(s * delta, 5));
-      if (next <= 1) setTranslate({ x: 0, y: 0 });
-      return next;
-    });
+    const delta = e.deltaY > 0 ? -0.2 : 0.2;
+    const newZoom = Math.max(1, Math.min(6, zoom + delta));
+    setZoom(newZoom);
+    if (newZoom === 1) setPan({ x: 0, y: 0 });
   };
 
-  // ── Touch handlers (pinch zoom + single-finger pan) ──
-  // Track midpoint for two-finger pan
-  const lastMidpoint = useRef<{ x: number; y: number } | null>(null);
-
+  // ── Touch handlers (same model as Quick Review) ──
   const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 2) {
-      // Two-finger: start pinch-zoom + pan
+    // Cancel any pending long-press
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+
+    if (e.touches.length === 1) {
+      // Check for double-tap
+      const now = Date.now();
+      if (now - lastTap.current < 300) {
+        handleDoubleTap(e.touches[0].clientX, e.touches[0].clientY);
+        lastTap.current = 0;
+        return;
+      }
+      lastTap.current = now;
+
+      if (zoom > 1) {
+        // Single-finger drag when zoomed
+        dragging.current = true;
+        lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      } else if (loupeEnabled) {
+        // Long-press to activate loupe
+        const touch = e.touches[0];
+        isLongPress.current = false;
+        longPressTimer.current = setTimeout(() => {
+          isLongPress.current = true;
+          if (imgRef.current) {
+            const rect = imgRef.current.getBoundingClientRect();
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+            if (x >= 0 && y >= 0 && x <= rect.width && y <= rect.height) {
+              setShowLoupe(true);
+              setLoupePos({ x: touch.clientX, y: touch.clientY });
+            }
+          }
+        }, 300);
+      }
+    } else if (e.touches.length === 2) {
+      // Start pinch + two-finger pan
+      dragging.current = false;
+      isLongPress.current = false;
+      setShowLoupe(false);
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      lastPinchDist.current = Math.sqrt(dx * dx + dy * dy);
       const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
       const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
       lastMidpoint.current = { x: midX, y: midY };
-      translateStart.current = { ...translate };
-      setShowLoupe(false);
-    } else if (e.touches.length === 1 && scale > 1) {
-      // Single finger pan when zoomed
-      setIsDragging(true);
-      dragStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      translateStart.current = { ...translate };
-    } else if (e.touches.length === 1 && scale <= 1 && loupeEnabled && imgRef.current) {
-      // Single touch on non-zoomed = loupe
-      const touch = e.touches[0];
-      const rect = imgRef.current.getBoundingClientRect();
-      const x = touch.clientX - rect.left;
-      const y = touch.clientY - rect.top;
-      if (x >= 0 && y >= 0 && x <= rect.width && y <= rect.height) {
-        setShowLoupe(true);
-        setLoupePos({ x: touch.clientX, y: touch.clientY });
-      }
     }
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (e.touches.length === 2) {
-      // Two-finger: pinch zoom + drag pan simultaneously
-      e.preventDefault();
-      setShowLoupe(false);
+    // Cancel long-press on any movement
+    if (longPressTimer.current && !isLongPress.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
 
-      // Pinch zoom
-      const dist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      if (lastPinchDist.current !== null) {
-        const delta = dist / lastPinchDist.current;
-        setScale((s) => Math.max(1, Math.min(s * delta, 5)));
-      }
-      lastPinchDist.current = dist;
-
-      // Two-finger drag pan
-      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-      if (lastMidpoint.current) {
-        const dx = midX - lastMidpoint.current.x;
-        const dy = midY - lastMidpoint.current.y;
-        setTranslate((t) => ({ x: t.x + dx, y: t.y + dy }));
-      }
-      lastMidpoint.current = { x: midX, y: midY };
-    } else if (e.touches.length === 1) {
-      if (scale > 1 && isDragging) {
-        // Single-finger pan when zoomed
-        const touch = e.touches[0];
-        const dx = touch.clientX - dragStart.current.x;
-        const dy = touch.clientY - dragStart.current.y;
-        setTranslate({ x: translateStart.current.x + dx, y: translateStart.current.y + dy });
-        setShowLoupe(false);
-      } else if (scale <= 1 && loupeEnabled && imgRef.current) {
-        // Loupe on touch drag
+    if (e.touches.length === 1) {
+      if (dragging.current) {
+        // Single-finger pan
+        const dx = e.touches[0].clientX - lastPos.current.x;
+        const dy = e.touches[0].clientY - lastPos.current.y;
+        lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+      } else if (isLongPress.current && imgRef.current) {
+        // Move loupe with finger
         const touch = e.touches[0];
         const rect = imgRef.current.getBoundingClientRect();
         const x = touch.clientX - rect.left;
         const y = touch.clientY - rect.top;
         if (x >= 0 && y >= 0 && x <= rect.width && y <= rect.height) {
-          setShowLoupe(true);
           setLoupePos({ x: touch.clientX, y: touch.clientY });
         } else {
           setShowLoupe(false);
         }
       }
+    } else if (e.touches.length === 2) {
+      // Pinch zoom
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (lastPinchDist.current > 0) {
+        const scale = dist / lastPinchDist.current;
+        setZoom(prev => Math.max(1, Math.min(6, prev * scale)));
+      }
+      lastPinchDist.current = dist;
+
+      // Two-finger pan
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      if (lastMidpoint.current) {
+        const panDx = midX - lastMidpoint.current.x;
+        const panDy = midY - lastMidpoint.current.y;
+        setPan(prev => ({ x: prev.x + panDx, y: prev.y + panDy }));
+      }
+      lastMidpoint.current = { x: midX, y: midY };
     }
   };
 
-  const handleTouchEnd = () => {
-    setIsDragging(false);
-    lastPinchDist.current = null;
-    lastMidpoint.current = null;
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    dragging.current = false;
+    if (e.touches.length < 2) {
+      lastPinchDist.current = 0;
+      lastMidpoint.current = null;
+    }
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    isLongPress.current = false;
     setShowLoupe(false);
+    // Snap back if zoom is near 1
+    if (zoom < 1.1) { setZoom(1); setPan({ x: 0, y: 0 }); }
   };
 
   // ── Loupe style computation ──
@@ -245,6 +292,9 @@ function LoupeImageViewer({ src }: { src: string }) {
     };
   };
 
+  // Expose zoom for hint text
+  const scale = zoom;
+
   return (
     <div
       ref={containerRef}
@@ -257,18 +307,19 @@ function LoupeImageViewer({ src }: { src: string }) {
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onWheel={handleWheel}
-      style={{ cursor: scale > 1 ? (isDragging ? "grabbing" : "grab") : "crosshair" }}
+      onDoubleClick={(e) => handleDoubleTap(e.clientX, e.clientY)}
+      style={{ cursor: zoom > 1 ? "grab" : "crosshair", touchAction: "none" }}
     >
       <div className="w-full h-full flex items-center justify-center">
         <img
           ref={imgRef}
           src={src}
           alt="Document"
-          className="max-w-full max-h-full object-contain select-none"
+          className="max-w-full max-h-full object-contain select-none pointer-events-none"
           draggable={false}
           style={{
-            transform: `translate(${translate.x}px, ${translate.y}px) scale(${scale})`,
-            transformOrigin: "center center",
+            transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
+            transition: dragging.current ? "none" : "transform 0.15s ease-out",
           }}
           onLoad={(e) => {
             const img = e.currentTarget;
@@ -283,7 +334,7 @@ function LoupeImageViewer({ src }: { src: string }) {
       {/* Controls */}
       <div className="absolute top-2 right-2 flex gap-1">
         <button
-          onClick={() => setScale((s) => Math.min(s * 1.3, 5))}
+          onClick={() => setZoom(z => Math.min(z + 0.5, 6))}
           className="p-1.5 bg-neutral-800/80 hover:bg-neutral-700 rounded text-white"
           title="Zoom in"
         >
@@ -291,11 +342,9 @@ function LoupeImageViewer({ src }: { src: string }) {
         </button>
         <button
           onClick={() => {
-            setScale((s) => {
-              const next = Math.max(s / 1.3, 1);
-              if (next <= 1) setTranslate({ x: 0, y: 0 });
-              return next;
-            });
+            const nz = Math.max(zoom - 0.5, 1);
+            setZoom(nz);
+            if (nz === 1) setPan({ x: 0, y: 0 });
           }}
           className="p-1.5 bg-neutral-800/80 hover:bg-neutral-700 rounded text-white"
           title="Zoom out"
@@ -327,7 +376,7 @@ function LoupeImageViewer({ src }: { src: string }) {
 
       {/* Hint */}
       <div className="absolute bottom-2 left-2 text-[10px] text-neutral-500 bg-neutral-900/80 px-2 py-0.5 rounded">
-        {scale > 1 ? "Drag to pan · Scroll to zoom" : "Hover for loupe · Scroll to zoom"}
+        {scale > 1 ? "Drag to pan · Double-tap to reset" : "Long-press for loupe · Double-tap to zoom"}
       </div>
     </div>
   );
