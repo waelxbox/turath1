@@ -748,6 +748,21 @@ function ClassicReviewMode({ projectId, mode, setMode }: Props & { mode: ReviewM
     setShowImage(true);
   }, [currentDoc?.id]);
 
+  // Scroll to keep current line centered in the fixed-highlight viewport
+  useEffect(() => {
+    const container = document.getElementById("classic-lines-scroll");
+    if (!container) return;
+    const lineElements = container.querySelectorAll("[data-line-idx]");
+    const targetEl = lineElements[currentLineIndex] as HTMLElement | undefined;
+    if (targetEl) {
+      const containerHeight = container.clientHeight;
+      const targetTop = targetEl.offsetTop;
+      const targetHeight = targetEl.offsetHeight;
+      const scrollTo = targetTop - containerHeight / 2 + targetHeight / 2;
+      container.scrollTo({ top: scrollTo, behavior: "smooth" });
+    }
+  }, [currentLineIndex, lines]);
+
   // Loading state
   if (docsLoading) {
     return (
@@ -940,67 +955,73 @@ function ClassicReviewMode({ projectId, mode, setMode }: Props & { mode: ReviewM
           {/* Phase: Line review */}
           {phase === "lines" && (
             <>
-              {/* Scrollable line content with swipe area */}
-              <div ref={swipeRef} className="flex-1 overflow-y-auto px-3 md:px-6 py-3 md:py-4 min-h-0">
-                {/* Previous lines context */}
-                <div className="space-y-1.5 md:space-y-2 mb-4 md:mb-6">
-                  {lines.slice(Math.max(0, currentLineIndex - 2), currentLineIndex).map((line, i) => {
-                    const actualIdx = Math.max(0, currentLineIndex - 2) + i;
-                    const isReviewed = reviewedLines.has(actualIdx);
+              {/* Fixed-highlight viewport: orange box stays in place, lines scroll through it */}
+              <div ref={swipeRef} className="flex-1 relative overflow-hidden min-h-0">
+                {/* Fixed orange highlight box — centered vertically */}
+                <div className="absolute left-2 right-2 top-1/2 -translate-y-1/2 border-2 border-orange-500 rounded-lg bg-orange-500/10 pointer-events-none z-10" style={{ minHeight: '3rem', padding: '0.5rem 0' }}>
+                  <div className="absolute -top-2.5 left-3 bg-background px-2 text-[10px] md:text-xs text-orange-500 font-medium z-20">
+                    Line {currentLineIndex + 1}/{totalLines}
+                  </div>
+                </div>
+
+                {/* Scrollable lines container */}
+                <div className="absolute inset-0 overflow-y-auto px-3 md:px-6" id="classic-lines-scroll">
+                  {/* Top spacer so first line can reach center */}
+                  <div style={{ height: '45%' }} />
+
+                  {lines.map((line, idx) => {
+                    const isCurrentLine = idx === currentLineIndex;
+                    const isReviewed = reviewedLines.has(idx);
                     return (
-                      <div key={actualIdx} className={`text-xs md:text-sm py-1 px-2 rounded ${isReviewed ? "text-muted-foreground/50 line-through" : "text-muted-foreground/70"}`}>
-                        {line}
+                      <div
+                        key={idx}
+                        data-line-idx={idx}
+                        className={`py-2 px-3 rounded-lg mb-1 transition-all duration-200 ${
+                          isCurrentLine
+                            ? "text-foreground text-sm md:text-base font-medium"
+                            : isReviewed
+                            ? "text-green-400/60 text-xs md:text-sm line-through"
+                            : "text-foreground/80 text-xs md:text-sm"
+                        }`}
+                      >
+                        {isCurrentLine && editMode ? (
+                          <Input
+                            ref={inputRef}
+                            value={editedLine}
+                            onChange={e => setEditedLine(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === "Enter") handleCorrect();
+                              if (e.key === "Escape") { setEditMode(false); setEditedLine(""); }
+                            }}
+                            className="text-base font-medium p-2"
+                            style={{ fontSize: "16px" }}
+                            placeholder="Type the corrected text..."
+                            autoFocus
+                          />
+                        ) : (
+                          <span>{line}</span>
+                        )}
+                        {isReviewed && !isCurrentLine && (
+                          <span className="inline-block ml-2 text-[10px] text-green-400">✓</span>
+                        )}
                       </div>
                     );
                   })}
+
+                  {/* Bottom spacer */}
+                  <div style={{ height: '45%' }} />
                 </div>
 
-                {/* Current line — the card users swipe */}
-                <div className="relative border-2 border-primary/50 rounded-lg p-3 md:p-4 bg-primary/5">
-                  <div className="absolute -top-2.5 left-3 bg-background px-2 text-[10px] md:text-xs text-primary font-medium">
-                    Line {currentLineIndex + 1}/{totalLines}
-                  </div>
-
-                  {!editMode ? (
-                    <div className="text-sm md:text-base font-medium leading-relaxed">
-                      {currentLine}
-                    </div>
-                  ) : (
-                    <Input
-                      ref={inputRef}
-                      value={editedLine}
-                      onChange={e => setEditedLine(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === "Enter") handleCorrect();
-                        if (e.key === "Escape") { setEditMode(false); setEditedLine(""); }
-                      }}
-                      className="text-base font-medium p-3"
-                      style={{ fontSize: "16px" }} // prevent iOS zoom
-                      placeholder="Type the corrected text..."
-                      autoFocus
-                    />
-                  )}
-
-                  <XpPopup xp={lastXp} show={showXp} />
-                </div>
-
-                {/* Swipe hint — mobile only, shown briefly */}
-                {isMobile && !editMode && (
-                  <div className="flex items-center justify-between mt-3 text-[10px] text-muted-foreground/50 px-2">
-                    <span>← swipe skip</span>
-                    <span>swipe approve →</span>
-                  </div>
-                )}
-
-                {/* Next lines preview */}
-                <div className="space-y-1.5 md:space-y-2 mt-4 md:mt-6">
-                  {lines.slice(currentLineIndex + 1, currentLineIndex + 3).map((line, i) => (
-                    <div key={currentLineIndex + 1 + i} className="text-xs md:text-sm py-1 px-2 text-muted-foreground/40">
-                      {line}
-                    </div>
-                  ))}
-                </div>
+                <XpPopup xp={lastXp} show={showXp} />
               </div>
+
+              {/* Swipe hint — mobile only */}
+              {isMobile && !editMode && (
+                <div className="flex-shrink-0 flex items-center justify-between px-4 py-1 text-[10px] text-muted-foreground/50">
+                  <span>← swipe skip</span>
+                  <span>swipe approve →</span>
+                </div>
+              )}
 
               {/* Line action buttons — large and thumb-friendly on mobile */}
               <div className="flex-shrink-0 border-t border-border px-3 md:px-6 py-3 md:py-4 bg-background">

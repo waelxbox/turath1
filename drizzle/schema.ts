@@ -425,3 +425,80 @@ export const reviewSessions = pgTable("review_sessions", {
 
 export type ReviewSession = typeof reviewSessions.$inferSelect;
 export type InsertReviewSession = typeof reviewSessions.$inferInsert;
+
+// ─── Validation Sessions (Sandboxed Review Portal) ─────────────────────────
+// A validation session is created by the admin to validate AI accuracy on selected docs.
+// Reviewers access via a shareable link with no OAuth — just a username.
+
+export const validationSessionStatusEnum = pgEnum("validation_session_status", ["active", "closed"]);
+
+export const validationSessions = pgTable("validation_sessions", {
+  id: serial("id").primaryKey(),
+  projectId: integer("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 255 }).notNull(),
+  shareToken: varchar("shareToken", { length: 64 }).notNull().unique(), // used in URL
+  totalDocs: integer("totalDocs").notNull().default(0),
+  reviewsPerDoc: integer("reviewsPerDoc").notNull().default(5),
+  status: validationSessionStatusEnum("status").default("active").notNull(),
+  documentIds: jsonb("documentIds").notNull(), // number[] — selected document IDs
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  closedAt: timestamp("closedAt"),
+}, (t) => [
+  index("vs_projectId_idx").on(t.projectId),
+  index("vs_shareToken_idx").on(t.shareToken),
+]);
+
+export type ValidationSession = typeof validationSessions.$inferSelect;
+export type InsertValidationSession = typeof validationSessions.$inferInsert;
+
+// ─── Validation Assignments ─────────────────────────────────────────────────
+// Tracks which reviewer is assigned which document. Max 5 unique reviewers per doc.
+
+export const validationAssignmentStatusEnum = pgEnum("validation_assignment_status", ["in_progress", "completed"]);
+
+export const validationAssignments = pgTable("validation_assignments", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("sessionId").notNull().references(() => validationSessions.id, { onDelete: "cascade" }),
+  documentId: integer("documentId").notNull().references(() => documents.id, { onDelete: "cascade" }),
+  reviewerUsername: varchar("reviewerUsername", { length: 100 }).notNull(),
+  status: validationAssignmentStatusEnum("status").default("in_progress").notNull(),
+  totalLines: integer("totalLines").notNull().default(0),
+  linesReviewed: integer("linesReviewed").notNull().default(0),
+  correctCount: integer("correctCount").notNull().default(0),
+  incorrectCount: integer("incorrectCount").notNull().default(0),
+  assignedAt: timestamp("assignedAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+}, (t) => [
+  index("va_sessionId_idx").on(t.sessionId),
+  index("va_documentId_idx").on(t.documentId),
+  index("va_reviewer_idx").on(t.reviewerUsername),
+  index("va_session_doc_reviewer_idx").on(t.sessionId, t.documentId, t.reviewerUsername),
+]);
+
+export type ValidationAssignment = typeof validationAssignments.$inferSelect;
+export type InsertValidationAssignment = typeof validationAssignments.$inferInsert;
+
+// ─── Validation Reviews (Line-Level Verdicts) ───────────────────────────────
+// Each row = one reviewer's verdict on one line of one document.
+
+export const validationVerdictEnum = pgEnum("validation_verdict", ["correct", "incorrect"]);
+
+export const validationReviews = pgTable("validation_reviews", {
+  id: serial("id").primaryKey(),
+  assignmentId: integer("assignmentId").notNull().references(() => validationAssignments.id, { onDelete: "cascade" }),
+  sessionId: integer("sessionId").notNull().references(() => validationSessions.id, { onDelete: "cascade" }),
+  documentId: integer("documentId").notNull().references(() => documents.id, { onDelete: "cascade" }),
+  reviewerUsername: varchar("reviewerUsername", { length: 100 }).notNull(),
+  lineIndex: integer("lineIndex").notNull(),
+  lineText: text("lineText").notNull(),
+  verdict: validationVerdictEnum("verdict").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("vr_assignmentId_idx").on(t.assignmentId),
+  index("vr_sessionId_idx").on(t.sessionId),
+  index("vr_documentId_idx").on(t.documentId),
+  index("vr_session_doc_line_idx").on(t.sessionId, t.documentId, t.lineIndex),
+]);
+
+export type ValidationReview = typeof validationReviews.$inferSelect;
+export type InsertValidationReview = typeof validationReviews.$inferInsert;

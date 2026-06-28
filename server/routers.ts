@@ -67,7 +67,7 @@ import { generateMergeSuggestions, executeMerge, rejectMerge, skipMerge, process
 import { invokeLLM } from "./_core/llm";
 import { seedDemoProject } from "./demoSeed";
 import { awardXp, getUserStats, getLeaderboard, maybeAwardStreakBonus, XP_VALUES, xpProgressInLevel } from "./gamification";
-import { getReviewSession, saveReviewSession } from "./db";
+import { getReviewSession, saveReviewSession, createValidationSession, getValidationSessionByToken, getValidationSessionsByProject, closeValidationSession, getNextAssignment, getAssignmentById, submitLineVerdict, completeAssignment, getReviewerProgress, getValidationStats, getReviewsForAssignment } from "./db";
 
 // ─── Auth Router ──────────────────────────────────────────────────────────────
 
@@ -2189,6 +2189,169 @@ const reviewSessionRouter = router({
     }),
 });
 
+// ─── Validation Portal Router (Public — no auth required) ───────────────────
+
+const validationRouter = router({
+  // Get session info by share token (public)
+  getSession: publicProcedure
+    .input(z.object({ shareToken: z.string() }))
+    .query(async ({ input }) => {
+      const session = await getValidationSessionByToken(input.shareToken);
+      if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "Validation session not found" });
+      return {
+        id: session.id,
+        title: session.title,
+        status: session.status,
+        totalDocs: session.totalDocs,
+        reviewsPerDoc: session.reviewsPerDoc,
+      };
+    }),
+
+  // Get next assignment for a reviewer (public)
+  getNextAssignment: publicProcedure
+    .input(z.object({ shareToken: z.string(), reviewerUsername: z.string().min(1).max(100) }))
+    .mutation(async ({ input }) => {
+      const session = await getValidationSessionByToken(input.shareToken);
+      if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "Session not found" });
+      if (session.status === "closed") throw new TRPCError({ code: "FORBIDDEN", message: "Session is closed" });
+
+      const assignment = await getNextAssignment(session.id, input.reviewerUsername);
+      if (!assignment) return { assignment: null, document: null, lines: [], existingReviews: [] };
+
+      // Get document info and transcription lines
+      const doc = await getDocumentById(assignment.documentId, session.projectId);
+      const transcription = await getTranscriptionByDocumentId(assignment.documentId);
+
+      // Extract Arabic-only lines from the transcription
+      let lines: { index: number; text: string }[] = [];
+      if (transcription) {
+        const json = (transcription.reviewedJson || transcription.rawJson) as Record<string, unknown>;
+        // Look for full_transcription_ar or any long text field
+        let rawText = "";
+        if (json.full_transcription_ar && typeof json.full_transcription_ar === "string") {
+          rawText = json.full_transcription_ar;
+        } else {
+          // Find the longest string field as fallback
+          for (const [, val] of Object.entries(json)) {
+            if (typeof val === "string" && val.length > rawText.length) rawText = val;
+          }
+        }
+
+        // Split into lines and filter to Arabic-only
+        const allLines = rawText.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+        const arabicRegex = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+        const englishOnlyRegex = /^[a-zA-Z0-9\s\[\]\(\)\-_:;.,!?'"]+$/;
+        lines = allLines
+          .map((text, idx) => ({ index: idx, text }))
+          .filter(l => arabicRegex.test(l.text) && !englishOnlyRegex.test(l.text));
+      }
+
+      // Update totalLines on assignment if not set
+      if (assignment.totalLines === 0 && lines.length > 0) {
+        const db = (await import("./db")).getDb;
+        // We'll just return lines.length and update on first verdict
+      }
+
+      // Get already-reviewed lines for this assignment
+      const existingReviews = await getReviewsForAssignment(assignment.id);
+
+      return {
+        assignment: {
+          id: assignment.id,
+          sessionId: session.id,
+          documentId: assignment.documentId,
+          status: assignment.status,
+          linesReviewed: assignment.linesReviewed,
+          totalLines: lines.length,
+        },
+        document: doc ? { id: doc.id, filename: doc.filename, storageUrl: doc.storageUrl } : null,
+        lines,
+        existingReviews: existingReviews.map(r => ({ lineIndex: r.lineIndex, verdict: r.verdict })),
+      };
+    }),
+
+  // Submit a line verdict (public)
+  submitVerdict: publicProcedure
+    .input(z.object({
+      assignmentId: z.number(),
+      sessionId: z.number(),
+      documentId: z.number(),
+      reviewerUsername: z.string().min(1),
+      lineIndex: z.number(),
+      lineText: z.string(),
+      verdict: z.enum(["correct", "incorrect"]),
+    }))
+    .mutation(async ({ input }) => {
+      await submitLineVerdict(input);
+      return { success: true };
+    }),
+
+  // Complete an assignment (public)
+  completeAssignment: publicProcedure
+    .input(z.object({ assignmentId: z.number(), totalLines: z.number() }))
+    .mutation(async ({ input }) => {
+      await completeAssignment(input.assignmentId, input.totalLines);
+      return { success: true };
+    }),
+
+  // Get reviewer progress (public)
+  getProgress: publicProcedure
+    .input(z.object({ shareToken: z.string(), reviewerUsername: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const session = await getValidationSessionByToken(input.shareToken);
+      if (!session) throw new TRPCError({ code: "NOT_FOUND" });
+      return getReviewerProgress(session.id, input.reviewerUsername);
+    }),
+
+  // Admin: create validation session
+  create: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      title: z.string().min(1).max(255),
+      documentIds: z.array(z.number()).min(1),
+      reviewsPerDoc: z.number().min(1).max(20).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Verify ownership
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const shareToken = crypto.randomBytes(16).toString("hex");
+      const session = await createValidationSession({
+        projectId: input.projectId,
+        title: input.title,
+        shareToken,
+        documentIds: input.documentIds,
+        reviewsPerDoc: input.reviewsPerDoc,
+      });
+      return { session, shareLink: `/review/${shareToken}` };
+    }),
+
+  // Admin: list sessions for a project
+  list: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      return getValidationSessionsByProject(input.projectId);
+    }),
+
+  // Admin: get stats for a session
+  stats: protectedProcedure
+    .input(z.object({ sessionId: z.number() }))
+    .query(async ({ input }) => {
+      return getValidationStats(input.sessionId);
+    }),
+
+  // Admin: close a session
+  close: protectedProcedure
+    .input(z.object({ sessionId: z.number() }))
+    .mutation(async ({ input }) => {
+      await closeValidationSession(input.sessionId);
+      return { success: true };
+    }),
+});
+
 // ─── App Router ───────────────────────────────────────────────────────────────
 
 export const appRouter = router({
@@ -2207,6 +2370,7 @@ export const appRouter = router({
   groups: groupsRouter,
   gamification: gamificationRouter,
   reviewSession: reviewSessionRouter,
+  validation: validationRouter,
 });
 
 export type AppRouter = typeof appRouter;

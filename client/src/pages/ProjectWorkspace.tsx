@@ -3,7 +3,7 @@ import { useParams, useLocation, Router, Route, Switch } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { getLoginUrl } from "@/const";
-import { Loader2, BookOpen, Upload, Eye, Download, Settings, ArrowLeft, ChevronRight, MessageSquare, Search, Network, Gamepad2, Menu, X } from "lucide-react";
+import { Loader2, BookOpen, Upload, Eye, Download, Settings, ArrowLeft, ChevronRight, MessageSquare, Search, Network, Gamepad2, Menu, X, ClipboardCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import UploadPage from "./project/UploadPage";
 import ReviewPage from "./project/ReviewPage";
@@ -16,6 +16,7 @@ import KnowledgeGraphPage from "./project/KnowledgeGraphPage";
 import EntityDirectoryPage from "./project/EntityDirectoryPage";
 import EntityMergePage from "./project/EntityMergePage";
 import QuickReviewPage from "./project/QuickReviewPage";
+import ValidationAdminPage from "./project/ValidationAdminPage";
 import { toast } from "sonner";
 
 type NavItem = {
@@ -102,6 +103,14 @@ function buildNavGroups(stats: { total: number; reviewed: number; needsReview: n
           path: "/export",
           disabled: !hasReviewed,
           disabledReason: "Approve documents to enable export",
+        },
+        {
+          id: "validation",
+          label: "Validation",
+          icon: ClipboardCheck,
+          path: "/validation",
+          disabled: !hasReviewed,
+          disabledReason: "Approve documents to enable validation",
         },
       ],
     },
@@ -401,6 +410,10 @@ function WorkspaceInner({
               </Route>
               <Route path="/graph">
                 <KnowledgeGraphPage projectId={projectId} />
+              </Route>
+              {/* validation admin */}
+              <Route path="/validation">
+                <ValidationAdminPage projectId={projectId} />
               </Route>
               {/* default: overview */}
               <Route>

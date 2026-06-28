@@ -8,6 +8,7 @@ import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import Onboarding from "./pages/Onboarding";
 import ProjectWorkspace from "./pages/ProjectWorkspace";
+import ValidationReviewPortal from "./pages/ValidationReviewPortal";
 
 function Router() {
   return (
@@ -15,6 +16,8 @@ function Router() {
       <Route path="/" component={Home} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/projects/:id/onboarding" component={Onboarding} />
+      {/* Sandboxed Review Portal — no auth, no nav */}
+      <Route path="/review/:token" component={ValidationReviewPortal} />
       {/* All project sub-routes handled inside ProjectWorkspace via nested Router base */}
       <Route path="/projects/:id/*" component={ProjectWorkspace} />
       <Route path="/projects/:id" component={ProjectWorkspace} />

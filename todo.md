@@ -457,3 +457,41 @@
 ## Skip Document Feature (Round 45)
 - [x] Add "Skip Document" button/action to Classic mode (jumps to next doc without reviewing)
 - [x] Add "Skip Document" button/action to Pyramid mode
+
+## Sandboxed Review Portal (Round 46)
+
+### Database & Schema
+- [x] Create validation_sessions table (id, projectId, title, createdAt, status: active/closed)
+- [x] Create validation_assignments table (id, sessionId, documentId, reviewerUsername, status: pending/in_progress/completed, assignedAt, completedAt)
+- [x] Create validation_reviews table (id, assignmentId, sessionId, documentId, reviewerUsername, lineIndex, lineText, verdict: correct/incorrect, timestamp)
+- [x] Run migration SQL
+
+### Server (tRPC Procedures)
+- [x] Public: getValidationSession (session info + assignment for username)
+- [x] Public: getNextAssignment (round-robin auto-assign doc to username, max 5 unique reviewers per doc)
+- [x] Public: submitLineVerdict (save correct/incorrect for a line)
+- [x] Public: completeAssignment (mark doc review done by this reviewer)
+- [x] Public: getReviewerProgress (stats for this reviewer in this session)
+- [x] Admin: createValidationSession (select docs, generate shareable link)
+- [x] Admin: getValidationStats (accuracy rates, reviewer breakdown, inter-rater agreement, error counts)
+- [x] Admin: closeValidationSession
+
+### Frontend — Sandboxed Review Portal
+- [x] Route: /review/:sessionId (completely sandboxed, no sidebar, no nav)
+- [x] Username gate (prompt on first visit, store in localStorage)
+- [x] Fixed-position orange highlight box (viewport) with lines scrolling through it
+- [x] Show ALL lines in white font, current line highlighted in orange box
+- [x] Filter: only show lines containing Arabic text (skip English headings/metadata)
+- [x] Only Correct / Incorrect buttons (no Edit)
+- [x] Mobile-optimized layout
+- [x] Progress indicator (docs completed / total assigned)
+- [x] Thank-you/completion screen when all assigned docs reviewed
+
+### Backport to Classic Quick Review
+- [x] Implement fixed-position orange highlight viewport in Classic Quick Review mode
+- [x] Show all following lines in white font (not just next 2 in grey)
+
+### Admin UI
+- [x] "Create Validation Session" flow in project settings (select docs, generate link)
+- [x] Validation stats dashboard (accuracy per doc, per line, reviewer breakdown, inter-rater agreement)
+- [x] Copy shareable link button

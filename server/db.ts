@@ -16,6 +16,9 @@ import {
   projectMembers, InsertProjectMember, ProjectMember,
   projectInvites, InsertProjectInvite, ProjectInvite,
   reviewSessions,
+  validationSessions,
+  validationAssignments,
+  validationReviews,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -1131,4 +1134,271 @@ export async function saveReviewSession(userId: number, projectId: number, data:
     }).returning({ id: reviewSessions.id });
     return row.id;
   }
+}
+
+// ─── Validation Portal Helpers ──────────────────────────────────────────────
+
+export async function createValidationSession(data: {
+  projectId: number;
+  title: string;
+  shareToken: string;
+  documentIds: number[];
+  reviewsPerDoc?: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [row] = await db.insert(validationSessions).values({
+    projectId: data.projectId,
+    title: data.title,
+    shareToken: data.shareToken,
+    totalDocs: data.documentIds.length,
+    reviewsPerDoc: data.reviewsPerDoc ?? 5,
+    documentIds: data.documentIds,
+  }).returning();
+  return row;
+}
+
+export async function getValidationSessionByToken(shareToken: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(validationSessions).where(eq(validationSessions.shareToken, shareToken)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getValidationSessionsByProject(projectId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(validationSessions).where(eq(validationSessions.projectId, projectId)).orderBy(validationSessions.createdAt);
+}
+
+export async function closeValidationSession(sessionId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(validationSessions).set({ status: "closed", closedAt: new Date() }).where(eq(validationSessions.id, sessionId));
+}
+
+export async function getNextAssignment(sessionId: number, reviewerUsername: string) {
+  const db = await getDb();
+  if (!db) return null;
+
+  // Get the session to know which docs are in it
+  const [session] = await db.select().from(validationSessions).where(eq(validationSessions.id, sessionId)).limit(1);
+  if (!session || session.status === "closed") return null;
+
+  const docIds = session.documentIds as number[];
+  const reviewsPerDoc = session.reviewsPerDoc;
+
+  // Check if this reviewer already has an in-progress assignment
+  const existing = await db.select().from(validationAssignments).where(
+    and(
+      eq(validationAssignments.sessionId, sessionId),
+      eq(validationAssignments.reviewerUsername, reviewerUsername),
+      eq(validationAssignments.status, "in_progress")
+    )
+  ).limit(1);
+  if (existing.length > 0) return existing[0];
+
+  // Get all assignments for this session to find which docs need more reviewers
+  const allAssignments = await db.select().from(validationAssignments).where(
+    eq(validationAssignments.sessionId, sessionId)
+  );
+
+  // Count unique reviewers per doc
+  const reviewerCountByDoc: Record<number, Set<string>> = {};
+  for (const docId of docIds) {
+    reviewerCountByDoc[docId] = new Set();
+  }
+  for (const a of allAssignments) {
+    if (reviewerCountByDoc[a.documentId]) {
+      reviewerCountByDoc[a.documentId].add(a.reviewerUsername);
+    }
+  }
+
+  // Find docs this reviewer hasn't been assigned yet AND that still need more reviewers
+  // Round-robin: pick the doc with fewest reviewers first
+  let bestDocId: number | null = null;
+  let bestCount = Infinity;
+  for (const docId of docIds) {
+    const reviewers = reviewerCountByDoc[docId];
+    if (reviewers.has(reviewerUsername)) continue; // already assigned
+    if (reviewers.size >= reviewsPerDoc) continue; // already has enough
+    if (reviewers.size < bestCount) {
+      bestCount = reviewers.size;
+      bestDocId = docId;
+    }
+  }
+
+  if (bestDocId === null) return null; // all docs fully assigned or this reviewer has done them all
+
+  // Create new assignment
+  const [assignment] = await db.insert(validationAssignments).values({
+    sessionId,
+    documentId: bestDocId,
+    reviewerUsername,
+  }).returning();
+  return assignment;
+}
+
+export async function getAssignmentById(assignmentId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(validationAssignments).where(eq(validationAssignments.id, assignmentId)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function submitLineVerdict(data: {
+  assignmentId: number;
+  sessionId: number;
+  documentId: number;
+  reviewerUsername: string;
+  lineIndex: number;
+  lineText: string;
+  verdict: "correct" | "incorrect";
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Insert the review
+  await db.insert(validationReviews).values({
+    assignmentId: data.assignmentId,
+    sessionId: data.sessionId,
+    documentId: data.documentId,
+    reviewerUsername: data.reviewerUsername,
+    lineIndex: data.lineIndex,
+    lineText: data.lineText,
+    verdict: data.verdict,
+  });
+
+  // Update assignment counters
+  const [assignment] = await db.select().from(validationAssignments).where(eq(validationAssignments.id, data.assignmentId)).limit(1);
+  if (assignment) {
+    const updates: Record<string, unknown> = {
+      linesReviewed: (assignment.linesReviewed ?? 0) + 1,
+    };
+    if (data.verdict === "correct") {
+      updates.correctCount = (assignment.correctCount ?? 0) + 1;
+    } else {
+      updates.incorrectCount = (assignment.incorrectCount ?? 0) + 1;
+    }
+    await db.update(validationAssignments).set(updates).where(eq(validationAssignments.id, data.assignmentId));
+  }
+}
+
+export async function completeAssignment(assignmentId: number, totalLines: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(validationAssignments).set({
+    status: "completed",
+    totalLines,
+    completedAt: new Date(),
+  }).where(eq(validationAssignments.id, assignmentId));
+}
+
+export async function getReviewerProgress(sessionId: number, reviewerUsername: string) {
+  const db = await getDb();
+  if (!db) return { completed: 0, inProgress: null, totalAvailable: 0 };
+
+  const assignments = await db.select().from(validationAssignments).where(
+    and(
+      eq(validationAssignments.sessionId, sessionId),
+      eq(validationAssignments.reviewerUsername, reviewerUsername)
+    )
+  );
+
+  const completed = assignments.filter(a => a.status === "completed").length;
+  const inProgress = assignments.find(a => a.status === "in_progress") ?? null;
+
+  // Total available = docs not yet fully assigned + docs already assigned to this reviewer
+  const [session] = await db.select().from(validationSessions).where(eq(validationSessions.id, sessionId)).limit(1);
+  const totalAvailable = session ? (session.documentIds as number[]).length : 0;
+
+  return { completed, inProgress, totalAvailable };
+}
+
+export async function getValidationStats(sessionId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [session] = await db.select().from(validationSessions).where(eq(validationSessions.id, sessionId)).limit(1);
+  if (!session) return null;
+
+  const assignments = await db.select().from(validationAssignments).where(eq(validationAssignments.sessionId, sessionId));
+  const reviews = await db.select().from(validationReviews).where(eq(validationReviews.sessionId, sessionId));
+
+  // Per-doc stats
+  const docStats: Record<number, { correct: number; incorrect: number; reviewers: Set<string> }> = {};
+  for (const r of reviews) {
+    if (!docStats[r.documentId]) {
+      docStats[r.documentId] = { correct: 0, incorrect: 0, reviewers: new Set() };
+    }
+    docStats[r.documentId].reviewers.add(r.reviewerUsername);
+    if (r.verdict === "correct") docStats[r.documentId].correct++;
+    else docStats[r.documentId].incorrect++;
+  }
+
+  // Per-reviewer stats
+  const reviewerStats: Record<string, { docsCompleted: number; linesReviewed: number; correctCount: number; incorrectCount: number }> = {};
+  for (const a of assignments) {
+    if (!reviewerStats[a.reviewerUsername]) {
+      reviewerStats[a.reviewerUsername] = { docsCompleted: 0, linesReviewed: 0, correctCount: 0, incorrectCount: 0 };
+    }
+    if (a.status === "completed") reviewerStats[a.reviewerUsername].docsCompleted++;
+    reviewerStats[a.reviewerUsername].linesReviewed += a.linesReviewed ?? 0;
+    reviewerStats[a.reviewerUsername].correctCount += a.correctCount ?? 0;
+    reviewerStats[a.reviewerUsername].incorrectCount += a.incorrectCount ?? 0;
+  }
+
+  // Inter-rater agreement: for each line that has multiple reviews, check if they agree
+  const lineVerdicts: Record<string, string[]> = {}; // key = `${docId}-${lineIndex}`
+  for (const r of reviews) {
+    const key = `${r.documentId}-${r.lineIndex}`;
+    if (!lineVerdicts[key]) lineVerdicts[key] = [];
+    lineVerdicts[key].push(r.verdict);
+  }
+  let agreementCount = 0;
+  let multiReviewedLines = 0;
+  for (const verdicts of Object.values(lineVerdicts)) {
+    if (verdicts.length >= 2) {
+      multiReviewedLines++;
+      const allSame = verdicts.every(v => v === verdicts[0]);
+      if (allSame) agreementCount++;
+    }
+  }
+  const interRaterAgreement = multiReviewedLines > 0 ? agreementCount / multiReviewedLines : null;
+
+  // Overall accuracy
+  const totalCorrect = reviews.filter(r => r.verdict === "correct").length;
+  const totalIncorrect = reviews.filter(r => r.verdict === "incorrect").length;
+  const totalReviews = reviews.length;
+  const overallAccuracy = totalReviews > 0 ? totalCorrect / totalReviews : null;
+
+  return {
+    session,
+    totalReviews,
+    totalCorrect,
+    totalIncorrect,
+    overallAccuracy,
+    interRaterAgreement,
+    multiReviewedLines,
+    docsCompleted: Object.values(docStats).filter(d => d.reviewers.size >= session.reviewsPerDoc).length,
+    totalDocs: session.totalDocs,
+    uniqueReviewers: new Set(assignments.map(a => a.reviewerUsername)).size,
+    docStats: Object.entries(docStats).map(([docId, s]) => ({
+      documentId: Number(docId),
+      correct: s.correct,
+      incorrect: s.incorrect,
+      reviewerCount: s.reviewers.size,
+      accuracy: (s.correct + s.incorrect) > 0 ? s.correct / (s.correct + s.incorrect) : null,
+    })),
+    reviewerStats: Object.entries(reviewerStats).map(([username, s]) => ({
+      username,
+      ...s,
+    })),
+  };
+}
+
+export async function getReviewsForAssignment(assignmentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(validationReviews).where(eq(validationReviews.assignmentId, assignmentId)).orderBy(validationReviews.lineIndex);
 }
