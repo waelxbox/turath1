@@ -3,7 +3,7 @@ import { useParams, useLocation, Router, Route, Switch } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { getLoginUrl } from "@/const";
-import { Loader2, BookOpen, Upload, Eye, Download, Settings, ArrowLeft, ChevronRight, MessageSquare, Search, Network, Gamepad2, Menu, X, ClipboardCheck } from "lucide-react";
+import { Loader2, BookOpen, Upload, Eye, Download, Settings, ArrowLeft, ChevronRight, MessageSquare, Search, Network, Gamepad2, Menu, X, ClipboardCheck, Microscope } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import UploadPage from "./project/UploadPage";
 import ReviewPage from "./project/ReviewPage";
@@ -17,6 +17,7 @@ import EntityDirectoryPage from "./project/EntityDirectoryPage";
 import EntityMergePage from "./project/EntityMergePage";
 import QuickReviewPage from "./project/QuickReviewPage";
 import ValidationAdminPage from "./project/ValidationAdminPage";
+import ResearchPage from "./project/ResearchPage";
 import { toast } from "sonner";
 
 type NavItem = {
@@ -90,6 +91,14 @@ function buildNavGroups(stats: { total: number; reviewed: number; needsReview: n
           path: "/entities",
           disabled: !hasReviewed,
           disabledReason: "Approve documents to discover entities",
+        },
+        {
+          id: "research",
+          label: "Codex",
+          icon: Microscope,
+          path: "/research",
+          disabled: !hasReviewed,
+          disabledReason: "Approve documents to enable Codex",
         },
       ],
     },
@@ -410,6 +419,10 @@ function WorkspaceInner({
               </Route>
               <Route path="/graph">
                 <KnowledgeGraphPage projectId={projectId} />
+              </Route>
+              {/* research agent (codex) */}
+              <Route path="/research">
+                <ResearchPage projectId={projectId} />
               </Route>
               {/* validation admin */}
               <Route path="/validation">

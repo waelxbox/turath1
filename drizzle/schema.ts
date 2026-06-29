@@ -502,3 +502,23 @@ export const validationReviews = pgTable("validation_reviews", {
 
 export type ValidationReview = typeof validationReviews.$inferSelect;
 export type InsertValidationReview = typeof validationReviews.$inferInsert;
+
+// ─── Research Conversations (Codex Agent) ──────────────────────────────────
+// Stores multi-turn research conversations with the Codex agent per project.
+
+export const researchConversations = pgTable("research_conversations", {
+  id: serial("id").primaryKey(),
+  projectId: integer("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  userId: integer("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 512 }).notNull().default("New Research"),
+  messages: jsonb("messages").notNull().default("[]"), // Array of { role, content, toolCalls?, toolResults?, visualizations? }
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("rc_projectId_idx").on(t.projectId),
+  index("rc_userId_idx").on(t.userId),
+  index("rc_projectId_userId_idx").on(t.projectId, t.userId),
+]);
+
+export type ResearchConversation = typeof researchConversations.$inferSelect;
+export type InsertResearchConversation = typeof researchConversations.$inferInsert;

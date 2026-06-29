@@ -68,7 +68,8 @@ import { generateMergeSuggestions, executeMerge, rejectMerge, skipMerge, process
 import { invokeLLM } from "./_core/llm";
 import { seedDemoProject } from "./demoSeed";
 import { awardXp, getUserStats, getLeaderboard, maybeAwardStreakBonus, XP_VALUES, xpProgressInLevel } from "./gamification";
-import { getReviewSession, saveReviewSession, createValidationSession, getValidationSessionByToken, getValidationSessionsByProject, closeValidationSession, getNextAssignment, getAssignmentById, submitLineVerdict, completeAssignment, getReviewerProgress, getValidationStats, getReviewsForAssignment } from "./db";
+import { getReviewSession, saveReviewSession, createValidationSession, getValidationSessionByToken, getValidationSessionsByProject, closeValidationSession, getNextAssignment, getAssignmentById, submitLineVerdict, completeAssignment, getReviewerProgress, getValidationStats, getReviewsForAssignment, getResearchConversations, getResearchConversation, createResearchConversation, updateResearchConversation, deleteResearchConversation } from "./db";
+import { runResearchAgent } from "./researchAgent";
 
 // ─── Auth Router ──────────────────────────────────────────────────────────────
 
@@ -2457,6 +2458,106 @@ const validationRouter = router({
     }),
 });
 
+// ─── Research Agent (Codex) Router ───────────────────────────────────────────
+
+const researchRouter = router({
+  /** Run a research query — the Codex agent processes the question with tools */
+  ask: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      question: z.string().min(1).max(8000),
+      conversationId: z.number().optional(),
+      history: z.array(z.object({
+        role: z.enum(["user", "assistant"]),
+        content: z.string(),
+      })).default([]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const result = await runResearchAgent({
+        projectId: input.projectId,
+        projectName: project.name,
+        question: input.question,
+        history: input.history,
+      });
+
+      // Auto-save to conversation
+      if (input.conversationId) {
+        const conv = await getResearchConversation(input.conversationId, ctx.user.id);
+        if (conv) {
+          const messages = (conv.messages as unknown[]) || [];
+          messages.push({ role: "user", content: input.question });
+          messages.push({
+            role: "assistant",
+            content: result.answer,
+            thinking: result.thinking,
+            visualizations: result.visualizations,
+            citations: result.citations,
+          });
+          await updateResearchConversation(input.conversationId, { messages });
+        }
+      }
+
+      return result;
+    }),
+
+  /** Create a new research conversation */
+  createConversation: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      title: z.string().max(512).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      const conv = await createResearchConversation({
+        projectId: input.projectId,
+        userId: ctx.user.id,
+        title: input.title || "New Research",
+        messages: [],
+      });
+      return conv;
+    }),
+
+  /** List all research conversations for this project */
+  getConversations: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      return getResearchConversations(input.projectId, ctx.user.id);
+    }),
+
+  /** Get a single conversation with full messages */
+  getConversation: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const conv = await getResearchConversation(input.id, ctx.user.id);
+      if (!conv) throw new TRPCError({ code: "NOT_FOUND" });
+      return conv;
+    }),
+
+  /** Update conversation title */
+  updateTitle: protectedProcedure
+    .input(z.object({ id: z.number(), title: z.string().min(1).max(512) }))
+    .mutation(async ({ ctx, input }) => {
+      const conv = await getResearchConversation(input.id, ctx.user.id);
+      if (!conv) throw new TRPCError({ code: "NOT_FOUND" });
+      await updateResearchConversation(input.id, { title: input.title });
+      return { success: true };
+    }),
+
+  /** Delete a conversation */
+  deleteConversation: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await deleteResearchConversation(input.id, ctx.user.id);
+      return { success: true };
+    }),
+});
+
 // ─── App Router ───────────────────────────────────────────────────────────────
 
 export const appRouter = router({
@@ -2476,6 +2577,7 @@ export const appRouter = router({
   gamification: gamificationRouter,
   reviewSession: reviewSessionRouter,
   validation: validationRouter,
+  research: researchRouter,
 });
 
 export type AppRouter = typeof appRouter;

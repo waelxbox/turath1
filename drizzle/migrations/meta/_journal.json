@@ -50,6 +50,13 @@
       "when": 1782423426541,
       "tag": "0006_wide_green_goblin",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782731757914,
+      "tag": "0007_spooky_scarecrow",
+      "breakpoints": true
     }
   ]
 }

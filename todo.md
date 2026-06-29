@@ -524,3 +524,27 @@
 - [x] Ensure generated prompts align with how the transcription engine actually processes them
 - [x] Robust JSON parser handles malformed LLM responses (reasoning outside object, markdown fences)
 - [x] Model name post-processing: Arabic handwriting always gets gemini-3.1-pro-preview
+
+## Features (Round 48) — Research Agent ("Codex")
+
+### Database
+- [x] Create research_conversations table (id, projectId, userId, title, messages JSON, createdAt, updatedAt)
+
+### Server — Research Agent Backend
+- [x] Build researchAgent.ts — multi-step tool-use agent loop with invokeLLM
+- [x] Tool: search_archive — full-text + metadata search across project documents
+- [x] Tool: aggregate_data — SQL GROUP BY queries (trends over time, counts by field)
+- [x] Tool: extract_entities — pull names/places/commodities from transcriptions
+- [x] Tool: web_search — external research via Manus data API
+- [x] Agent streaming: stream intermediate thinking steps (tool calls, results) to frontend
+- [x] Final synthesis: structured report with citations (internal doc IDs + external URLs)
+- [x] tRPC endpoints: research.ask (streaming), research.getConversations, research.getConversation, research.deleteConversation
+
+### Frontend — Research Page
+- [x] Build /research route within ProjectWorkspace
+- [x] Chat interface with message input and conversation history
+- [x] "Thinking" panel showing agent tool calls in progress (which docs queried, what sources pulled)
+- [x] Visualization rendering: Recharts for time series/bar charts, react-force-graph for networks
+- [x] Report output with clickable internal doc citations + external source URLs
+- [x] Conversation list sidebar (past research sessions)
+- [x] Add Research nav item to project workspace sidebar

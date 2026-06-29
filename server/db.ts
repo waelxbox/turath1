@@ -19,6 +19,7 @@ import {
   validationSessions,
   validationAssignments,
   validationReviews,
+  researchConversations, ResearchConversation, InsertResearchConversation,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -1402,4 +1403,57 @@ export async function getReviewsForAssignment(assignmentId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(validationReviews).where(eq(validationReviews.assignmentId, assignmentId)).orderBy(validationReviews.lineIndex);
+}
+
+// ─── Research Conversations (Codex Agent) ──────────────────────────────────
+
+export async function getResearchConversations(projectId: number, userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    id: researchConversations.id,
+    title: researchConversations.title,
+    createdAt: researchConversations.createdAt,
+    updatedAt: researchConversations.updatedAt,
+  }).from(researchConversations)
+    .where(and(eq(researchConversations.projectId, projectId), eq(researchConversations.userId, userId)))
+    .orderBy(desc(researchConversations.updatedAt));
+}
+
+export async function getResearchConversation(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(researchConversations)
+    .where(and(eq(researchConversations.id, id), eq(researchConversations.userId, userId)))
+    .limit(1);
+  return rows[0] || null;
+}
+
+export async function createResearchConversation(data: { projectId: number; userId: number; title: string; messages: unknown[] }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [row] = await db.insert(researchConversations).values({
+    projectId: data.projectId,
+    userId: data.userId,
+    title: data.title,
+    messages: data.messages,
+  }).returning();
+  return row;
+}
+
+export async function updateResearchConversation(id: number, data: { title?: string; messages?: unknown[] }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const updates: Record<string, unknown> = { updatedAt: new Date() };
+  if (data.title !== undefined) updates.title = data.title;
+  if (data.messages !== undefined) updates.messages = data.messages;
+  await db.update(researchConversations).set(updates).where(eq(researchConversations.id, id));
+}
+
+export async function deleteResearchConversation(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(researchConversations).where(
+    and(eq(researchConversations.id, id), eq(researchConversations.userId, userId))
+  );
 }
