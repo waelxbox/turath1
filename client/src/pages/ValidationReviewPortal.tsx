@@ -421,7 +421,7 @@ function ReviewInterface({
   } | null>(null);
   const [lines, setLines] = useState<{ index: number; text: string }[]>([]);
   const [reviewedVerdicts, setReviewedVerdicts] = useState<
-    Record<number, "correct" | "incorrect">
+    Record<number, "correct" | "incorrect" | "skipped">
   >({});
 
   const loadNextAssignment = useCallback(async () => {
@@ -439,9 +439,9 @@ function ReviewInterface({
       setLines(result.lines);
       setShowFullContext(false);
       // Restore already-reviewed lines
-      const existing: Record<number, "correct" | "incorrect"> = {};
+      const existing: Record<number, "correct" | "incorrect" | "skipped"> = {};
       for (const r of result.existingReviews) {
-        existing[r.lineIndex] = r.verdict as "correct" | "incorrect";
+        existing[r.lineIndex] = r.verdict as "correct" | "incorrect" | "skipped";
       }
       setReviewedVerdicts(existing);
       // Start from first unreviewed line
@@ -459,7 +459,7 @@ function ReviewInterface({
     loadNextAssignment();
   }, []);
 
-  const handleVerdict = async (verdict: "correct" | "incorrect") => {
+  const handleVerdict = async (verdict: "correct" | "incorrect" | "skipped") => {
     if (!assignment || isSubmitting || currentLineIdx >= lines.length) return;
     setIsSubmitting(true);
 
@@ -734,6 +734,13 @@ function ReviewInterface({
           >
             <XCircle className="w-5 h-5" />
             Incorrect
+          </button>
+          <button
+            onClick={() => handleVerdict("skipped")}
+            disabled={isSubmitting}
+            className="py-3.5 px-4 bg-neutral-700/30 hover:bg-neutral-700/50 border border-neutral-600/50 text-neutral-400 font-medium rounded-xl transition-colors flex items-center justify-center gap-2 active:scale-95 text-sm"
+          >
+            Skip
           </button>
           <button
             onClick={() => handleVerdict("correct")}

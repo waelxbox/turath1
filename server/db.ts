@@ -1253,7 +1253,7 @@ export async function submitLineVerdict(data: {
   reviewerUsername: string;
   lineIndex: number;
   lineText: string;
-  verdict: "correct" | "incorrect";
+  verdict: "correct" | "incorrect" | "skipped";
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1277,9 +1277,10 @@ export async function submitLineVerdict(data: {
     };
     if (data.verdict === "correct") {
       updates.correctCount = (assignment.correctCount ?? 0) + 1;
-    } else {
+    } else if (data.verdict === "incorrect") {
       updates.incorrectCount = (assignment.incorrectCount ?? 0) + 1;
     }
+    // 'skipped' does not increment correct or incorrect counts
     await db.update(validationAssignments).set(updates).where(eq(validationAssignments.id, data.assignmentId));
   }
 }

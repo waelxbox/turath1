@@ -2307,7 +2307,7 @@ const validationRouter = router({
       reviewerUsername: z.string().min(1),
       lineIndex: z.number(),
       lineText: z.string(),
-      verdict: z.enum(["correct", "incorrect"]),
+      verdict: z.enum(["correct", "incorrect", "skipped"]),
     }))
     .mutation(async ({ input }) => {
       await submitLineVerdict(input);

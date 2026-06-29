@@ -502,3 +502,5 @@
 
 ### Document Status Management
 - [x] Allow changing document status to any valid status (pending, processing, needs_review, reviewed, flagged, error) from the UI
+
+- [x] Add "Skip" button to validation review portal for illegible/unclear lines — stores as its own verdict category, never returns to reviewer

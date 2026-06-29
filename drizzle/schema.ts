@@ -481,7 +481,7 @@ export type InsertValidationAssignment = typeof validationAssignments.$inferInse
 // ─── Validation Reviews (Line-Level Verdicts) ───────────────────────────────
 // Each row = one reviewer's verdict on one line of one document.
 
-export const validationVerdictEnum = pgEnum("validation_verdict", ["correct", "incorrect"]);
+export const validationVerdictEnum = pgEnum("validation_verdict", ["correct", "incorrect", "skipped"]);
 
 export const validationReviews = pgTable("validation_reviews", {
   id: serial("id").primaryKey(),
