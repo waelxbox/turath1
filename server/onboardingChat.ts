@@ -114,6 +114,23 @@ export async function processOnboardingChat(
 /**
  * Generate the final config from the conversation history.
  * This takes the full chat context and produces a structured GeneratedConfig.
+ * 
+ * CRITICAL ALIGNMENT WITH TRANSCRIPTION ENGINE:
+ * - Pass 1 (systemPrompt): Receives the document IMAGE + glossary appended at runtime.
+ *   Must produce PLAIN TEXT (verbatim line-by-line transcription). NOT JSON.
+ *   The engine reads the raw string output directly.
+ * 
+ * - Pass 2 (pass2Prompt): Receives the PLAIN TEXT from Pass 1 (no image).
+ *   Must produce structured JSON matching the jsonSchema field names exactly.
+ *   The engine enforces the schema via response_format (json_schema).
+ *   Array fields become {type: "array", items: {type: "string"}} — flat string arrays only.
+ * 
+ * - jsonSchema: Defines the structured output fields. Each field is either:
+ *   string, number, boolean, or array (of strings). NO nested objects.
+ * 
+ * - glossary: Gets auto-appended to Pass 1 prompt at runtime. Should contain
+ *   actual abbreviations/shorthand/terms the AI will encounter in the handwriting,
+ *   NOT concept definitions.
  */
 export async function generateConfigFromChat(
   messages: ChatMessage[],
@@ -130,26 +147,80 @@ export async function generateConfigFromChat(
     .filter(m => m.imageUrls && m.imageUrls.length > 0)
     .flatMap(m => m.imageUrls!);
 
-  // Helper to parse LLM JSON response
+  // Helper to parse LLM JSON response — handles common malformations
   function parseLLMJson(raw: string): any {
-    const cleaned = raw.replace(/^```(?:json)?\s*/m, "").replace(/\s*```$/m, "").trim();
-    return JSON.parse(cleaned);
+    // Remove markdown fences
+    let cleaned = raw.replace(/^```(?:json)?\s*/gm, "").replace(/\s*```/gm, "").trim();
+    
+    // Try direct parse first
+    try {
+      return JSON.parse(cleaned);
+    } catch {
+      // Common issue: LLM puts extra content after the JSON object
+      // Find the outermost balanced {} or []
+      let braceCount = 0;
+      let start = -1;
+      let end = -1;
+      for (let i = 0; i < cleaned.length; i++) {
+        if (cleaned[i] === '{') {
+          if (start === -1) start = i;
+          braceCount++;
+        } else if (cleaned[i] === '}') {
+          braceCount--;
+          if (braceCount === 0 && start !== -1) {
+            end = i;
+            break;
+          }
+        }
+      }
+      if (start !== -1 && end !== -1) {
+        const jsonStr = cleaned.substring(start, end + 1);
+        try {
+          const parsed = JSON.parse(jsonStr);
+          // Check if there's a "reasoning" field after the object that we missed
+          const remainder = cleaned.substring(end + 1).trim();
+          const reasoningMatch = remainder.match(/"reasoning"\s*:\s*"([^"]*)"/);
+          if (reasoningMatch && !parsed.reasoning) {
+            parsed.reasoning = reasoningMatch[1];
+          }
+          return parsed;
+        } catch {
+          // Last resort: try to fix common issues
+          throw new Error("Could not parse JSON from LLM response");
+        }
+      }
+      throw new Error("No JSON object found in response");
+    }
   }
 
   // --- STEP 1: Generate prompts (systemPrompt, pass2Prompt, pipelineType, modelName) ---
-  const promptGenSystem = `You are an expert AI system designer for archival document transcription pipelines.
-Generate ONLY the prompt configuration. Output a JSON object with exactly these keys:
-- pipelineType: "single_pass" or "two_pass"
-- modelName: "gemini-3.1-pro-preview" (for Arabic/RTL) or "gemini-2.5-flash" (for others)
-- systemPrompt: The transcription rules (expert persona + instructions). For two_pass, this is Pass 1 (raw transcription only).
-- pass2Prompt: For two_pass only — instructions for metadata extraction. For single_pass, set to null.
-- reasoning: 2-3 sentence explanation.
+  const promptGenSystem = `You are an expert AI system designer for TURATH, an archival document transcription platform.
 
-Rules:
-- systemPrompt must NEVER contain field definitions or glossary terms
-- For Arabic: use gemini-3.1-pro-preview and two_pass
-- For two_pass: Pass 1 focuses on faithful transcription, Pass 2 extracts structured metadata
-- pass2Prompt should list the fields to extract with clear instructions
+CRITICAL: You must understand how the transcription engine works:
+
+PASS 1 (systemPrompt):
+- The AI receives a DOCUMENT IMAGE + the system prompt (with glossary auto-appended at runtime)
+- The AI must output PLAIN TEXT — a verbatim line-by-line transcription
+- NOT JSON. Just raw text with line breaks preserved from the manuscript.
+- The system prompt should define: expert persona, transcription rules, how to handle illegible text, abbreviations, special characters
+- DO NOT include "Output ONLY valid JSON" in the system prompt — Pass 1 outputs plain text
+- DO NOT list field names or schema in the system prompt
+- DO NOT list glossary terms in the system prompt (they are auto-appended at runtime)
+
+PASS 2 (pass2Prompt):
+- The AI receives the PLAIN TEXT from Pass 1 (no image) and must output structured JSON
+- The pass2Prompt must instruct the AI to extract specific fields from the transcription
+- List each field name with a dash and clear extraction instructions
+- The output JSON schema is enforced separately by the engine — the pass2Prompt just guides the AI
+- Array fields are FLAT arrays of strings (e.g., ["item1", "item2"]), NOT arrays of objects
+- End with: "Output the extracted information as a JSON object."
+
+Generate a JSON object with exactly these keys:
+- pipelineType: "two_pass" (for documents needing transcription + metadata extraction) or "single_pass" (for simple transcription-only)
+- modelName: "gemini-3.1-pro-preview" (for Arabic/RTL handwriting) or "gemini-2.5-flash" (for printed/other)
+- systemPrompt: Pass 1 instructions (transcription rules ONLY, plain text output, NO JSON instructions, NO field lists)
+- pass2Prompt: Pass 2 instructions (metadata extraction from the raw transcription, list fields to extract with clear instructions for each)
+- reasoning: 2-3 sentence explanation
 
 Output ONLY valid JSON. No markdown fences.`;
 
@@ -169,26 +240,70 @@ Output ONLY valid JSON. No markdown fences.`;
     promptConfig = { pipelineType: "two_pass", modelName: "gemini-3.1-pro-preview", systemPrompt: "", pass2Prompt: null, reasoning: "Parse error, using defaults." };
   }
 
+  // Post-process: fix model name — Arabic/RTL handwriting should always use gemini-3.1-pro-preview
+  if (promptConfig.modelName && !promptConfig.modelName.includes("gemini-3.1-pro") && !promptConfig.modelName.includes("gemini-2.5-flash")) {
+    // If the model is not one of our supported ones, default based on conversation content
+    const hasArabic = conversationSummary.toLowerCase().includes("arabic") || conversationSummary.toLowerCase().includes("عربي");
+    promptConfig.modelName = hasArabic ? "gemini-3.1-pro-preview" : "gemini-2.5-flash";
+  }
+  // Also fix: if conversation mentions Arabic handwriting but model is flash, upgrade
+  const mentionsArabicHandwriting = conversationSummary.toLowerCase().includes("arabic") && 
+    (conversationSummary.toLowerCase().includes("handwrit") || conversationSummary.toLowerCase().includes("naskh") || conversationSummary.toLowerCase().includes("manuscript"));
+  if (mentionsArabicHandwriting && promptConfig.modelName.includes("flash")) {
+    promptConfig.modelName = "gemini-3.1-pro-preview";
+  }
+
+  // Post-process: ensure Pass 1 prompt does NOT contain JSON output instructions
+  if (promptConfig.systemPrompt) {
+    // Remove any "Output ONLY valid JSON" or similar instructions that don't belong in Pass 1
+    promptConfig.systemPrompt = promptConfig.systemPrompt
+      .replace(/output\s+only\s+valid\s+json[^.]*\.?/gi, "")
+      .replace(/no\s+markdown\s+fences[^.]*\.?/gi, "")
+      .replace(/return\s+(?:the\s+)?(?:result|output)\s+as\s+(?:a\s+)?json[^.]*\.?/gi, "")
+      .trim();
+  }
+
+  // Post-process: ensure Pass 2 prompt references flat arrays, not nested objects
+  if (promptConfig.pass2Prompt) {
+    // Add a reminder about flat arrays if not already present
+    if (!promptConfig.pass2Prompt.includes("flat array") && !promptConfig.pass2Prompt.includes("array of strings")) {
+      promptConfig.pass2Prompt += "\n\nIMPORTANT: All array fields must be flat arrays of strings (e.g., [\"item1\", \"item2\"]). Do NOT use nested objects or arrays of objects.";
+    }
+    // Ensure it ends with JSON output instruction
+    if (!promptConfig.pass2Prompt.toLowerCase().includes("output") || !promptConfig.pass2Prompt.toLowerCase().includes("json")) {
+      promptConfig.pass2Prompt += "\n\nOutput the extracted information as a JSON object.";
+    }
+  }
+
   // --- STEP 2: Generate jsonSchema ---
-  const schemaGenSystem = `You are an expert metadata schema designer for archival document collections.
+  const schemaGenSystem = `You are an expert metadata schema designer for TURATH, an archival document transcription platform.
+
+CRITICAL RULES FOR THE SCHEMA:
+1. Each field maps to a JSON output field. The field NAME you choose here is the EXACT key the AI will output.
+2. Supported types:
+   - "string": any text value (short or long)
+   - "number": numeric values
+   - "boolean": true/false
+   - "array": a FLAT array of strings. NOT an array of objects. Example: ["flour", "sugar", "eggs"]
+3. NO nested objects. If you need "ingredients with measurements", make it a SINGLE array field where each string includes the measurement, e.g., ["2 cups flour", "1 tsp salt"].
+4. displayHint guides the UI: "short_text" (one-liner), "long_text" (multi-line textarea), "tag_list" (array as tags)
+5. MUST include a "full_arabic_transcription" field (type: "string", nullable: false, displayHint: "long_text") — this is where the complete transcription goes
+6. MUST include a "full_english_translation" field (type: "string", nullable: true, displayHint: "long_text") — for the English translation
+7. Field names should use snake_case (e.g., "recipe_dish_title", "publication_date")
+
 Generate a JSON object where each key is a field name and each value is an object with:
 - type: "string" | "number" | "boolean" | "array"
-- description: what this field captures
+- description: what this field captures (be specific about format expectations, e.g., "YYYY-MM-DD format")
 - nullable: true or false
 - displayHint: "short_text" | "long_text" | "tag_list"
 
-Rules:
-- MUST include these Dublin Core fields: title, creator, date, description, subject, type, source, transcription
-- Add collection-specific fields based on the conversation
-- Use "long_text" for transcription/translation fields, "tag_list" for arrays, "short_text" for identifiers
-- Include at least 10 fields total
-- The "transcription" field should always be type "string", nullable false, displayHint "long_text"
+Include at least 8 fields total. Include Dublin Core concepts (title, creator, date, type, source) plus collection-specific fields.
 
 Output ONLY a flat JSON object (the schema). No wrapper key, no markdown fences. Example:
-{"title":{"type":"string","description":"Document title","nullable":true,"displayHint":"short_text"},"transcription":{"type":"string","description":"Full Arabic transcription","nullable":false,"displayHint":"long_text"}}`;
+{"full_arabic_transcription":{"type":"string","description":"The complete Arabic transcription of the document, preserving original line breaks","nullable":false,"displayHint":"long_text"},"title":{"type":"string","description":"Document title or headline","nullable":true,"displayHint":"short_text"},"ingredients":{"type":"array","description":"List of ingredients with measurements as strings, e.g. '2 cups flour'","nullable":true,"displayHint":"tag_list"}}`;
 
   const schemaUserContent: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail: "high" } }> = [
-    { type: "text", text: `Based on this conversation about a document collection, generate the metadata schema:\n\nCONVERSATION:\n${conversationSummary}\n\nGenerate the complete field schema as a flat JSON object.` },
+    { type: "text", text: `Based on this conversation about a document collection, generate the metadata schema.\n\nCONVERSATION:\n${conversationSummary}\n\nGenerate the complete field schema as a flat JSON object. Remember: array fields are FLAT arrays of strings only, include full_arabic_transcription and full_english_translation fields.` },
   ];
   for (const url of allImageUrls.slice(0, 3)) {
     schemaUserContent.push({ type: "image_url", image_url: { url, detail: "high" } });
@@ -206,37 +321,69 @@ Output ONLY a flat JSON object (the schema). No wrapper key, no markdown fences.
   let jsonSchema: GeneratedConfig["jsonSchema"];
   try {
     jsonSchema = parseLLMJson(schemaRaw);
+    // Validate: ensure no nested objects in array fields
+    for (const [key, field] of Object.entries(jsonSchema)) {
+      if ((field as any).type === "array") {
+        // Force displayHint to tag_list for arrays
+        (field as any).displayHint = "tag_list";
+      }
+    }
+    // Ensure required fields exist
+    if (!jsonSchema.full_arabic_transcription) {
+      jsonSchema.full_arabic_transcription = { type: "string", description: "The complete Arabic transcription of the document", nullable: false, displayHint: "long_text" };
+    }
+    if (!jsonSchema.full_english_translation) {
+      jsonSchema.full_english_translation = { type: "string", description: "Full English translation of the Arabic transcription", nullable: true, displayHint: "long_text" };
+    }
   } catch {
-    // Fallback: basic Dublin Core schema
+    // Fallback: basic schema
     jsonSchema = {
+      full_arabic_transcription: { type: "string", description: "The complete Arabic transcription of the document", nullable: false, displayHint: "long_text" },
+      full_english_translation: { type: "string", description: "Full English translation of the Arabic transcription", nullable: true, displayHint: "long_text" },
       title: { type: "string", description: "Document title", nullable: true, displayHint: "short_text" },
       creator: { type: "string", description: "Creator or author", nullable: true, displayHint: "short_text" },
-      date: { type: "string", description: "Date of the document", nullable: true, displayHint: "short_text" },
-      description: { type: "string", description: "Brief description", nullable: true, displayHint: "long_text" },
-      subject: { type: "string", description: "Subject or topic", nullable: true, displayHint: "short_text" },
+      date: { type: "string", description: "Date of the document in YYYY-MM-DD format", nullable: true, displayHint: "short_text" },
       type: { type: "string", description: "Document type", nullable: true, displayHint: "short_text" },
-      source: { type: "string", description: "Source of the document", nullable: true, displayHint: "short_text" },
-      transcription: { type: "string", description: "Full transcription", nullable: false, displayHint: "long_text" },
+      source: { type: "string", description: "Source or origin", nullable: true, displayHint: "short_text" },
+      notes: { type: "string", description: "Additional observations", nullable: true, displayHint: "long_text" },
     };
   }
 
   // --- STEP 3: Generate glossary ---
-  const glossaryGenSystem = `You are a domain expert helping build a glossary for an archival transcription project.
-Generate a JSON object where each key is a term (in the original language or abbreviation) and each value is its definition/meaning in English.
+  // The glossary gets auto-appended to the Pass 1 system prompt at runtime.
+  // It should contain ACTUAL terms the AI will encounter in the handwriting.
+  const glossaryGenSystem = `You are a domain expert helping build a transcription glossary for an archival project.
 
-Rules:
-- Include at least 8 terms
-- Focus on: abbreviations, historical terms, place names, measurement units, specialized vocabulary
-- Terms should be specific to the document collection described
-- Include common handwriting abbreviations if relevant
+CRITICAL: This glossary gets appended to the AI's transcription prompt at runtime to help it correctly read handwritten documents. Each entry should be:
+- KEY: The actual term, abbreviation, or shorthand as it appears in the handwriting (in the original script/language)
+- VALUE: What it means or how it should be transcribed
 
-Output ONLY a flat JSON object. No wrapper key, no markdown fences. Example:
-{"م.ك":"tablespoon (abbreviation)","م.ص":"teaspoon (abbreviation)"}`;
+GOOD glossary entries (actual terms the AI encounters):
+- "م.ك." → "ملعقة كبيرة (tablespoon)"
+- "م.ص." → "ملعقة صغيرة (teaspoon)"  
+- "ك." → "كوب (cup)"
+- "بسكويت بست فلورا" → "Biscotti Best Flora (brand name)"
+- "١/٢" → "نصف (half)"
+
+BAD glossary entries (concept definitions that don't help transcription):
+- "Arabic" → "Language of the original documents" (useless — the AI knows this)
+- "Egyptian" → "Cuisine origin" (useless — this is a metadata category, not a term)
+- "Measurements" → "Quantities or units" (useless — too vague)
+
+Focus on:
+- Abbreviations and shorthand used in the handwriting
+- Proper nouns (people, places, brands, publications)
+- Domain-specific terms the AI might misread or not know
+- Common handwriting conventions (crossed-out text markers, underline meanings)
+- Measurement units and their expansions
+
+Generate a JSON object where each key is a term (in the original script) and each value is its expansion/meaning.
+Include at least 10 entries. Output ONLY a flat JSON object. No wrapper key, no markdown fences.`;
 
   const glossaryResponse = await invokeLLM({
     messages: [
       { role: "system", content: glossaryGenSystem },
-      { role: "user", content: `Based on this conversation about a document collection, generate the domain glossary:\n\nCONVERSATION:\n${conversationSummary}\n\nGenerate the glossary as a flat JSON object.` },
+      { role: "user", content: `Based on this conversation about a document collection, generate the domain glossary. Focus on ACTUAL terms, abbreviations, and proper nouns that would appear in the handwriting — not concept definitions.\n\nCONVERSATION:\n${conversationSummary}\n\nGenerate the glossary as a flat JSON object.` },
     ],
   });
 
@@ -245,8 +392,34 @@ Output ONLY a flat JSON object. No wrapper key, no markdown fences. Example:
   let glossary: Record<string, string>;
   try {
     glossary = parseLLMJson(glossaryRaw);
+    // Filter out bad entries that are just concept definitions
+    const badKeys = ["Arabic", "Egyptian", "Measurements", "Ingredients list", "Newspaper Clipping", "Transcription notes"];
+    for (const bad of badKeys) {
+      delete glossary[bad];
+    }
   } catch {
     glossary = {};
+  }
+
+  // --- STEP 4: Cross-validate pass2Prompt against schema field names ---
+  // Ensure the pass2Prompt references the actual field names from the schema
+  const schemaFieldNames = Object.keys(jsonSchema);
+  if (promptConfig.pass2Prompt && schemaFieldNames.length > 0) {
+    // Check if the pass2Prompt already lists the fields
+    const mentionsFields = schemaFieldNames.filter(f => promptConfig.pass2Prompt!.includes(f));
+    if (mentionsFields.length < schemaFieldNames.length * 0.5) {
+      // The pass2Prompt doesn't reference enough schema fields — regenerate the field list section
+      const fieldInstructions = schemaFieldNames.map(name => {
+        const field = jsonSchema[name];
+        const typeNote = field.type === "array" ? " (flat array of strings)" : ` (${field.type})`;
+        const nullNote = field.nullable ? " If not found, set to null." : "";
+        return `– '${name}'${typeNote}: ${field.description}.${nullNote}`;
+      }).join("\n");
+
+      // Replace or append the field list in pass2Prompt
+      const basePrompt = promptConfig.pass2Prompt.split(/\n\n(?:Extract|Fields|Output)/i)[0] || promptConfig.pass2Prompt;
+      promptConfig.pass2Prompt = `${basePrompt.trim()}\n\nExtract the following fields from the transcription:\n${fieldInstructions}\n\nIMPORTANT: All array fields must be flat arrays of strings (e.g., ["2 cups flour", "1 tsp salt"]). Do NOT use nested objects.\n\nOutput the extracted information as a JSON object.`;
+    }
   }
 
   // --- Assemble final config ---
@@ -256,11 +429,12 @@ Output ONLY a flat JSON object. No wrapper key, no markdown fences. Example:
     systemPrompt: promptConfig.systemPrompt || "",
     pass2Prompt: promptConfig.pass2Prompt || undefined,
     jsonSchema: jsonSchema && Object.keys(jsonSchema).length > 0 ? jsonSchema : {
+      full_arabic_transcription: { type: "string", description: "Complete Arabic transcription", nullable: false, displayHint: "long_text" },
+      full_english_translation: { type: "string", description: "English translation", nullable: true, displayHint: "long_text" },
       title: { type: "string", description: "Document title", nullable: true, displayHint: "short_text" },
-      transcription: { type: "string", description: "Full transcription", nullable: false, displayHint: "long_text" },
     },
     glossary: glossary && Object.keys(glossary).length > 0 ? glossary : {},
-    postProcessing: [{ type: "illegible_marker", field: "transcription", marker: "[غير مقروء]" }],
+    postProcessing: [{ type: "illegible_marker", field: "full_arabic_transcription", marker: "[غير مقروء]" }],
     outputFormats: ["json", "csv"],
     reasoning: promptConfig.reasoning || "Generated from conversational onboarding.",
   };

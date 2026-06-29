@@ -516,3 +516,11 @@
 - [x] Frontend: "Apply to Project" action that saves config and redirects to upload page
 - [x] Replace old onboarding wizard route with new conversational flow
 - [x] Handle two-pass pipeline detection (AI suggests two-pass when appropriate)
+
+### Fix Onboarding Config Generation Quality
+- [x] Fix Pass 1 prompt generation: must produce clean line-by-line Arabic text (not JSON), preserve line breaks, handle abbreviations
+- [x] Fix Pass 2 prompt generation: must reference exact schema field names, output flat JSON matching schema, no nested objects for array fields
+- [x] Fix glossary generation: focus on actual abbreviations/shorthand/terms from handwriting, not concept definitions
+- [x] Ensure generated prompts align with how the transcription engine actually processes them
+- [x] Robust JSON parser handles malformed LLM responses (reasoning outside object, markdown fences)
+- [x] Model name post-processing: Arabic handwriting always gets gemini-3.1-pro-preview
