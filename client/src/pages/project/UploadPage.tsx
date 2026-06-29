@@ -175,7 +175,7 @@ export default function UploadPage({ projectId, project }: Props) {
       updateStatus(item.id, "done");
     });
 
-    const results = await runWithConcurrency(tasks, 3);
+    const results = await runWithConcurrency(tasks, 10);
 
     results.forEach((result, i) => {
       if (result.status === "rejected") {
