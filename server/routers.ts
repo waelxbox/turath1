@@ -1219,6 +1219,176 @@ const exportRouter = router({
         data: transcription.reviewedJson ?? transcription.rawJson,
       }));
     }),
+
+  /** Full TEI-XML corpus export — each document as a proper TEI element with inline entity markup */
+  teiXmlCorpus: protectedProcedure
+    .input(z.object({ projectId: z.number(), includeAll: z.boolean().default(false) }))
+    .query(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const { getEntitiesByProject, getDb } = await import("./db");
+      const { documentEntities, entities } = await import("../drizzle/schema");
+      const { eq, inArray } = await import("drizzle-orm");
+
+      const docs = input.includeAll
+        ? await getAllTranscriptions(input.projectId)
+        : await getReviewedTranscriptions(input.projectId);
+
+      // Get all entities for inline markup
+      const allEntities = await getEntitiesByProject(input.projectId);
+      const entityMap = new Map(allEntities.map(e => [e.id, e]));
+
+      // Get document-entity links for inline tagging
+      const db = (await getDb())!;
+      const docIds = docs.map(d => d.document.id);
+      const docEntityLinks = docIds.length > 0 ? await db
+        .select({
+          documentId: documentEntities.documentId,
+          entityId: documentEntities.entityId,
+          contextSnippet: documentEntities.contextSnippet,
+        })
+        .from(documentEntities)
+        .where(eq(documentEntities.projectId, input.projectId)) : [];
+
+      // Group entity links by document
+      const entitiesByDoc = new Map<number, Array<{ entityId: number; contextSnippet: string | null }>>();
+      for (const link of docEntityLinks) {
+        if (!entitiesByDoc.has(link.documentId)) entitiesByDoc.set(link.documentId, []);
+        entitiesByDoc.get(link.documentId)!.push(link);
+      }
+
+      const escXml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      const teiTagForType = (type: string) => {
+        switch (type) {
+          case "person": return "persName";
+          case "location": return "placeName";
+          case "organization": return "orgName";
+          default: return "name";
+        }
+      };
+
+      // Helper: attempt to tag entity names inline within text
+      const tagEntitiesInText = (text: string, docEntities: Array<{ entityId: number; contextSnippet: string | null }>) => {
+        if (!docEntities.length) return escXml(text);
+        // Sort entities by name length (longest first) to avoid partial matches
+        const entsToTag = docEntities
+          .map(de => entityMap.get(de.entityId))
+          .filter((e): e is NonNullable<typeof e> => !!e)
+          .sort((a, b) => b.name.length - a.name.length);
+
+        let result = text;
+        const replacements: Array<{ start: number; end: number; replacement: string }> = [];
+
+        for (const ent of entsToTag) {
+          const tag = teiTagForType(ent.type);
+          // Find all occurrences of entity name in text (case-insensitive)
+          const regex = new RegExp(ent.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+          let match;
+          while ((match = regex.exec(text)) !== null) {
+            // Check no overlap with existing replacements
+            const start = match.index;
+            const end = start + match[0].length;
+            const overlaps = replacements.some(r => (start < r.end && end > r.start));
+            if (!overlaps) {
+              replacements.push({
+                start,
+                end,
+                replacement: `<${tag} ref="#ent_${ent.id}">${escXml(match[0])}</${tag}>`,
+              });
+            }
+          }
+        }
+
+        // Apply replacements from end to start to preserve indices
+        replacements.sort((a, b) => b.start - a.start);
+        for (const r of replacements) {
+          result = result.slice(0, r.start) + r.replacement + result.slice(r.end);
+        }
+
+        // Escape any remaining untagged text segments
+        // Since we already inserted XML tags, we need a different approach:
+        // Re-build by escaping only the non-tagged parts
+        return result.replace(/&(?!amp;|lt;|gt;|quot;)/g, "&amp;").replace(/<(?!\/?(persName|placeName|orgName|name)[ >])/g, "&lt;");
+      };
+
+      // Build TEI-XML corpus
+      const lines: string[] = [
+        `<?xml version="1.0" encoding="UTF-8"?>`,
+        `<teiCorpus xmlns="http://www.tei-c.org/ns/1.0">`,
+        `  <teiHeader>`,
+        `    <fileDesc>`,
+        `      <titleStmt>`,
+        `        <title>${escXml(project.name)}</title>`,
+        `      </titleStmt>`,
+        `      <publicationStmt>`,
+        `        <p>Exported from TURATH on ${new Date().toISOString().split("T")[0]}</p>`,
+        `      </publicationStmt>`,
+        `      <sourceDesc>`,
+        `        <p>${docs.length} documents from project "${escXml(project.name)}"</p>`,
+        `      </sourceDesc>`,
+        `    </fileDesc>`,
+        `  </teiHeader>`,
+      ];
+
+      for (const { transcription, document } of docs) {
+        const json = (transcription.reviewedJson ?? transcription.rawJson) as Record<string, unknown> | null;
+        if (!json) continue;
+
+        const docEntities = entitiesByDoc.get(document.id) || [];
+
+        lines.push(`  <TEI xml:id="doc_${document.id}">`);
+        lines.push(`    <teiHeader>`);
+        lines.push(`      <fileDesc>`);
+        lines.push(`        <titleStmt><title>${escXml(document.filename)}</title></titleStmt>`);
+        lines.push(`        <publicationStmt><p/></publicationStmt>`);
+        lines.push(`        <sourceDesc>`);
+        lines.push(`          <p>Status: ${document.status}</p>`);
+        if (transcription.modelUsed) {
+          lines.push(`          <p>Model: ${escXml(transcription.modelUsed)}</p>`);
+        }
+        if (transcription.reviewedAt) {
+          lines.push(`          <p>Reviewed: ${transcription.reviewedAt.toISOString().split("T")[0]}</p>`);
+        }
+        lines.push(`        </sourceDesc>`);
+        lines.push(`      </fileDesc>`);
+        lines.push(`    </teiHeader>`);
+        lines.push(`    <text>`);
+        lines.push(`      <body>`);
+
+        // Output each field as a div with a label
+        for (const [fieldName, fieldValue] of Object.entries(json)) {
+          if (fieldValue === null || fieldValue === undefined) continue;
+          const valStr = Array.isArray(fieldValue)
+            ? fieldValue.join("; ")
+            : typeof fieldValue === "object"
+              ? JSON.stringify(fieldValue)
+              : String(fieldValue);
+
+          if (!valStr.trim()) continue;
+
+          // Tag entities inline in text content
+          const taggedContent = tagEntitiesInText(valStr, docEntities);
+
+          lines.push(`        <div type="field" n="${escXml(fieldName)}">`);
+          lines.push(`          <head>${escXml(fieldName)}</head>`);
+          lines.push(`          <p>${taggedContent}</p>`);
+          lines.push(`        </div>`);
+        }
+
+        lines.push(`      </body>`);
+        lines.push(`    </text>`);
+        lines.push(`  </TEI>`);
+      }
+
+      lines.push(`</teiCorpus>`);
+
+      return {
+        xml: lines.join("\n"),
+        filename: `${project.name.replace(/[^a-zA-Z0-9]/g, "_")}_corpus.xml`,
+        count: docs.length,
+      };
+    }),
 });
 
 // ─── Jobs Router ──────────────────────────────────────────────────────────────

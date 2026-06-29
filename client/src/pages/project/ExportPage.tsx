@@ -39,6 +39,11 @@ export default function ExportPage({ projectId, project }: Props) {
     { enabled: false }
   );
 
+  const { refetch: fetchTeiCorpus } = trpc.export.teiXmlCorpus.useQuery(
+    { projectId, includeAll },
+    { enabled: false }
+  );
+
   const { data: stats } = trpc.projects.stats.useQuery({ id: projectId });
 
   const docCount = includeAll ? (stats?.total ?? 0) : (stats?.reviewed ?? 0);
@@ -158,7 +163,55 @@ export default function ExportPage({ projectId, project }: Props) {
         </div>
       </div>
 
-      {/* TEI-XML Entity Export */}
+      {/* TEI-XML Corpus Export */}
+      <div className="mt-5 bg-card border border-border rounded-xl p-6 hover:border-primary/30 transition-colors">
+        <div className="flex items-start gap-4 mb-4">
+          <div className="w-10 h-10 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center flex-shrink-0">
+            <FileText className="w-5 h-5 text-amber-400" />
+          </div>
+          <div>
+            <h3 className="font-semibold mb-1">TEI-XML Corpus</h3>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Full TEI-XML corpus with each document wrapped in proper TEI structure (teiHeader + text/body).
+              Entity names are tagged inline with &lt;persName&gt;, &lt;placeName&gt;, &lt;orgName&gt; linked to authority IDs.
+              Ready for publication or import into digital humanities tools.
+            </p>
+          </div>
+        </div>
+        <div className="text-xs text-muted-foreground mb-4 space-y-1">
+          <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-400" /> Full teiCorpus structure with headers</div>
+          <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-400" /> Inline entity markup (persName, placeName, orgName)</div>
+          <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-400" /> Each schema field as a labeled &lt;div&gt; element</div>
+        </div>
+        <Button
+          className="w-full gap-2"
+          onClick={async () => {
+            setExporting("tei");
+            try {
+              const result = await fetchTeiCorpus();
+              if (result.data) {
+                const blob = new Blob([result.data.xml], { type: "application/xml" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = result.data.filename;
+                a.click();
+                URL.revokeObjectURL(url);
+                toast.success(`TEI-XML corpus exported (${result.data.count} documents)`);
+              }
+            } catch (err: any) {
+              toast.error(err.message || "Export failed");
+            }
+            setExporting(null);
+          }}
+          disabled={!!exporting || docCount === 0}
+        >
+          {exporting === "tei" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+          {exporting === "tei" ? "Exporting\u2026" : `Download TEI-XML Corpus (${docCount} docs)`}
+        </Button>
+      </div>
+
+      {/* TEI-XML Entity Authority File */}
       <div className="mt-5 bg-card border border-border rounded-xl p-6 hover:border-primary/30 transition-colors">
         <div className="flex items-start gap-4 mb-4">
           <div className="w-10 h-10 rounded-lg bg-purple-500/15 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
@@ -168,7 +221,7 @@ export default function ExportPage({ projectId, project }: Props) {
             <h3 className="font-semibold mb-1">TEI-XML Entity Authority File</h3>
             <p className="text-xs text-muted-foreground leading-relaxed">
               Export your named entity registry as a TEI-XML authority file. Each entity gets a unique numeric ID with all variant names (aliases),
-              document mentions, and type classification. Ideal for linking across digital humanities projects.
+              document mentions, and type classification. Companion file to the corpus export above.
             </p>
           </div>
         </div>
@@ -202,7 +255,7 @@ export default function ExportPage({ projectId, project }: Props) {
           disabled={!!exporting}
         >
           {exporting === "tei" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-          {exporting === "tei" ? "Exporting…" : "Download TEI-XML"}
+          {exporting === "tei" ? "Exporting\u2026" : "Download Entity Authority File"}
         </Button>
       </div>
     </div>

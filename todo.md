@@ -561,3 +561,9 @@
 ## Features (Round 49) — Export All Documents (including unreviewed)
 - [x] Update export endpoints (CSV, JSON, TEI-XML) to include all transcribed documents, not just reviewed
 - [x] Add filter toggle in export UI: "All transcribed" vs "Reviewed only"
+
+## Features (Round 50) — Full TEI-XML Transcription Export
+- [x] Add teiXmlCorpus export endpoint that wraps each document in proper TEI structure (teiHeader + text/body)
+- [x] Include inline entity markup (persName, placeName, orgName) linked to entity authority IDs
+- [x] Respect includeAll toggle (reviewed only vs all transcribed)
+- [x] Add TEI-XML Corpus export button to Export page alongside existing entity authority export
