@@ -16,7 +16,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent } from "@/components/ui/dropdown-menu";
 
 interface Props {
   projectId: number;
@@ -921,6 +921,16 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
     },
   });
 
+  const changeStatusMutation = trpc.documents.changeStatus.useMutation({
+    onSuccess: (result) => {
+      toast.success(`Status changed to ${result.status.replace("_", " ")}`);
+      utils.documents.listPaginated.invalidate();
+      utils.documents.list.invalidate({ projectId });
+      utils.projects.stats.invalidate({ id: projectId });
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
   // Determine active document
   const currentDocId = docIdProp
     ? parseInt(docIdProp)
@@ -1012,6 +1022,22 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
                       <DropdownMenuItem onClick={() => { setRenameDoc({ id: doc.id, filename: doc.filename }); setRenameValue(doc.filename); }}>
                         <Pencil className="w-3.5 h-3.5 mr-2" /> Rename
                       </DropdownMenuItem>
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                          <Filter className="w-3.5 h-3.5 mr-2" /> Change status
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent>
+                          {(["pending", "processing", "needs_review", "reviewed", "flagged", "error"] as const).map((s) => (
+                            <DropdownMenuItem
+                              key={s}
+                              disabled={doc.status === s}
+                              onClick={() => changeStatusMutation.mutate({ documentId: doc.id, projectId, status: s })}
+                            >
+                              <StatusBadge status={s} />
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
                       <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteDoc({ id: doc.id, filename: doc.filename })}>
                         <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
                       </DropdownMenuItem>

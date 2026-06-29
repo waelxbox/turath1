@@ -499,3 +499,6 @@
 ### Review Portal UX Enhancements (Round 47)
 - [x] Dynamic Magnifying Glass (Loupe) on document image — circular magnification follows cursor/finger, enlarges localized area
 - [x] "View Full Context" section below current line — show preceding/succeeding lines in white with bordered box on current, "View Full Context" expand button
+
+### Document Status Management
+- [x] Allow changing document status to any valid status (pending, processing, needs_review, reviewed, flagged, error) from the UI

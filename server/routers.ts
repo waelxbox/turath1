@@ -847,6 +847,22 @@ const documentsRouter = router({
       await renameDocument(input.documentId, input.projectId, input.newFilename);
       return { success: true, filename: input.newFilename };
     }),
+
+  changeStatus: protectedProcedure
+    .input(z.object({
+      documentId: z.number(),
+      projectId: z.number(),
+      status: z.enum(["pending", "processing", "needs_review", "reviewed", "flagged", "error"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role) throw new TRPCError({ code: "NOT_FOUND" });
+      if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN", message: "Viewers cannot change document status" });
+      const doc = await getDocumentById(input.documentId, input.projectId);
+      if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "Document not found" });
+      await updateDocumentStatus(input.documentId, input.status);
+      return { success: true, status: input.status };
+    }),
 });
 
 // ─── Transcriptions Router ────────────────────────────────────────────────────
