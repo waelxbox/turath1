@@ -1,0 +1,19 @@
+{
+  "query": "SELECT \"reviewedJson\" FROM transcriptions WHERE \"reviewedJson\" IS NOT NULL LIMIT 3;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute SELECT \"reviewedJson\" FROM transcriptions WHERE \"reviewedJson\" IS NOT NULL LIMIT 3;",
+  "rows": [
+    {
+      "reviewedJson": "reviewedJson"
+    },
+    {
+      "reviewedJson": "reviewedJson"
+    },
+    {
+      "reviewedJson": "reviewedJson"
+    }
+  ],
+  "messages": [],
+  "stdout": "reviewedJson\nreviewedJson\nreviewedJson\nreviewedJson\n",
+  "stderr": "",
+  "execution_time_ms": 571
+}

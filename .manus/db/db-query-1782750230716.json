@@ -1,0 +1,40 @@
+{
+  "query": "SELECT d.`projectId`, p.name, d.status, COUNT(*) as cnt \nFROM documents d \nJOIN projects p ON p.id = d.`projectId`\nGROUP BY d.`projectId`, p.name, d.status\nORDER BY d.`projectId`, d.status;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute SELECT d.`projectId`, p.name, d.status, COUNT(*) as cnt \nFROM documents d \nJOIN projects p ON p.id = d.`projectId`\nGROUP BY d.`projectId`, p.name, d.status\nORDER BY d.`projectId`, d.status;",
+  "rows": [
+    {
+      "projectId": "1",
+      "name": "Howard Crosby Butler Archive",
+      "status": "needs_review",
+      "cnt": "2"
+    },
+    {
+      "projectId": "1",
+      "name": "Howard Crosby Butler Archive",
+      "status": "flagged",
+      "cnt": "1"
+    },
+    {
+      "projectId": "30001",
+      "name": "Brovarski Index Cards Collection",
+      "status": "needs_review",
+      "cnt": "10"
+    },
+    {
+      "projectId": "30001",
+      "name": "Brovarski Index Cards Collection",
+      "status": "error",
+      "cnt": "10"
+    },
+    {
+      "projectId": "60001",
+      "name": "example archive",
+      "status": "needs_review",
+      "cnt": "1"
+    }
+  ],
+  "messages": [],
+  "stdout": "projectId\tname\tstatus\tcnt\n1\tHoward Crosby Butler Archive\tneeds_review\t2\n1\tHoward Crosby Butler Archive\tflagged\t1\n30001\tBrovarski Index Cards Collection\tneeds_review\t10\n30001\tBrovarski Index Cards Collection\terror\t10\n60001\texample archive\tneeds_review\t1\n",
+  "stderr": "",
+  "execution_time_ms": 581
+}

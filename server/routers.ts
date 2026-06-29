@@ -2479,6 +2479,7 @@ const researchRouter = router({
       const result = await runResearchAgent({
         projectId: input.projectId,
         projectName: project.name,
+        projectSchema: project.jsonSchema as Record<string, unknown> | null,
         question: input.question,
         history: input.history,
       });

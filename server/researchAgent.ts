@@ -14,10 +14,9 @@
 import { invokeLLM, type Message, type Tool, type ToolCall } from "./_core/llm";
 import { callDataApi } from "./_core/dataApi";
 import { semanticSearch } from "./embeddingService";
-import { getReviewedTranscriptions, getEntitiesByProject, getGraphData, getEntityStats } from "./db";
-import { sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import { getDb, getReviewedTranscriptions, getEntitiesByProject, getGraphData, getEntityStats } from "./db";
+import { eq } from "drizzle-orm";
+import { transcriptions, documents } from "../drizzle/schema";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -66,7 +65,7 @@ const RESEARCH_TOOLS: Tool[] = [
         properties: {
           query: {
             type: "string",
-            description: "Natural language search query (can be in Arabic or English)",
+            description: "Natural language search query (can be in Arabic, French, or English)",
           },
           limit: {
             type: "number",
@@ -80,8 +79,25 @@ const RESEARCH_TOOLS: Tool[] = [
   {
     type: "function",
     function: {
+      name: "discover_fields",
+      description: "Discover what structured fields actually exist in this project's transcriptions. Returns field names, their data types, coverage percentage, and sample values. MUST call this before using aggregate_data to know which fields are available.",
+      parameters: {
+        type: "object",
+        properties: {
+          sample_size: {
+            type: "number",
+            description: "Number of documents to sample (default 50, max 200)",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "aggregate_data",
-      description: "Analyze patterns across all reviewed documents in the project. Can count occurrences, group by field values, find trends over time, or compute statistics. Works on the structured JSON fields extracted from transcriptions.",
+      description: "Analyze patterns across all transcribed documents in the project. Can count occurrences, group by field values, find trends, or compute statistics. IMPORTANT: Only use field names that were returned by discover_fields.",
       parameters: {
         type: "object",
         properties: {
@@ -92,7 +108,7 @@ const RESEARCH_TOOLS: Tool[] = [
           },
           field_name: {
             type: "string",
-            description: "The JSON field name to analyze (e.g., 'date', 'sender', 'commodity', 'form_of_address', 'origin_location')",
+            description: "The JSON field name to analyze — MUST be a field confirmed by discover_fields",
           },
           filter_field: {
             type: "string",
@@ -104,7 +120,7 @@ const RESEARCH_TOOLS: Tool[] = [
           },
           group_by: {
             type: "string",
-            description: "Optional: group results by this field (e.g., group commodities by decade)",
+            description: "Optional: group results by this field",
           },
         },
         required: ["analysis_type", "field_name"],
@@ -206,6 +222,74 @@ async function executeSearchArchive(
   }));
 }
 
+async function executeDiscoverFields(
+  projectId: number,
+  args: { sample_size?: number }
+): Promise<unknown> {
+  const db = await getDb();
+  if (!db) return { error: "Database not available" };
+
+  const limit = Math.min(args.sample_size || 50, 200);
+
+  // Get ALL transcriptions (not just reviewed) since most docs may still be needs_review
+  const rows = await db
+    .select({
+      rawJson: transcriptions.rawJson,
+      reviewedJson: transcriptions.reviewedJson,
+      filename: documents.filename,
+    })
+    .from(transcriptions)
+    .innerJoin(documents, eq(transcriptions.documentId, documents.id))
+    .where(eq(transcriptions.projectId, projectId))
+    .limit(limit);
+
+  if (rows.length === 0) {
+    return { error: "No transcriptions found in this project.", totalDocs: 0, fields: [] };
+  }
+
+  // Discover fields across all sampled docs
+  const fieldStats: Record<string, { count: number; types: Set<string>; samples: string[] }> = {};
+
+  for (const row of rows) {
+    const json = (row.reviewedJson || row.rawJson) as Record<string, unknown> | null;
+    if (!json) continue;
+    for (const [key, value] of Object.entries(json)) {
+      if (key.startsWith("_")) continue; // skip internal fields
+      if (!fieldStats[key]) fieldStats[key] = { count: 0, types: new Set(), samples: [] };
+      fieldStats[key].count++;
+      if (value === null || value === undefined) {
+        fieldStats[key].types.add("null");
+      } else if (Array.isArray(value)) {
+        fieldStats[key].types.add("array");
+        if (fieldStats[key].samples.length < 3) {
+          fieldStats[key].samples.push(JSON.stringify(value).slice(0, 100));
+        }
+      } else {
+        fieldStats[key].types.add(typeof value);
+        if (fieldStats[key].samples.length < 3) {
+          fieldStats[key].samples.push(String(value).slice(0, 100));
+        }
+      }
+    }
+  }
+
+  const fields = Object.entries(fieldStats)
+    .sort((a, b) => b[1].count - a[1].count)
+    .map(([name, stats]) => ({
+      name,
+      dataType: Array.from(stats.types).join(" | "),
+      coverage: `${Math.round((stats.count / rows.length) * 100)}%`,
+      docsWithField: stats.count,
+      sampleValues: stats.samples,
+    }));
+
+  return {
+    totalDocsSampled: rows.length,
+    fieldsFound: fields.length,
+    fields,
+  };
+}
+
 async function executeAggregateData(
   projectId: number,
   args: {
@@ -216,15 +300,24 @@ async function executeAggregateData(
     group_by?: string;
   }
 ): Promise<unknown> {
-  const transcriptions = await getReviewedTranscriptions(projectId);
+  // Get ALL transcribed documents (not just reviewed) to have a useful dataset
+  const db = await getDb();
+  if (!db) return { error: "Database not available" };
 
-  // Extract the target field from all reviewed documents
-  const docs = transcriptions.map((t) => {
+  const rows = await db.select({
+    transcription: transcriptions,
+    document: documents,
+  }).from(transcriptions)
+    .innerJoin(documents, eq(transcriptions.documentId, documents.id))
+    .where(eq(transcriptions.projectId, projectId));
+
+  // Extract the target field from all documents
+  const docs = rows.map((t) => {
     const json = (t.transcription.reviewedJson || t.transcription.rawJson) as Record<string, unknown>;
     return {
       documentId: t.document.id,
       filename: t.document.filename,
-      fields: json,
+      fields: json || {},
     };
   });
 
@@ -420,11 +513,12 @@ const MAX_ITERATIONS = 8;
 export async function runResearchAgent(params: {
   projectId: number;
   projectName: string;
+  projectSchema?: Record<string, unknown> | null;
   question: string;
   history?: Array<{ role: "user" | "assistant"; content: string }>;
   onThinkingStep?: (step: ThinkingStep) => void;
 }): Promise<ResearchResult> {
-  const { projectId, projectName, question, history = [], onThinkingStep } = params;
+  const { projectId, projectName, projectSchema, question, history = [], onThinkingStep } = params;
 
   const thinking: ThinkingStep[] = [];
   const visualizations: Visualization[] = [];
@@ -435,31 +529,36 @@ export async function runResearchAgent(params: {
     onThinkingStep?.(step);
   };
 
+  // Build schema context for the agent
+  let schemaDescription = "";
+  if (projectSchema && typeof projectSchema === "object" && Object.keys(projectSchema).length > 0) {
+    const fieldNames = Object.keys(projectSchema).filter(k => !k.startsWith("_"));
+    schemaDescription = `\n\nThis project's document schema has the following fields:\n${fieldNames.map(f => `- ${f}: ${typeof projectSchema[f] === "string" ? projectSchema[f] : JSON.stringify(projectSchema[f]).slice(0, 100)}`).join("\n")}`;
+  }
+
   // Build the system prompt
   const systemPrompt = `You are Codex, an advanced research agent for the archival project "${projectName}".
 You have access to tools that let you search the archive, analyze data patterns, examine entity networks, and research external sources.
 
 Your capabilities:
-1. **search_archive**: Find specific documents, topics, or mentions in the transcribed archive
-2. **aggregate_data**: Analyze trends over time, count occurrences, find patterns across all documents
-3. **get_entities**: Examine people, places, and organizations extracted from documents, including their relationships
-4. **web_search**: Find external historical context, academic literature, or background information
-5. **generate_visualization**: Create charts, graphs, or tables to visualize your findings
+1. **search_archive**: Find specific documents, topics, or mentions in the transcribed archive using semantic + keyword search
+2. **discover_fields**: Discover what structured fields actually exist in the project's transcriptions — ALWAYS call this first before using aggregate_data
+3. **aggregate_data**: Analyze patterns across documents by field name (only use field names returned by discover_fields)
+4. **get_entities**: Examine people, places, and organizations extracted from documents, including their relationships
+5. **web_search**: Find external historical context, academic literature, or background information
+6. **generate_visualization**: Create charts, graphs, or tables to visualize your findings
 
-IMPORTANT GUIDELINES:
-- Always start by searching or aggregating the archive to ground your analysis in actual data
-- Use multiple tool calls to build a comprehensive answer — don't try to answer from a single search
-- When analyzing trends, first check what fields are available, then aggregate appropriately
+CRITICAL GUIDELINES:
+- ALWAYS call discover_fields FIRST before using aggregate_data — never guess field names
+- Use search_archive to find relevant documents and understand the content
+- Use multiple tool calls to build a comprehensive answer
 - For network analysis, use get_entities with include_relationships=true
-- Augment internal findings with external research when relevant
 - Generate visualizations when the data supports it (trends → line/bar chart, distributions → pie chart, relationships → network graph)
-- Cite your sources: reference document IDs for internal data, URLs for external sources
+- Cite your sources: reference document filenames for internal data, URLs for external sources
 - Write your final answer in clear, scholarly prose with embedded citations
 - If the archive doesn't contain relevant data, say so clearly and suggest what data would be needed
-
-The archive contains transcribed historical documents with structured metadata fields extracted by AI.
-Common fields include: transcription, date, sender, recipient, subject, keywords, persons_mentioned, locations, organizations, commodities, form_of_address, etc.
-The exact fields depend on the project's configuration.`;
+- The archive contains transcribed historical documents with structured metadata fields extracted by AI
+- Field names vary per project — do NOT assume fields like "commodity", "date", "sender" exist unless discover_fields confirms them${schemaDescription}`;
 
   // Build message history
   const messages: Message[] = [
@@ -542,6 +641,10 @@ The exact fields depend on the project's configuration.`;
                 }
               }
             }
+            break;
+
+          case "discover_fields":
+            result = await executeDiscoverFields(projectId, args as { sample_size?: number });
             break;
 
           case "aggregate_data":
