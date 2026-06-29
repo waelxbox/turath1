@@ -557,3 +557,7 @@
 - [x] Improve agent system prompt with research strategy patterns (timeline, distribution, content, network)
 - [x] Add 'timeline' analysis_type to aggregate_data for date-based queries
 - [x] Limit count_by_field to top 15 + "Other" bucket
+
+## Features (Round 49) — Export All Documents (including unreviewed)
+- [x] Update export endpoints (CSV, JSON, TEI-XML) to include all transcribed documents, not just reviewed
+- [x] Add filter toggle in export UI: "All transcribed" vs "Reviewed only"

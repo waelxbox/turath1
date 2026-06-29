@@ -473,6 +473,18 @@ export async function getReviewedTranscriptions(projectId: number) {
     .orderBy(desc(transcriptions.reviewedAt));
 }
 
+export async function getAllTranscriptions(projectId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    transcription: transcriptions,
+    document: documents,
+  }).from(transcriptions)
+    .innerJoin(documents, eq(transcriptions.documentId, documents.id))
+    .where(eq(transcriptions.projectId, projectId))
+    .orderBy(desc(transcriptions.createdAt));
+}
+
 // ─── Jobs ─────────────────────────────────────────────────────────────────────
 
 export async function createJob(data: InsertJob) {

@@ -12,6 +12,7 @@ interface Props {
 
 export default function ExportPage({ projectId, project }: Props) {
   const [exporting, setExporting] = useState<"csv" | "json" | "tei" | null>(null);
+  const [includeAll, setIncludeAll] = useState(false);
 
   const exportCsv = trpc.export.csv.useMutation({
     onSuccess: (data: { csv: string; count: number }) => {
@@ -29,7 +30,7 @@ export default function ExportPage({ projectId, project }: Props) {
   });
 
   const { refetch: fetchJson } = trpc.export.jsonZip.useQuery(
-    { projectId },
+    { projectId, includeAll },
     { enabled: false }
   );
 
@@ -40,17 +41,19 @@ export default function ExportPage({ projectId, project }: Props) {
 
   const { data: stats } = trpc.projects.stats.useQuery({ id: projectId });
 
+  const docCount = includeAll ? (stats?.total ?? 0) : (stats?.reviewed ?? 0);
+
   return (
     <div className="p-8">
       <div className="mb-8">
         <h2 className="text-2xl font-serif font-semibold mb-1">Export transcriptions</h2>
         <p className="text-muted-foreground text-sm">
-          Download reviewed transcriptions in your preferred format. Only documents with status "reviewed" are included.
+          Download transcriptions in your preferred format.
         </p>
       </div>
 
       {stats && (
-        <div className="bg-card border border-border rounded-xl p-5 mb-8 flex items-center gap-6">
+        <div className="bg-card border border-border rounded-xl p-5 mb-6 flex items-center gap-6">
           <div>
             <div className="text-2xl font-semibold">{stats.reviewed}</div>
             <div className="text-xs text-muted-foreground">Reviewed documents</div>
@@ -69,6 +72,30 @@ export default function ExportPage({ projectId, project }: Props) {
           </div>
         </div>
       )}
+
+      {/* Include All Toggle */}
+      <div className="bg-card border border-border rounded-xl p-4 mb-8 flex items-center justify-between">
+        <div>
+          <div className="text-sm font-medium">Include all transcribed documents</div>
+          <div className="text-xs text-muted-foreground mt-0.5">
+            {includeAll
+              ? `Exporting all ${stats?.total ?? 0} transcribed documents (reviewed + unreviewed)`
+              : `Exporting only ${stats?.reviewed ?? 0} reviewed documents`}
+          </div>
+        </div>
+        <button
+          onClick={() => setIncludeAll(!includeAll)}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+            includeAll ? "bg-primary" : "bg-muted"
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              includeAll ? "translate-x-6" : "translate-x-1"
+            }`}
+          />
+        </button>
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
         {/* CSV export */}
@@ -92,11 +119,11 @@ export default function ExportPage({ projectId, project }: Props) {
           </div>
           <Button
             className="w-full gap-2"
-            onClick={() => { setExporting("csv"); exportCsv.mutate({ projectId }); }}
-            disabled={!!exporting || (stats?.reviewed ?? 0) === 0}
+            onClick={() => { setExporting("csv"); exportCsv.mutate({ projectId, includeAll }); }}
+            disabled={!!exporting || docCount === 0}
           >
             {exporting === "csv" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            {exporting === "csv" ? "Exporting…" : "Download CSV"}
+            {exporting === "csv" ? "Exporting…" : `Download CSV (${docCount} docs)`}
           </Button>
         </div>
 
@@ -123,10 +150,10 @@ export default function ExportPage({ projectId, project }: Props) {
             variant="outline"
             className="w-full gap-2 bg-transparent"
             onClick={async () => { setExporting("json"); const r = await fetchJson(); if (r.data) { const blob = new Blob([JSON.stringify(r.data, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${project.name.replace(/\s+/g, "_")}_export.json`; a.click(); URL.revokeObjectURL(url); toast.success(`Exported ${r.data.length} records`); } setExporting(null); }}
-            disabled={!!exporting || (stats?.reviewed ?? 0) === 0}
+            disabled={!!exporting || docCount === 0}
           >
             {exporting === "json" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            {exporting === "json" ? "Exporting…" : "Download JSON"}
+            {exporting === "json" ? "Exporting…" : `Download JSON (${docCount} docs)`}
           </Button>
         </div>
       </div>

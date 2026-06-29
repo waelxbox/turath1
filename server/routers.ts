@@ -21,6 +21,7 @@ import {
   getTranscriptionByDocumentId,
   updateReviewedJson,
   getReviewedTranscriptions,
+  getAllTranscriptions,
   getReviewedDocsWithoutEmbeddings,
   createJob,
   getJobsByProjectId,
@@ -1167,19 +1168,21 @@ ${contextBlock}
 
 const exportRouter = router({
   csv: protectedProcedure
-    .input(z.object({ projectId: z.number() }))
+    .input(z.object({ projectId: z.number(), includeAll: z.boolean().default(false) }))
     .mutation(async ({ ctx, input }) => {
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
-      const reviewed = await getReviewedTranscriptions(input.projectId);
-      if (reviewed.length === 0) return { csv: "", count: 0 };
+      const docs = input.includeAll
+        ? await getAllTranscriptions(input.projectId)
+        : await getReviewedTranscriptions(input.projectId);
+      if (docs.length === 0) return { csv: "", count: 0 };
 
       const schema = project.jsonSchema as Record<string, { type: string }> | null;
       const schemaFields = schema ? Object.keys(schema) : [];
       const headers = ["filename", "status", "reviewed_at", "model_used", ...schemaFields];
 
-      const rows = reviewed.map(({ transcription, document }) => {
+      const rows = docs.map(({ transcription, document }) => {
         const data = (transcription.reviewedJson ?? transcription.rawJson) as Record<string, unknown>;
         const row: Record<string, string> = {
           filename: document.filename,
@@ -1188,7 +1191,7 @@ const exportRouter = router({
           model_used: transcription.modelUsed,
         };
         for (const field of schemaFields) {
-          const val = data[field];
+          const val = data?.[field];
           row[field] = Array.isArray(val) ? val.join(" | ") : String(val ?? "");
         }
         return row;
@@ -1199,17 +1202,19 @@ const exportRouter = router({
         ...rows.map(r => headers.map(h => `"${(r[h] ?? "").replace(/"/g, '""')}"`).join(",")),
       ];
 
-      return { csv: csvLines.join("\n"), count: reviewed.length };
+      return { csv: csvLines.join("\n"), count: docs.length };
     }),
 
   jsonZip: protectedProcedure
-    .input(z.object({ projectId: z.number() }))
+    .input(z.object({ projectId: z.number(), includeAll: z.boolean().default(false) }))
     .query(async ({ ctx, input }) => {
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
-      const reviewed = await getReviewedTranscriptions(input.projectId);
-      return reviewed.map(({ transcription, document }) => ({
+      const docs = input.includeAll
+        ? await getAllTranscriptions(input.projectId)
+        : await getReviewedTranscriptions(input.projectId);
+      return docs.map(({ transcription, document }) => ({
         filename: document.filename.replace(/\.[^.]+$/, "") + ".json",
         data: transcription.reviewedJson ?? transcription.rawJson,
       }));
