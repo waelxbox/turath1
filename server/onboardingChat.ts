@@ -130,96 +130,140 @@ export async function generateConfigFromChat(
     .filter(m => m.imageUrls && m.imageUrls.length > 0)
     .flatMap(m => m.imageUrls!);
 
-  const userContent: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail: "high" } }> = [];
-
-  userContent.push({
-    type: "text",
-    text: `Based on the following conversation with a researcher about their document collection, generate the complete TURATH project configuration.
-
-CONVERSATION:
-${conversationSummary}
-
-Now generate the final configuration as a JSON object. Remember:
-1. systemPrompt = transcription rules ONLY (persona + instructions, no schema, no glossary)
-2. jsonSchema = structured field definitions with Dublin Core core fields + collection-specific fields
-3. glossary = domain-specific terms (minimum 5 entries)
-4. Respect any specific requests the user made about fields, pipeline type, etc.
-5. If the user provided their own prompt text, use it as the basis for systemPrompt
-
-Output ONLY valid JSON matching the required schema.`,
-  });
-
-  // Add images for context
-  for (const url of allImageUrls.slice(0, 5)) { // max 5 images
-    userContent.push({
-      type: "image_url",
-      image_url: { url, detail: "high" },
-    });
+  // Helper to parse LLM JSON response
+  function parseLLMJson(raw: string): any {
+    const cleaned = raw.replace(/^```(?:json)?\s*/m, "").replace(/\s*```$/m, "").trim();
+    return JSON.parse(cleaned);
   }
 
-  const CONFIG_GENERATION_PROMPT = `You are an expert AI system designer. Generate a complete TURATH project configuration as a JSON object.
+  // --- STEP 1: Generate prompts (systemPrompt, pass2Prompt, pipelineType, modelName) ---
+  const promptGenSystem = `You are an expert AI system designer for archival document transcription pipelines.
+Generate ONLY the prompt configuration. Output a JSON object with exactly these keys:
+- pipelineType: "single_pass" or "two_pass"
+- modelName: "gemini-3.1-pro-preview" (for Arabic/RTL) or "gemini-2.5-flash" (for others)
+- systemPrompt: The transcription rules (expert persona + instructions). For two_pass, this is Pass 1 (raw transcription only).
+- pass2Prompt: For two_pass only — instructions for metadata extraction. For single_pass, set to null.
+- reasoning: 2-3 sentence explanation.
 
-The configuration has these components:
-1. pipelineType: "single_pass" or "two_pass"
-2. modelName: "gemini-3.1-pro-preview" (for Arabic/RTL) or "gemini-2.5-flash" (for other languages)
-3. systemPrompt: Transcription rules ONLY — expert persona + instructions. NO schema definitions, NO glossary terms.
-4. pass2Prompt: Only if two_pass — instructions for metadata extraction pass. null otherwise.
-5. jsonSchema: Field definitions. MUST include Dublin Core fields (title, creator, date, description, subject, type, source, transcription) plus collection-specific fields.
-   Each field: { type: "string"|"number"|"boolean"|"array", description: string, nullable: boolean, displayHint: "short_text"|"long_text"|"tag_list" }
-6. glossary: Domain-specific terms { "term": "definition" }. Minimum 5 entries.
-7. postProcessing: Rules like [{ type: "illegible_marker", field: "transcription", marker: "[illegible]" }]
-8. outputFormats: ["json", "csv"]
-9. reasoning: 2-3 sentence explanation of choices
+Rules:
+- systemPrompt must NEVER contain field definitions or glossary terms
+- For Arabic: use gemini-3.1-pro-preview and two_pass
+- For two_pass: Pass 1 focuses on faithful transcription, Pass 2 extracts structured metadata
+- pass2Prompt should list the fields to extract with clear instructions
 
-Guidelines:
-- For Arabic documents: ALWAYS use "gemini-3.1-pro-preview" and typically "two_pass"
-- For two_pass: Pass 1 (systemPrompt) focuses on raw transcription, Pass 2 (pass2Prompt) extracts structured metadata
-- The glossary should contain domain-specific terms from the collection (historical terms, abbreviations, place names, etc.)
-- Use "long_text" displayHint for substantial text fields, "tag_list" for arrays, "short_text" for brief identifiers
+Output ONLY valid JSON. No markdown fences.`;
 
-Output ONLY the JSON object. No markdown fences.`;
-
-  const response = await invokeLLM({
+  const promptGenResponse = await invokeLLM({
     messages: [
-      { role: "system", content: CONFIG_GENERATION_PROMPT },
-      { role: "user", content: userContent as Parameters<typeof invokeLLM>[0]["messages"][0]["content"] },
+      { role: "system", content: promptGenSystem },
+      { role: "user", content: `Based on this conversation, generate the prompt config:\n\nCONVERSATION:\n${conversationSummary}` },
     ],
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "project_config",
-        strict: false,
-        schema: {
-          type: "object",
-          properties: {
-            pipelineType: { type: "string" },
-            modelName: { type: "string" },
-            systemPrompt: { type: "string" },
-            pass2Prompt: { type: "string" },
-            jsonSchema: { type: "object" },
-            glossary: { type: "object" },
-            postProcessing: { type: "array" },
-            outputFormats: { type: "array" },
-            reasoning: { type: "string" },
-          },
-          required: ["pipelineType", "modelName", "systemPrompt", "jsonSchema", "glossary", "postProcessing", "outputFormats", "reasoning"],
-          additionalProperties: false,
-        },
-      },
-    },
   });
 
-  const rawContent = response.choices[0]?.message?.content ?? "{}";
-  const raw = typeof rawContent === "string" ? rawContent : "{}";
-  const cleaned = raw.replace(/^```(?:json)?\s*/m, "").replace(/\s*```$/m, "").trim();
-  const config = JSON.parse(cleaned) as GeneratedConfig;
+  const promptRaw = typeof promptGenResponse.choices[0]?.message?.content === "string"
+    ? promptGenResponse.choices[0].message.content : "{}";
+  let promptConfig: { pipelineType: string; modelName: string; systemPrompt: string; pass2Prompt?: string | null; reasoning: string };
+  try {
+    promptConfig = parseLLMJson(promptRaw);
+  } catch {
+    promptConfig = { pipelineType: "two_pass", modelName: "gemini-3.1-pro-preview", systemPrompt: "", pass2Prompt: null, reasoning: "Parse error, using defaults." };
+  }
 
-  // Safety: ensure required fields
-  if (!config.outputFormats) config.outputFormats = ["json", "csv"];
-  if (!config.postProcessing) config.postProcessing = [];
-  if (!config.glossary) config.glossary = {};
-  if (!config.jsonSchema) config.jsonSchema = {};
-  if (!config.reasoning) config.reasoning = "Generated from conversational onboarding.";
+  // --- STEP 2: Generate jsonSchema ---
+  const schemaGenSystem = `You are an expert metadata schema designer for archival document collections.
+Generate a JSON object where each key is a field name and each value is an object with:
+- type: "string" | "number" | "boolean" | "array"
+- description: what this field captures
+- nullable: true or false
+- displayHint: "short_text" | "long_text" | "tag_list"
+
+Rules:
+- MUST include these Dublin Core fields: title, creator, date, description, subject, type, source, transcription
+- Add collection-specific fields based on the conversation
+- Use "long_text" for transcription/translation fields, "tag_list" for arrays, "short_text" for identifiers
+- Include at least 10 fields total
+- The "transcription" field should always be type "string", nullable false, displayHint "long_text"
+
+Output ONLY a flat JSON object (the schema). No wrapper key, no markdown fences. Example:
+{"title":{"type":"string","description":"Document title","nullable":true,"displayHint":"short_text"},"transcription":{"type":"string","description":"Full Arabic transcription","nullable":false,"displayHint":"long_text"}}`;
+
+  const schemaUserContent: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail: "high" } }> = [
+    { type: "text", text: `Based on this conversation about a document collection, generate the metadata schema:\n\nCONVERSATION:\n${conversationSummary}\n\nGenerate the complete field schema as a flat JSON object.` },
+  ];
+  for (const url of allImageUrls.slice(0, 3)) {
+    schemaUserContent.push({ type: "image_url", image_url: { url, detail: "high" } });
+  }
+
+  const schemaResponse = await invokeLLM({
+    messages: [
+      { role: "system", content: schemaGenSystem },
+      { role: "user", content: schemaUserContent as Parameters<typeof invokeLLM>[0]["messages"][0]["content"] },
+    ],
+  });
+
+  const schemaRaw = typeof schemaResponse.choices[0]?.message?.content === "string"
+    ? schemaResponse.choices[0].message.content : "{}";
+  let jsonSchema: GeneratedConfig["jsonSchema"];
+  try {
+    jsonSchema = parseLLMJson(schemaRaw);
+  } catch {
+    // Fallback: basic Dublin Core schema
+    jsonSchema = {
+      title: { type: "string", description: "Document title", nullable: true, displayHint: "short_text" },
+      creator: { type: "string", description: "Creator or author", nullable: true, displayHint: "short_text" },
+      date: { type: "string", description: "Date of the document", nullable: true, displayHint: "short_text" },
+      description: { type: "string", description: "Brief description", nullable: true, displayHint: "long_text" },
+      subject: { type: "string", description: "Subject or topic", nullable: true, displayHint: "short_text" },
+      type: { type: "string", description: "Document type", nullable: true, displayHint: "short_text" },
+      source: { type: "string", description: "Source of the document", nullable: true, displayHint: "short_text" },
+      transcription: { type: "string", description: "Full transcription", nullable: false, displayHint: "long_text" },
+    };
+  }
+
+  // --- STEP 3: Generate glossary ---
+  const glossaryGenSystem = `You are a domain expert helping build a glossary for an archival transcription project.
+Generate a JSON object where each key is a term (in the original language or abbreviation) and each value is its definition/meaning in English.
+
+Rules:
+- Include at least 8 terms
+- Focus on: abbreviations, historical terms, place names, measurement units, specialized vocabulary
+- Terms should be specific to the document collection described
+- Include common handwriting abbreviations if relevant
+
+Output ONLY a flat JSON object. No wrapper key, no markdown fences. Example:
+{"م.ك":"tablespoon (abbreviation)","م.ص":"teaspoon (abbreviation)"}`;
+
+  const glossaryResponse = await invokeLLM({
+    messages: [
+      { role: "system", content: glossaryGenSystem },
+      { role: "user", content: `Based on this conversation about a document collection, generate the domain glossary:\n\nCONVERSATION:\n${conversationSummary}\n\nGenerate the glossary as a flat JSON object.` },
+    ],
+  });
+
+  const glossaryRaw = typeof glossaryResponse.choices[0]?.message?.content === "string"
+    ? glossaryResponse.choices[0].message.content : "{}";
+  let glossary: Record<string, string>;
+  try {
+    glossary = parseLLMJson(glossaryRaw);
+  } catch {
+    glossary = {};
+  }
+
+  // --- Assemble final config ---
+  const config: GeneratedConfig = {
+    pipelineType: (promptConfig.pipelineType as "single_pass" | "two_pass") || "two_pass",
+    modelName: promptConfig.modelName || "gemini-3.1-pro-preview",
+    systemPrompt: promptConfig.systemPrompt || "",
+    pass2Prompt: promptConfig.pass2Prompt || undefined,
+    jsonSchema: jsonSchema && Object.keys(jsonSchema).length > 0 ? jsonSchema : {
+      title: { type: "string", description: "Document title", nullable: true, displayHint: "short_text" },
+      transcription: { type: "string", description: "Full transcription", nullable: false, displayHint: "long_text" },
+    },
+    glossary: glossary && Object.keys(glossary).length > 0 ? glossary : {},
+    postProcessing: [{ type: "illegible_marker", field: "transcription", marker: "[غير مقروء]" }],
+    outputFormats: ["json", "csv"],
+    reasoning: promptConfig.reasoning || "Generated from conversational onboarding.",
+  };
 
   return config;
 }
