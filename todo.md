@@ -548,3 +548,12 @@
 - [x] Report output with clickable internal doc citations + external source URLs
 - [x] Conversation list sidebar (past research sessions)
 - [x] Add Research nav item to project workspace sidebar
+
+## Fixes (Round 48b) — Research Agent Visualization Quality
+- [x] Fix duplicate chart rendering (raw JSON in answer text + separate viz render)
+- [x] Improve chart styling for dark theme (use proper colors, dark tooltip, no dashed grid)
+- [x] Handle long label lists in bar charts (top-N + "others" grouping, horizontal bars)
+- [x] Add system prompt instruction to NOT repeat viz JSON in final answer
+- [x] Improve agent system prompt with research strategy patterns (timeline, distribution, content, network)
+- [x] Add 'timeline' analysis_type to aggregate_data for date-based queries
+- [x] Limit count_by_field to top 15 + "Other" bucket

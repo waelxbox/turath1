@@ -103,8 +103,8 @@ const RESEARCH_TOOLS: Tool[] = [
         properties: {
           analysis_type: {
             type: "string",
-            enum: ["count_by_field", "trend_over_time", "unique_values", "co_occurrence", "field_statistics"],
-            description: "Type of aggregation to perform",
+            enum: ["count_by_field", "trend_over_time", "timeline", "unique_values", "co_occurrence", "field_statistics"],
+            description: "Type of aggregation. 'timeline' groups documents by their date field and shows what appears over time. 'count_by_field' counts distinct values of a field. 'trend_over_time' groups a field's values by date.",
           },
           field_name: {
             type: "string",
@@ -348,33 +348,54 @@ async function executeAggregateData(
           if (key) counts[key] = (counts[key] || 0) + 1;
         }
       }
-      // Sort by count descending
-      const sorted = Object.entries(counts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 50);
-      return { field: args.field_name, totalDocs: filtered.length, counts: sorted.map(([value, count]) => ({ value, count })) };
+      // Sort by count descending, limit to top 15 + "Other" bucket
+      const allSorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+      const top15 = allSorted.slice(0, 15);
+      const otherCount = allSorted.slice(15).reduce((sum, [, c]) => sum + c, 0);
+      const result = top15.map(([value, count]) => ({ value, count }));
+      if (otherCount > 0) {
+        result.push({ value: `Other (${allSorted.length - 15} categories)`, count: otherCount });
+      }
+      return { field: args.field_name, totalDocs: filtered.length, uniqueCategories: allSorted.length, counts: result };
     }
 
+    case "timeline":
     case "trend_over_time": {
-      // Group by date/year field
-      const groupField = args.group_by || "date";
-      const timeline: Record<string, { count: number; values: string[] }> = {};
+      // For 'timeline': field_name IS the date field, group docs by it
+      // For 'trend_over_time': field_name is the value field, group_by is the date field
+      const isTimeline = args.analysis_type === "timeline";
+      const dateField = isTimeline ? args.field_name : (args.group_by || args.field_name);
+      const valueField = isTimeline ? (args.group_by || null) : args.field_name;
+
+      const timeline: Record<string, { count: number; docs: Array<{ filename: string; value?: string }> }> = {};
       for (const doc of filtered) {
-        const dateVal = doc.fields[groupField] || doc.fields["date"] || doc.fields["Date"];
-        const targetVal = doc.fields[args.field_name];
+        // Try multiple possible date field names
+        let dateVal = doc.fields[dateField];
+        if (!dateVal && isTimeline) {
+          // Fallback: try common date field names
+          dateVal = doc.fields["date"] || doc.fields["Date"] || doc.fields["document_date"] || doc.fields["estimated_date"] || doc.fields["year"];
+        }
         if (!dateVal) continue;
         // Extract year from date string
         const yearMatch = String(dateVal).match(/(\d{4})/);
         const year = yearMatch ? yearMatch[1] : String(dateVal).slice(0, 10);
-        if (!timeline[year]) timeline[year] = { count: 0, values: [] };
+        if (!timeline[year]) timeline[year] = { count: 0, docs: [] };
         timeline[year].count++;
-        if (targetVal) {
-          const valStr = Array.isArray(targetVal) ? targetVal.join(", ") : String(targetVal);
-          if (valStr.trim()) timeline[year].values.push(valStr.trim());
+        const entry: { filename: string; value?: string } = { filename: doc.filename };
+        if (valueField && doc.fields[valueField]) {
+          const valStr = Array.isArray(doc.fields[valueField]) ? (doc.fields[valueField] as string[]).join(", ") : String(doc.fields[valueField]);
+          if (valStr.trim()) entry.value = valStr.trim();
         }
+        if (timeline[year].docs.length < 5) timeline[year].docs.push(entry); // Keep sample docs per period
       }
       const sorted = Object.entries(timeline).sort((a, b) => a[0].localeCompare(b[0]));
-      return { field: args.field_name, groupedBy: groupField, totalDocs: filtered.length, timeline: sorted.map(([period, data]) => ({ period, ...data })) };
+      return {
+        field: dateField,
+        groupedBy: valueField || "(document count)",
+        totalDocs: filtered.length,
+        docsWithDates: sorted.reduce((sum, [, d]) => sum + d.count, 0),
+        timeline: sorted.map(([period, data]) => ({ period, count: data.count, sampleDocs: data.docs })),
+      };
     }
 
     case "unique_values": {
@@ -540,25 +561,50 @@ export async function runResearchAgent(params: {
   const systemPrompt = `You are Codex, an advanced research agent for the archival project "${projectName}".
 You have access to tools that let you search the archive, analyze data patterns, examine entity networks, and research external sources.
 
-Your capabilities:
-1. **search_archive**: Find specific documents, topics, or mentions in the transcribed archive using semantic + keyword search
-2. **discover_fields**: Discover what structured fields actually exist in the project's transcriptions — ALWAYS call this first before using aggregate_data
-3. **aggregate_data**: Analyze patterns across documents by field name (only use field names returned by discover_fields)
-4. **get_entities**: Examine people, places, and organizations extracted from documents, including their relationships
-5. **web_search**: Find external historical context, academic literature, or background information
-6. **generate_visualization**: Create charts, graphs, or tables to visualize your findings
+Your tools:
+1. **discover_fields**: Discover what structured fields exist in the transcriptions. Call this FIRST.
+2. **search_archive**: Semantic + keyword search across transcribed document content. Use this to find specific topics, events, people, or content.
+3. **aggregate_data**: Analyze patterns by field name (count values, group by date, find trends). Only use field names confirmed by discover_fields.
+4. **get_entities**: Get extracted people, places, organizations and their relationships.
+5. **web_search**: External historical context and academic literature.
+6. **generate_visualization**: Create charts/graphs/tables. The UI renders these separately.
 
-CRITICAL GUIDELINES:
-- ALWAYS call discover_fields FIRST before using aggregate_data — never guess field names
-- Use search_archive to find relevant documents and understand the content
-- Use multiple tool calls to build a comprehensive answer
-- For network analysis, use get_entities with include_relationships=true
-- Generate visualizations when the data supports it (trends → line/bar chart, distributions → pie chart, relationships → network graph)
-- Cite your sources: reference document filenames for internal data, URLs for external sources
-- Write your final answer in clear, scholarly prose with embedded citations
-- If the archive doesn't contain relevant data, say so clearly and suggest what data would be needed
-- The archive contains transcribed historical documents with structured metadata fields extracted by AI
-- Field names vary per project — do NOT assume fields like "commodity", "date", "sender" exist unless discover_fields confirms them${schemaDescription}`;
+RESEARCH STRATEGY — Think carefully about what the user is asking:
+
+**"Timeline" / "dates" / "chronological" questions:**
+- First discover_fields to find date-related fields (e.g., date, year, document_date, estimated_date)
+- Use aggregate_data with analysis_type="timeline" on the date field
+- Also use search_archive to find documents mentioning key events
+- Generate a line_chart or table showing documents/events over time
+
+**"What types/categories" / "distribution" questions:**
+- discover_fields → find the relevant categorical field
+- aggregate_data with analysis_type="count" on that field
+- Generate a bar_chart with TOP 10-15 items only (group rest as "Other")
+
+**"Who" / "people" / "network" / "relationships" questions:**
+- Use get_entities with entity_type="person" and include_relationships=true
+- Generate a network_graph visualization
+
+**"What does the archive say about X" / content questions:**
+- Use search_archive with the topic as query
+- Read the actual content returned and synthesize an answer
+- Cite specific documents by filename
+
+**"Trends" / "patterns over time" questions:**
+- discover_fields → find date field AND the field of interest
+- aggregate_data with analysis_type="timeline" grouped by the relevant field
+- Generate a line_chart
+
+CRITICAL RULES:
+- ALWAYS call discover_fields FIRST before aggregate_data
+- ACTUALLY READ the content from search_archive results — don't just count things
+- Match your analysis to the USER'S QUESTION, not just whatever field is easiest to count
+- When user asks about "events" or "what happened", use search_archive to find actual content, don't just aggregate metadata
+- When you call generate_visualization, the chart is rendered separately. Do NOT include the JSON/data in your text answer.
+- For bar charts: max 10-15 categories. Group the rest as "Other".
+- Write scholarly prose with citations. Focus on INSIGHTS, not raw data.
+- If the archive lacks relevant data, say so clearly.${schemaDescription}`;
 
   // Build message history
   const messages: Message[] = [
@@ -593,18 +639,25 @@ CRITICAL GUIDELINES:
           ? assistantMessage.content.map((c) => "text" in c ? c.text : "").join("")
           : "";
 
+      // Strip any leftover visualization JSON/code blocks from the answer
+      let cleanedContent = content
+        .replace(/```(?:json)?\s*\{[\s\S]*?"viz_type"[\s\S]*?\}\s*```/g, "")
+        .replace(/```(?:json)?\s*\{[\s\S]*?"labels"[\s\S]*?"datasets"[\s\S]*?\}\s*```/g, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+
       // Extract citations from the answer
       // Internal citations: [Document N] or [Doc ID: N]
       const internalCiteRegex = /\[Document\s+(\d+)\]/g;
       let match;
-      while ((match = internalCiteRegex.exec(content)) !== null) {
+      while ((match = internalCiteRegex.exec(cleanedContent)) !== null) {
         const docId = parseInt(match[1]);
         if (!citations.find((c) => c.documentId === docId)) {
           citations.push({ type: "internal", documentId: docId });
         }
       }
 
-      return { answer: content, thinking, visualizations, citations };
+      return { answer: cleanedContent, thinking, visualizations, citations };
     }
 
     // Process tool calls

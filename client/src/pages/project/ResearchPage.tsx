@@ -97,44 +97,68 @@ interface ConversationSummary {
 // ─── Chart Colors ────────────────────────────────────────────────────────────
 
 const CHART_COLORS = [
-  "hsl(var(--chart-1, 220 70% 50%))",
-  "hsl(var(--chart-2, 160 60% 45%))",
-  "hsl(var(--chart-3, 30 80% 55%))",
-  "hsl(var(--chart-4, 280 65% 60%))",
-  "hsl(var(--chart-5, 340 75% 55%))",
-  "#6366f1",
-  "#10b981",
-  "#f59e0b",
-  "#ef4444",
-  "#8b5cf6",
+  "#d4915c", // warm amber (primary accent)
+  "#6bb89c", // sage green
+  "#7c9fd4", // soft blue
+  "#d4a76a", // gold
+  "#b07cc4", // muted purple
+  "#d47c7c", // soft red
+  "#7cc4c4", // teal
+  "#c4b07c", // sand
+  "#7c8fd4", // periwinkle
+  "#d4a07c", // peach
 ];
 
-// ─── Visualization Renderer ──────────────────────────────────────────────────
+const DARK_TOOLTIP_STYLE = {
+  backgroundColor: "hsl(220 15% 12%)",
+  border: "1px solid hsl(220 10% 25%)",
+  borderRadius: "8px",
+  color: "hsl(40 10% 90%)",
+  fontSize: 12,
+  padding: "8px 12px",
+  boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+};
+
+// ─── Visualization Renderer ──────────────────────────────────────────────────────────────────
 
 function VisualizationRenderer({ viz }: { viz: Visualization }) {
   if (viz.type === "bar_chart") {
     const chartData = viz.data as { labels?: string[]; datasets?: Array<{ label: string; data: number[] }> };
     if (!chartData.labels || !chartData.datasets) return <p className="text-xs text-muted-foreground">Invalid chart data</p>;
+    
+    // For many labels (>8), use horizontal bar chart
+    const useHorizontal = chartData.labels.length > 8;
     const data = chartData.labels.map((label, i) => {
-      const point: Record<string, unknown> = { name: label };
+      const point: Record<string, unknown> = { name: label.length > 25 ? label.slice(0, 22) + "..." : label };
       chartData.datasets!.forEach((ds) => {
         point[ds.label] = ds.data[i];
       });
       return point;
     });
+    
+    const chartHeight = useHorizontal ? Math.max(300, data.length * 28) : 280;
+    
     return (
-      <div className="bg-card border border-border rounded-lg p-4">
-        <h4 className="text-sm font-semibold mb-3">{viz.title}</h4>
-        <div className="h-[250px]">
+      <div className="bg-card/50 border border-border/50 rounded-xl p-5">
+        <h4 className="text-sm font-semibold mb-4 text-foreground">{viz.title}</h4>
+        <div style={{ height: chartHeight }}>
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-              <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip contentStyle={{ fontSize: 11 }} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
+            <BarChart data={data} layout={useHorizontal ? "vertical" : "horizontal"} margin={useHorizontal ? { left: 100, right: 20, top: 5, bottom: 5 } : { left: 10, right: 10, top: 5, bottom: 40 }}>
+              <CartesianGrid strokeDasharray="0" stroke="hsl(220 10% 20%)" strokeOpacity={0.5} horizontal={!useHorizontal} vertical={useHorizontal} />
+              {useHorizontal ? (
+                <>
+                  <XAxis type="number" tick={{ fontSize: 11, fill: "hsl(40 10% 60%)" }} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: "hsl(40 10% 70%)" }} axisLine={false} tickLine={false} width={95} />
+                </>
+              ) : (
+                <>
+                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: "hsl(40 10% 60%)" }} angle={-35} textAnchor="end" height={60} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: "hsl(40 10% 60%)" }} axisLine={false} tickLine={false} />
+                </>
+              )}
+              <Tooltip contentStyle={DARK_TOOLTIP_STYLE} cursor={{ fill: "hsl(220 10% 18%)" }} />
               {chartData.datasets.map((ds, i) => (
-                <Bar key={ds.label} dataKey={ds.label} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                <Bar key={ds.label} dataKey={ds.label} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={useHorizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]} />
               ))}
             </BarChart>
           </ResponsiveContainer>
@@ -154,18 +178,18 @@ function VisualizationRenderer({ viz }: { viz: Visualization }) {
       return point;
     });
     return (
-      <div className="bg-card border border-border rounded-lg p-4">
-        <h4 className="text-sm font-semibold mb-3">{viz.title}</h4>
-        <div className="h-[250px]">
+      <div className="bg-card/50 border border-border/50 rounded-xl p-5">
+        <h4 className="text-sm font-semibold mb-4 text-foreground">{viz.title}</h4>
+        <div className="h-[280px]">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-              <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip contentStyle={{ fontSize: 11 }} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
+            <LineChart data={data} margin={{ left: 10, right: 20, top: 10, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="0" stroke="hsl(220 10% 20%)" strokeOpacity={0.5} />
+              <XAxis dataKey="name" tick={{ fontSize: 11, fill: "hsl(40 10% 60%)" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "hsl(40 10% 60%)" }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={DARK_TOOLTIP_STYLE} />
+              <Legend wrapperStyle={{ fontSize: 12, color: "hsl(40 10% 70%)" }} />
               {chartData.datasets.map((ds, i) => (
-                <Line key={ds.label} type="monotone" dataKey={ds.label} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} />
+                <Line key={ds.label} type="monotone" dataKey={ds.label} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2.5} dot={{ r: 3, fill: CHART_COLORS[i % CHART_COLORS.length] }} activeDot={{ r: 5 }} />
               ))}
             </LineChart>
           </ResponsiveContainer>
@@ -182,17 +206,17 @@ function VisualizationRenderer({ viz }: { viz: Visualization }) {
       value: chartData.datasets![0].data[i],
     }));
     return (
-      <div className="bg-card border border-border rounded-lg p-4">
-        <h4 className="text-sm font-semibold mb-3">{viz.title}</h4>
-        <div className="h-[250px]">
+      <div className="bg-card/50 border border-border/50 rounded-xl p-5">
+        <h4 className="text-sm font-semibold mb-4 text-foreground">{viz.title}</h4>
+        <div className="h-[280px]">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
-              <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`} labelLine={false}>
+              <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} innerRadius={40} label={({ name, percent }) => percent > 0.05 ? `${name} (${(percent * 100).toFixed(0)}%)` : ""} labelLine={false} stroke="hsl(220 15% 12%)" strokeWidth={2}>
                 {data.map((_, i) => (
                   <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip contentStyle={{ fontSize: 11 }} />
+              <Tooltip contentStyle={DARK_TOOLTIP_STYLE} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -203,23 +227,32 @@ function VisualizationRenderer({ viz }: { viz: Visualization }) {
   if (viz.type === "network_graph") {
     const graphData = viz.data as { nodes?: Array<{ id: string; label: string; type?: string }>; edges?: Array<{ source: string; target: string; label?: string }> };
     if (!graphData.nodes || !graphData.edges) return <p className="text-xs text-muted-foreground">Invalid graph data</p>;
-    const nodeColorMap: Record<string, string> = { person: "#6366f1", location: "#10b981", organization: "#f59e0b", document: "#8b5cf6" };
+    const nodeColorMap: Record<string, string> = { person: "#d4915c", location: "#6bb89c", organization: "#7c9fd4", document: "#b07cc4" };
     const fgData = {
-      nodes: graphData.nodes.map((n) => ({ id: n.id, name: n.label, type: n.type || "default", color: nodeColorMap[n.type || "default"] || "#6366f1" })),
+      nodes: graphData.nodes.map((n) => ({ id: n.id, name: n.label, type: n.type || "default", color: nodeColorMap[n.type || "default"] || "#d4915c" })),
       links: graphData.edges.map((e) => ({ source: e.source, target: e.target, label: e.label })),
     };
     return (
-      <div className="bg-card border border-border rounded-lg p-4">
-        <h4 className="text-sm font-semibold mb-3">{viz.title}</h4>
-        <div className="h-[300px] w-full relative">
+      <div className="bg-card/50 border border-border/50 rounded-xl p-5">
+        <h4 className="text-sm font-semibold mb-4 text-foreground">{viz.title}</h4>
+        <div className="flex gap-3 mb-3">
+          {Object.entries(nodeColorMap).map(([type, color]) => (
+            <span key={type} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
+              {type}
+            </span>
+          ))}
+        </div>
+        <div className="h-[350px] w-full relative">
           <ForceGraph2D
             graphData={fgData}
-            width={500}
-            height={280}
+            width={600}
+            height={330}
             nodeLabel="name"
-            nodeColor={(node: { color?: string }) => node.color || "#6366f1"}
+            nodeColor={(node: { color?: string }) => node.color || "#d4915c"}
             nodeRelSize={5}
             linkDirectionalArrowLength={3}
+            linkColor={() => "hsl(220 10% 30%)"}
             linkLabel={(link: { label?: string }) => link.label || ""}
             backgroundColor="transparent"
           />
@@ -232,28 +265,28 @@ function VisualizationRenderer({ viz }: { viz: Visualization }) {
     const tableData = viz.data as { headers?: string[]; rows?: string[][] };
     if (!tableData.headers || !tableData.rows) return <p className="text-xs text-muted-foreground">Invalid table data</p>;
     return (
-      <div className="bg-card border border-border rounded-lg p-4 overflow-x-auto">
-        <h4 className="text-sm font-semibold mb-3">{viz.title}</h4>
+      <div className="bg-card/50 border border-border/50 rounded-xl p-5 overflow-x-auto">
+        <h4 className="text-sm font-semibold mb-4 text-foreground">{viz.title}</h4>
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-border">
               {tableData.headers.map((h, i) => (
-                <th key={i} className="text-left py-2 px-2 font-medium text-muted-foreground">{h}</th>
+                <th key={i} className="text-left py-2.5 px-3 font-medium text-muted-foreground uppercase tracking-wider text-[10px]">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {tableData.rows.slice(0, 50).map((row, i) => (
-              <tr key={i} className="border-b border-border/50 last:border-0">
+              <tr key={i} className="border-b border-border/30 last:border-0 hover:bg-muted/20">
                 {row.map((cell, j) => (
-                  <td key={j} className="py-1.5 px-2">{cell}</td>
+                  <td key={j} className="py-2 px-3 text-foreground/80">{cell}</td>
                 ))}
               </tr>
             ))}
           </tbody>
         </table>
         {tableData.rows.length > 50 && (
-          <p className="text-xs text-muted-foreground mt-2">Showing 50 of {tableData.rows.length} rows</p>
+          <p className="text-xs text-muted-foreground mt-3">Showing 50 of {tableData.rows.length} rows</p>
         )}
       </div>
     );
