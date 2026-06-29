@@ -81,14 +81,18 @@ function CreateSessionForm({
   const [title, setTitle] = useState("");
   const [selectedDocs, setSelectedDocs] = useState<Set<number>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
+  const [limit, setLimit] = useState(50);
 
-  // Fetch documents that have transcriptions
-  const docsQuery = trpc.documents.list.useQuery({ projectId, status: "reviewed" });
+  // Fetch documents paginated — most recent first, any status with transcription
+  const docsQuery = trpc.documents.listPaginated.useQuery({
+    projectId,
+    limit,
+    search: searchQuery || undefined,
+  });
   const createSession = trpc.validation.create.useMutation();
 
-  const filteredDocs = (docsQuery.data ?? []).filter(
-    (d) => !searchQuery || d.filename.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const allDocs = docsQuery.data?.documents ?? [];
+  const hasMore = docsQuery.data?.nextCursor != null;
 
   const handleCreate = async () => {
     if (!title.trim()) {
@@ -116,11 +120,15 @@ function CreateSessionForm({
   };
 
   const toggleAll = () => {
-    if (selectedDocs.size === filteredDocs.length) {
+    if (selectedDocs.size === allDocs.length && allDocs.length > 0) {
       setSelectedDocs(new Set());
     } else {
-      setSelectedDocs(new Set(filteredDocs.map((d) => d.id)));
+      setSelectedDocs(new Set(allDocs.map((d) => d.id)));
     }
+  };
+
+  const loadMore = () => {
+    setLimit((prev) => prev + 50);
   };
 
   return (
@@ -147,7 +155,7 @@ function CreateSessionForm({
             Select Documents ({selectedDocs.size} selected)
           </label>
           <Button variant="ghost" size="sm" onClick={toggleAll} className="text-xs">
-            {selectedDocs.size === filteredDocs.length ? "Deselect All" : "Select All"}
+            {selectedDocs.size === allDocs.length && allDocs.length > 0 ? "Deselect All" : "Select All"}
           </Button>
         </div>
 
@@ -158,37 +166,51 @@ function CreateSessionForm({
           className="mb-2"
         />
 
-        <div className="max-h-60 overflow-y-auto border border-border rounded-md">
+        <div className="max-h-72 overflow-y-auto border border-border rounded-md">
           {docsQuery.isLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
             </div>
-          ) : filteredDocs.length === 0 ? (
+          ) : allDocs.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground text-sm">
-              No reviewed documents found
+              No documents found
             </div>
           ) : (
-            filteredDocs.map((doc) => (
-              <label
-                key={doc.id}
-                className="flex items-center gap-3 px-3 py-2 hover:bg-accent/50 cursor-pointer border-b border-border last:border-0"
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedDocs.has(doc.id)}
-                  onChange={() => {
-                    const next = new Set(selectedDocs);
-                    if (next.has(doc.id)) next.delete(doc.id);
-                    else next.add(doc.id);
-                    setSelectedDocs(next);
-                  }}
-                  className="w-4 h-4 rounded border-border"
-                />
-                <span className="text-sm text-foreground truncate">{doc.filename}</span>
-              </label>
-            ))
+            <>
+              {allDocs.map((doc) => (
+                <label
+                  key={doc.id}
+                  className="flex items-center gap-3 px-3 py-2 hover:bg-accent/50 cursor-pointer border-b border-border last:border-0"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedDocs.has(doc.id)}
+                    onChange={() => {
+                      const next = new Set(selectedDocs);
+                      if (next.has(doc.id)) next.delete(doc.id);
+                      else next.add(doc.id);
+                      setSelectedDocs(next);
+                    }}
+                    className="w-4 h-4 rounded border-border"
+                  />
+                  <span className="text-sm text-foreground truncate flex-1">{doc.filename}</span>
+                  <span className="text-[10px] text-muted-foreground capitalize">{doc.status.replace("_", " ")}</span>
+                </label>
+              ))}
+              {hasMore && (
+                <button
+                  onClick={loadMore}
+                  className="w-full py-2.5 text-sm text-primary hover:bg-accent/30 transition-colors border-t border-border"
+                >
+                  Show more documents...
+                </button>
+              )}
+            </>
           )}
         </div>
+        <p className="text-[10px] text-muted-foreground mt-1">
+          Showing {allDocs.length} documents{hasMore ? " (more available)" : ""}
+        </p>
       </div>
 
       <div className="flex justify-end gap-2 pt-2">
