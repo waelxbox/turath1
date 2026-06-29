@@ -58,6 +58,7 @@ import {
 } from "./db";
 import crypto from "crypto";
 import { generateProjectConfig, validateConfig, refineConfig } from "./onboardingAgent";
+import { processOnboardingChat, generateConfigFromChat, type ChatMessage } from "./onboardingChat";
 import { processDocument } from "./transcriptionEngine";
 import { storagePut } from "./storage";
 import { TRPCError } from "@trpc/server";
@@ -549,6 +550,82 @@ const onboardingRouter = router({
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       await updateProject(input.projectId, ctx.user.id, { status: "active" });
       return { success: true };
+    }),
+
+  // ─── Conversational Onboarding Chat ───────────────────────────────────────
+
+  chat: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      messages: z.array(z.object({
+        role: z.enum(["user", "assistant"]),
+        content: z.string(),
+        imageUrls: z.array(z.string()).optional(),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const response = await processOnboardingChat(
+        input.messages as ChatMessage[],
+        project.name ?? undefined,
+      );
+
+      const configReady = response.includes("[CONFIG_READY]");
+      const cleanResponse = response.replace("[CONFIG_READY]", "").trim();
+
+      return { response: cleanResponse, configReady };
+    }),
+
+  chatUploadImage: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      filename: z.string(),
+      imageBase64: z.string(),
+      mimeType: z.string().default("image/jpeg"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const imageBuffer = Buffer.from(input.imageBase64, "base64");
+      const key = `projects/${input.projectId}/onboarding-chat/${Date.now()}-${input.filename}`;
+      const { url } = await storagePut(key, imageBuffer, input.mimeType ?? "image/jpeg");
+
+      return { imageUrl: url };
+    }),
+
+  generateFromChat: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      messages: z.array(z.object({
+        role: z.enum(["user", "assistant"]),
+        content: z.string(),
+        imageUrls: z.array(z.string()).optional(),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const config = await generateConfigFromChat(input.messages as ChatMessage[]);
+
+      // Save config to project
+      await updateProject(input.projectId, ctx.user.id, {
+        systemPrompt: config.systemPrompt,
+        pass2Prompt: config.pass2Prompt ?? null,
+        jsonSchema: config.jsonSchema,
+        glossary: config.glossary,
+        postProcessing: config.postProcessing,
+        outputFormats: config.outputFormats,
+        modelName: config.modelName,
+        pipelineType: config.pipelineType,
+        onboardingReasoning: config.reasoning,
+        status: "active",
+      });
+
+      return config;
     }),
 });
 

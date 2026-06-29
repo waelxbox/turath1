@@ -504,3 +504,15 @@
 - [x] Allow changing document status to any valid status (pending, processing, needs_review, reviewed, flagged, error) from the UI
 
 - [x] Add "Skip" button to validation review portal for illegible/unclear lines — stores as its own verdict category, never returns to reviewer
+
+## Conversational Onboarding Rebuild
+- [x] Server: onboarding.chat tRPC mutation — accepts messages + image URLs, returns AI response with structured suggestions
+- [x] Server: onboarding.generateConfig mutation — takes conversation history, produces final system prompt + JSON schema + domain glossary
+- [x] Server: onboarding.applyConfig mutation — saves generated config to project settings (prompt, schema, glossary, pipeline type)
+- [x] Frontend: ChatOnboardingPage — chat UI with message bubbles, image upload inline, AI suggestions rendered as cards
+- [x] Frontend: AI suggests additional metadata fields as interactive cards (accept/reject/modify)
+- [x] Frontend: "Generate Config" button appears when AI determines enough info gathered
+- [x] Frontend: Config preview panel (shows generated prompt, schema, glossary before applying)
+- [x] Frontend: "Apply to Project" action that saves config and redirects to upload page
+- [x] Replace old onboarding wizard route with new conversational flow
+- [x] Handle two-pass pipeline detection (AI suggests two-pass when appropriate)
