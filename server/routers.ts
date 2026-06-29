@@ -715,7 +715,7 @@ const documentsRouter = router({
       });
 
       // Process in background (fire and forget with concurrency limit)
-      const CONCURRENCY = 3;
+      const CONCURRENCY = 10;
       (async () => {
         const jobs_list = await getJobsByProjectId(input.projectId);
         const job = jobs_list[0];
@@ -784,7 +784,7 @@ const documentsRouter = router({
       }
 
       // Process in background with concurrency limit
-      const CONCURRENCY = 3;
+      const CONCURRENCY = 10;
       (async () => {
         const chunks: typeof retryDocs[] = [];
         for (let i = 0; i < retryDocs.length; i += CONCURRENCY) {
