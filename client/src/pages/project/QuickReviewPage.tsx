@@ -447,14 +447,34 @@ function ClassicReviewMode({ projectId, mode, setMode }: Props & { mode: ReviewM
   // Extract lines from transcription (text fields only)
   const lines = useMemo(() => {
     if (!transcription?.rawJson) return [];
-    const raw = transcription.rawJson as Record<string, unknown>;
-    const textFields = ["transcription", "original_text", "text", "content"];
-    for (const f of textFields) {
-      if (typeof raw[f] === "string" && (raw[f] as string).trim().length > 0) {
-        return (raw[f] as string).split("\n").filter(l => l.trim().length > 0);
+    const raw = (transcription.reviewedJson || transcription.rawJson) as Record<string, unknown>;
+    
+    // Priority text fields to look for
+    const textFieldPriority = [
+      "full_transcription_ar", "transcription", "Original_Transcription",
+      "original_transcription", "original_text", "text", "content",
+      "Full_Transcription", "full_text"
+    ];
+    
+    let rawText = "";
+    for (const field of textFieldPriority) {
+      if (raw[field] && typeof raw[field] === "string" && (raw[field] as string).trim().length > 10) {
+        rawText = raw[field] as string;
+        break;
       }
     }
-    return [];
+    
+    // Fallback: find the longest string field
+    if (!rawText) {
+      for (const [, val] of Object.entries(raw)) {
+        if (typeof val === "string" && val.length > rawText.length) {
+          rawText = val;
+        }
+      }
+    }
+    
+    if (!rawText.trim()) return [];
+    return rawText.split("\n").filter(l => l.trim().length > 0);
   }, [transcription]);
 
   // Extract metadata fields for verification (non-text fields with values)

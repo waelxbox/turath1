@@ -1,0 +1,9 @@
+{
+  "query": "SELECT t.id, LEFT(CAST(t.rawJson AS CHAR), 500) as raw_preview FROM transcriptions t JOIN documents d ON t.documentId = d.id WHERE d.projectId = 39 LIMIT 3",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute SELECT t.id, LEFT(CAST(t.rawJson AS CHAR), 500) as raw_preview FROM transcriptions t JOIN documents d ON t.documentId = d.id WHERE d.projectId = 39 LIMIT 3",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 773
+}

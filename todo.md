@@ -617,3 +617,8 @@
 - [x] Replace verbose field descriptions with small tooltip (?) icons
 - [x] Invert visual weight: labels small/muted/uppercase, data larger/brighter/bolder
 - [x] Implement read-mode vs edit-mode: plain text by default, input borders only on focus/click
+
+## Fixes (Round 56) — Quick Review for Non-Line-Based Projects
+- [x] Fix Quick Review to work with projects that don't have explicit line-by-line data
+- [x] Auto-split transcription text fields into lines (split on newlines) for line-by-line review
+- [x] Handle edge case where transcription is a single block with no newlines (fallback to longest string field)
