@@ -20,6 +20,8 @@ import {
   validationAssignments,
   validationReviews,
   researchConversations, ResearchConversation, InsertResearchConversation,
+  activityLog, InsertActivityLog,
+  documentAssignments, InsertDocumentAssignment,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -1488,4 +1490,180 @@ export async function deleteResearchConversation(id: number, userId: number) {
   await db.delete(researchConversations).where(
     and(eq(researchConversations.id, id), eq(researchConversations.userId, userId))
   );
+}
+
+// ─── Activity Log ────────────────────────────────────────────────────────────
+
+export async function logActivity(data: {
+  projectId: number;
+  userId: number | null;
+  action: InsertActivityLog["action"];
+  targetType?: string;
+  targetId?: number;
+  metadata?: Record<string, unknown>;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.insert(activityLog).values({
+      projectId: data.projectId,
+      userId: data.userId,
+      action: data.action,
+      targetType: data.targetType ?? null,
+      targetId: data.targetId ?? null,
+      metadata: data.metadata ?? null,
+    });
+  } catch (e) {
+    // Activity logging should never break the main flow
+    console.error("[ActivityLog] Failed to log:", e);
+  }
+}
+
+export async function getActivityFeed(projectId: number, opts?: {
+  limit?: number;
+  offset?: number;
+  userId?: number;
+  action?: string;
+}) {
+  const db = await getDb();
+  if (!db) return { items: [], total: 0 };
+
+  const conditions = [eq(activityLog.projectId, projectId)];
+  if (opts?.userId) conditions.push(eq(activityLog.userId, opts.userId));
+  if (opts?.action) conditions.push(sql`${activityLog.action} = ${opts.action}`);
+
+  const whereClause = conditions.length > 1 ? and(...conditions) : conditions[0];
+
+  const [countResult] = await db.select({ total: count() }).from(activityLog).where(whereClause);
+  const total = countResult?.total ?? 0;
+
+  const items = await db
+    .select({
+      id: activityLog.id,
+      userId: activityLog.userId,
+      action: activityLog.action,
+      targetType: activityLog.targetType,
+      targetId: activityLog.targetId,
+      metadata: activityLog.metadata,
+      createdAt: activityLog.createdAt,
+      userName: users.name,
+    })
+    .from(activityLog)
+    .leftJoin(users, eq(activityLog.userId, users.id))
+    .where(whereClause)
+    .orderBy(desc(activityLog.createdAt))
+    .limit(opts?.limit ?? 50)
+    .offset(opts?.offset ?? 0);
+
+  return { items, total };
+}
+
+// ─── Document Assignments (Review Queue) ─────────────────────────────────────
+
+export async function assignDocuments(data: {
+  projectId: number;
+  documentIds: number[];
+  assigneeId: number;
+  assignedBy: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const values = data.documentIds.map(docId => ({
+    projectId: data.projectId,
+    documentId: docId,
+    assigneeId: data.assigneeId,
+    assignedBy: data.assignedBy,
+  }));
+
+  await db.insert(documentAssignments).values(values);
+  return { assigned: data.documentIds.length };
+}
+
+export async function getMyQueue(projectId: number, userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select({
+      id: documentAssignments.id,
+      documentId: documentAssignments.documentId,
+      status: documentAssignments.status,
+      createdAt: documentAssignments.createdAt,
+      completedAt: documentAssignments.completedAt,
+      filename: documents.filename,
+      docStatus: documents.status,
+    })
+    .from(documentAssignments)
+    .innerJoin(documents, eq(documentAssignments.documentId, documents.id))
+    .where(and(
+      eq(documentAssignments.projectId, projectId),
+      eq(documentAssignments.assigneeId, userId),
+    ))
+    .orderBy(asc(documentAssignments.createdAt));
+}
+
+export async function getProjectAssignments(projectId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select({
+      id: documentAssignments.id,
+      documentId: documentAssignments.documentId,
+      assigneeId: documentAssignments.assigneeId,
+      assignedBy: documentAssignments.assignedBy,
+      status: documentAssignments.status,
+      createdAt: documentAssignments.createdAt,
+      completedAt: documentAssignments.completedAt,
+      filename: documents.filename,
+      assigneeName: users.name,
+    })
+    .from(documentAssignments)
+    .innerJoin(documents, eq(documentAssignments.documentId, documents.id))
+    .innerJoin(users, eq(documentAssignments.assigneeId, users.id))
+    .where(eq(documentAssignments.projectId, projectId))
+    .orderBy(desc(documentAssignments.createdAt));
+}
+
+export async function updateAssignmentStatus(assignmentId: number, status: "pending" | "in_progress" | "completed") {
+  const db = await getDb();
+  if (!db) return;
+  const updates: Record<string, unknown> = { status };
+  if (status === "completed") updates.completedAt = new Date();
+  await db.update(documentAssignments).set(updates).where(eq(documentAssignments.id, assignmentId));
+}
+
+export async function deleteAssignment(assignmentId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(documentAssignments).where(eq(documentAssignments.id, assignmentId));
+}
+
+export async function getAssignmentStats(projectId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const rows = await db
+    .select({
+      assigneeId: documentAssignments.assigneeId,
+      assigneeName: users.name,
+      status: documentAssignments.status,
+    })
+    .from(documentAssignments)
+    .innerJoin(users, eq(documentAssignments.assigneeId, users.id))
+    .where(eq(documentAssignments.projectId, projectId));
+
+  // Aggregate per user
+  const stats: Record<number, { assigneeId: number; name: string; pending: number; inProgress: number; completed: number }> = {};
+  for (const r of rows) {
+    if (!stats[r.assigneeId]) {
+      stats[r.assigneeId] = { assigneeId: r.assigneeId, name: r.assigneeName ?? "Unknown", pending: 0, inProgress: 0, completed: 0 };
+    }
+    if (r.status === "pending") stats[r.assigneeId].pending++;
+    else if (r.status === "in_progress") stats[r.assigneeId].inProgress++;
+    else if (r.status === "completed") stats[r.assigneeId].completed++;
+  }
+
+  return Object.values(stats);
 }

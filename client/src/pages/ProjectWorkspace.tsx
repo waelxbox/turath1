@@ -3,7 +3,7 @@ import { useParams, useLocation, Router, Route, Switch } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { getLoginUrl } from "@/const";
-import { Loader2, BookOpen, Upload, Eye, Download, Settings, ArrowLeft, ChevronRight, MessageSquare, Search, Network, Gamepad2, Menu, X, ClipboardCheck, Microscope } from "lucide-react";
+import { Loader2, BookOpen, Upload, Eye, Download, Settings, ArrowLeft, ChevronRight, MessageSquare, Search, Network, Gamepad2, Menu, X, ClipboardCheck, Microscope, Activity, ListTodo, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import UploadPage from "./project/UploadPage";
 import ReviewPage from "./project/ReviewPage";
@@ -18,6 +18,8 @@ import EntityMergePage from "./project/EntityMergePage";
 import QuickReviewPage from "./project/QuickReviewPage";
 import ValidationAdminPage from "./project/ValidationAdminPage";
 import ResearchPage from "./project/ResearchPage";
+import ActivityFeedPage from "./project/ActivityFeedPage";
+import ReviewQueuePage from "./project/ReviewQueuePage";
 import { toast } from "sonner";
 
 type NavItem = {
@@ -121,6 +123,13 @@ function buildNavGroups(stats: { total: number; reviewed: number; needsReview: n
           disabled: !hasReviewed,
           disabledReason: "Approve documents to enable validation",
         },
+      ],
+    },
+    {
+      label: "Team",
+      items: [
+        { id: "activity", label: "Activity", icon: Activity, path: "/activity" },
+        { id: "queue", label: "Review Queue", icon: ListTodo, path: "/queue" },
       ],
     },
     {
@@ -427,6 +436,14 @@ function WorkspaceInner({
               {/* validation admin */}
               <Route path="/validation">
                 <ValidationAdminPage projectId={projectId} />
+              </Route>
+              {/* activity feed */}
+              <Route path="/activity">
+                <ActivityFeedPage projectId={projectId} />
+              </Route>
+              {/* review queue / assignments */}
+              <Route path="/queue">
+                <ReviewQueuePage projectId={projectId} />
               </Route>
               {/* default: overview */}
               <Route>

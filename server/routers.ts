@@ -57,6 +57,14 @@ import {
   updateDocumentGroupTitle,
   deleteDocumentGroup,
   reorderGroupPages,
+  logActivity,
+  getActivityFeed,
+  assignDocuments,
+  getMyQueue,
+  getProjectAssignments,
+  updateAssignmentStatus,
+  deleteAssignment,
+  getAssignmentStats,
 } from "./db";
 import crypto from "crypto";
 import { generateProjectConfig, validateConfig, refineConfig } from "./onboardingAgent";
@@ -723,6 +731,8 @@ const documentsRouter = router({
       });
 
       const docs = await getDocumentsByProjectId(input.projectId);
+      // Log activity
+      logActivity({ projectId: input.projectId, userId: ctx.user.id, action: "document_uploaded", metadata: { filename: input.filename } }).catch(() => {});
       return docs[0];
     }),
 
@@ -765,6 +775,8 @@ const documentsRouter = router({
         });
 
         await updateDocumentStatus(input.documentId, "needs_review");
+        // Log activity
+        logActivity({ projectId: input.projectId, userId: ctx.user.id, action: "document_transcribed", metadata: { documentId: input.documentId } }).catch(() => {});
         return { success: true };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -973,6 +985,10 @@ const transcriptionsRouter = router({
 
       await updateReviewedJson(input.transcriptionId, input.reviewedJson);
       await updateDocumentStatus(input.documentId, input.status);
+
+      // Log activity
+      const actAction = input.status === "flagged" ? "document_flagged" as const : "document_reviewed" as const;
+      logActivity({ projectId: input.projectId, userId: ctx.user.id, action: actAction, metadata: { documentId: input.documentId } }).catch(() => {});
 
       // Fire-and-forget: generate embedding for semantic search
       const doc = await getDocumentById(input.documentId, input.projectId);
@@ -2766,6 +2782,111 @@ const researchRouter = router({
     }),
 });
 
+// ─── Activity Feed Router ────────────────────────────────────────────────────
+
+const activityRouter = router({
+  /** Get paginated activity feed for a project */
+  feed: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      limit: z.number().min(1).max(100).optional(),
+      offset: z.number().min(0).optional(),
+      userId: z.number().optional(),
+      action: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role) throw new TRPCError({ code: "FORBIDDEN" });
+      return getActivityFeed(input.projectId, {
+        limit: input.limit,
+        offset: input.offset,
+        userId: input.userId,
+        action: input.action,
+      });
+    }),
+});
+
+// ─── Document Assignments (Review Queue) Router ──────────────────────────────
+
+const assignmentsRouter = router({
+  /** Assign documents to a team member */
+  assign: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      documentIds: z.array(z.number()).min(1),
+      assigneeId: z.number(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role || role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      const result = await assignDocuments({
+        projectId: input.projectId,
+        documentIds: input.documentIds,
+        assigneeId: input.assigneeId,
+        assignedBy: ctx.user.id,
+      });
+      // Log activity
+      await logActivity({
+        projectId: input.projectId,
+        userId: ctx.user.id,
+        action: "document_assigned",
+        metadata: { assigneeId: input.assigneeId, count: input.documentIds.length },
+      });
+      return result;
+    }),
+
+  /** Get my review queue */
+  myQueue: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role) throw new TRPCError({ code: "FORBIDDEN" });
+      return getMyQueue(input.projectId, ctx.user.id);
+    }),
+
+  /** Get all assignments for a project (admin view) */
+  all: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role || role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      return getProjectAssignments(input.projectId);
+    }),
+
+  /** Get per-member stats */
+  stats: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role) throw new TRPCError({ code: "FORBIDDEN" });
+      return getAssignmentStats(input.projectId);
+    }),
+
+  /** Update assignment status */
+  updateStatus: protectedProcedure
+    .input(z.object({
+      assignmentId: z.number(),
+      projectId: z.number(),
+      status: z.enum(["pending", "in_progress", "completed"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role) throw new TRPCError({ code: "FORBIDDEN" });
+      await updateAssignmentStatus(input.assignmentId, input.status);
+      return { success: true };
+    }),
+
+  /** Delete an assignment */
+  delete: protectedProcedure
+    .input(z.object({ assignmentId: z.number(), projectId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role || role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      await deleteAssignment(input.assignmentId);
+      return { success: true };
+    }),
+});
+
 // ─── App Router ───────────────────────────────────────────────────────────────
 
 export const appRouter = router({
@@ -2786,6 +2907,8 @@ export const appRouter = router({
   reviewSession: reviewSessionRouter,
   validation: validationRouter,
   research: researchRouter,
+  activity: activityRouter,
+  assignments: assignmentsRouter,
 });
 
 export type AppRouter = typeof appRouter;

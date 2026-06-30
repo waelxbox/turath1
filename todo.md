@@ -584,3 +584,18 @@
 - [x] Auto-detect text direction per line in validation portal (LTR for Latin/French, RTL for Arabic)
 - [x] Add delete validation session button on admin page
 - [x] Add entity delete button accessible from entity selection mode
+
+## Features (Round 54) — Activity Feed & Review Queue/Assignments
+
+### Activity Feed
+- [x] Create activity_log table (id, projectId, userId, action, targetType, targetId, metadata JSON, createdAt)
+- [x] Log actions automatically: document transcribed, reviewed, approved, flagged, entity created/merged/deleted
+- [x] Activity feed tRPC endpoint (paginated, filterable by user/action type)
+- [x] Activity feed UI page in project workspace sidebar
+
+### Review Queue & Assignments
+- [x] Create document_assignments table (id, projectId, documentId, assigneeId, assignedBy, status, createdAt, completedAt)
+- [x] Assign documents to team members (bulk assign by range or filter)
+- [x] "My Queue" view — each member sees their assigned docs with progress (endpoint ready)
+- [x] Assignment management UI for project owner/editors
+- [x] Per-member stats: docs assigned, completed, pending

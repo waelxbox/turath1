@@ -524,3 +524,55 @@ export const researchConversations = pgTable("research_conversations", {
 
 export type ResearchConversation = typeof researchConversations.$inferSelect;
 export type InsertResearchConversation = typeof researchConversations.$inferInsert;
+
+// ─── Activity Log ────────────────────────────────────────────────────────────
+
+export const activityActionEnum = pgEnum("activity_action", [
+  "document_uploaded", "document_transcribed", "document_reviewed",
+  "document_approved", "document_flagged", "document_assigned",
+  "entity_created", "entity_merged", "entity_deleted",
+  "validation_session_created", "validation_verdict_submitted",
+  "project_member_invited", "project_member_joined",
+  "batch_started", "batch_completed",
+]);
+
+export const activityLog = pgTable("activity_log", {
+  id: serial("id").primaryKey(),
+  projectId: integer("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  userId: integer("userId").references(() => users.id, { onDelete: "set null" }),
+  action: activityActionEnum("action").notNull(),
+  targetType: varchar("targetType", { length: 64 }), // "document", "entity", "session", etc.
+  targetId: integer("targetId"),
+  metadata: jsonb("metadata"), // flexible extra data (doc name, entity name, count, etc.)
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("al_projectId_idx").on(t.projectId),
+  index("al_projectId_createdAt_idx").on(t.projectId, t.createdAt),
+  index("al_userId_idx").on(t.userId),
+]);
+
+export type ActivityLog = typeof activityLog.$inferSelect;
+export type InsertActivityLog = typeof activityLog.$inferInsert;
+
+// ─── Document Assignments ────────────────────────────────────────────────────
+
+export const assignmentStatusEnum = pgEnum("assignment_status", ["pending", "in_progress", "completed"]);
+
+export const documentAssignments = pgTable("document_assignments", {
+  id: serial("id").primaryKey(),
+  projectId: integer("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  documentId: integer("documentId").notNull().references(() => documents.id, { onDelete: "cascade" }),
+  assigneeId: integer("assigneeId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  assignedBy: integer("assignedBy").notNull().references(() => users.id, { onDelete: "cascade" }),
+  status: assignmentStatusEnum("status").default("pending").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+}, (t) => [
+  index("da_projectId_idx").on(t.projectId),
+  index("da_assigneeId_idx").on(t.assigneeId),
+  index("da_documentId_idx").on(t.documentId),
+  index("da_projectId_assigneeId_idx").on(t.projectId, t.assigneeId),
+]);
+
+export type DocumentAssignment = typeof documentAssignments.$inferSelect;
+export type InsertDocumentAssignment = typeof documentAssignments.$inferInsert;
