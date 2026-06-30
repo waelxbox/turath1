@@ -82,8 +82,8 @@ function LoupeImageViewer({ src }: { src: string }) {
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLongPress = useRef(false);
 
-  const LOUPE_SIZE = 180;
-  const LOUPE_ZOOM = 2.5;
+  const LOUPE_SIZE = 200;
+  const LOUPE_ZOOM = 1.5;
 
   const resetView = () => {
     setZoom(1);
