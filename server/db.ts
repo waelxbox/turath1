@@ -1267,6 +1267,7 @@ export async function submitLineVerdict(data: {
   lineIndex: number;
   lineText: string;
   verdict: "correct" | "incorrect" | "skipped";
+  incorrectWords?: Array<{ wordIndex: number; word: string }>;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1280,6 +1281,7 @@ export async function submitLineVerdict(data: {
     lineIndex: data.lineIndex,
     lineText: data.lineText,
     verdict: data.verdict,
+    incorrectWords: data.incorrectWords ?? null,
   });
 
   // Update assignment counters

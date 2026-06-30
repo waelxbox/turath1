@@ -567,3 +567,10 @@
 - [x] Include inline entity markup (persName, placeName, orgName) linked to entity authority IDs
 - [x] Respect includeAll toggle (reviewed only vs all transcribed)
 - [x] Add TEI-XML Corpus export button to Export page alongside existing entity authority export
+
+## Features (Round 51) — Word-Level Error Selection in Validation Tests
+- [x] Update validation_responses table/schema to store word-level error data (positions + words)
+- [x] Update backend validation endpoint to accept word-level error selections
+- [x] Update frontend: when user clicks "Incorrect", line splits into selectable words
+- [x] User can tap individual words to mark them as incorrect, then submit
+- [x] Store and track word-level error data for analytics

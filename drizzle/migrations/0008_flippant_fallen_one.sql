@@ -1,0 +1,1 @@
+ALTER TABLE "validation_reviews" ADD COLUMN "incorrectWords" jsonb;

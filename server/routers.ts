@@ -2561,6 +2561,10 @@ const validationRouter = router({
       lineIndex: z.number(),
       lineText: z.string(),
       verdict: z.enum(["correct", "incorrect", "skipped"]),
+      incorrectWords: z.array(z.object({
+        wordIndex: z.number(),
+        word: z.string(),
+      })).optional(),
     }))
     .mutation(async ({ input }) => {
       await submitLineVerdict(input);

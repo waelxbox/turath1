@@ -492,6 +492,7 @@ export const validationReviews = pgTable("validation_reviews", {
   lineIndex: integer("lineIndex").notNull(),
   lineText: text("lineText").notNull(),
   verdict: validationVerdictEnum("verdict").notNull(),
+  incorrectWords: jsonb("incorrectWords"), // Array<{ wordIndex: number; word: string }> — which words were marked incorrect
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (t) => [
   index("vr_assignmentId_idx").on(t.assignmentId),

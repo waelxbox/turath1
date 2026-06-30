@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRoute } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { CheckCircle2, XCircle, Loader2, ChevronRight, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Check } from "lucide-react";
 
 // ─── Username Gate ──────────────────────────────────────────────────────────
 
@@ -397,6 +397,10 @@ function ReviewInterface({
   const [allDocsComplete, setAllDocsComplete] = useState(false);
   const [showFullContext, setShowFullContext] = useState(false);
 
+  // Word-level error selection state
+  const [isSelectingWords, setIsSelectingWords] = useState(false);
+  const [selectedWordIndices, setSelectedWordIndices] = useState<Set<number>>(new Set());
+
   // Fetch assignment
   const getAssignment = trpc.validation.getNextAssignment.useMutation();
   const submitVerdict = trpc.validation.submitVerdict.useMutation();
@@ -459,8 +463,16 @@ function ReviewInterface({
     loadNextAssignment();
   }, []);
 
-  const handleVerdict = async (verdict: "correct" | "incorrect" | "skipped") => {
+  const handleVerdict = async (verdict: "correct" | "incorrect" | "skipped", incorrectWords?: Array<{ wordIndex: number; word: string }>) => {
     if (!assignment || isSubmitting || currentLineIdx >= lines.length) return;
+
+    // If user clicks "Incorrect" and we're NOT already in word-selection mode, enter it
+    if (verdict === "incorrect" && !isSelectingWords && !incorrectWords) {
+      setIsSelectingWords(true);
+      setSelectedWordIndices(new Set());
+      return;
+    }
+
     setIsSubmitting(true);
 
     const line = lines[currentLineIdx];
@@ -473,10 +485,14 @@ function ReviewInterface({
         lineIndex: line.index,
         lineText: line.text,
         verdict,
+        incorrectWords,
       });
 
       const newVerdicts = { ...reviewedVerdicts, [line.index]: verdict };
       setReviewedVerdicts(newVerdicts);
+      // Reset word selection state
+      setIsSelectingWords(false);
+      setSelectedWordIndices(new Set());
 
       // Move to next unreviewed line
       const nextIdx = lines.findIndex(
@@ -724,37 +740,94 @@ function ReviewInterface({
         )}
       </div>
 
-      {/* Action buttons - fixed at bottom */}
-      <div className="flex-shrink-0 border-t border-neutral-800 px-4 py-3 bg-neutral-950">
-        <div className="flex gap-3 max-w-md mx-auto">
-          <button
-            onClick={() => handleVerdict("incorrect")}
-            disabled={isSubmitting}
-            className="flex-1 py-3.5 bg-red-600/20 hover:bg-red-600/30 border border-red-600/50 text-red-400 font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 active:scale-95"
-          >
-            <XCircle className="w-5 h-5" />
-            Incorrect
-          </button>
-          <button
-            onClick={() => handleVerdict("skipped")}
-            disabled={isSubmitting}
-            className="py-3.5 px-4 bg-neutral-700/30 hover:bg-neutral-700/50 border border-neutral-600/50 text-neutral-400 font-medium rounded-xl transition-colors flex items-center justify-center gap-2 active:scale-95 text-sm"
-          >
-            Skip
-          </button>
-          <button
-            onClick={() => handleVerdict("correct")}
-            disabled={isSubmitting}
-            className="flex-1 py-3.5 bg-green-600/20 hover:bg-green-600/30 border border-green-600/50 text-green-400 font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 active:scale-95"
-          >
-            <CheckCircle2 className="w-5 h-5" />
-            Correct
-          </button>
+      {/* Word selection mode - shown when user clicks Incorrect */}
+      {isSelectingWords && (
+        <div className="flex-shrink-0 border-t border-neutral-800 px-4 py-3 bg-neutral-900">
+          <p className="text-xs text-neutral-400 text-center mb-2">Tap the incorrect word(s):</p>
+          <div className="flex flex-wrap gap-1.5 justify-center mb-3" dir="rtl" style={{ fontFamily: "'Noto Naskh Arabic', serif" }}>
+            {currentLine?.text.split(/\s+/).map((word, idx) => {
+              const isSelected = selectedWordIndices.has(idx);
+              return (
+                <button
+                  key={idx}
+                  onClick={() => {
+                    const next = new Set(selectedWordIndices);
+                    if (next.has(idx)) next.delete(idx);
+                    else next.add(idx);
+                    setSelectedWordIndices(next);
+                  }}
+                  className={`px-2.5 py-1.5 rounded-lg text-sm transition-all ${
+                    isSelected
+                      ? "bg-red-600/40 border-2 border-red-500 text-red-200 scale-105"
+                      : "bg-neutral-800 border border-neutral-600 text-white hover:border-red-500/50"
+                  }`}
+                >
+                  {word}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex gap-2 max-w-md mx-auto">
+            <button
+              onClick={() => {
+                setIsSelectingWords(false);
+                setSelectedWordIndices(new Set());
+              }}
+              className="flex-1 py-2.5 bg-neutral-700/30 hover:bg-neutral-700/50 border border-neutral-600/50 text-neutral-400 font-medium rounded-xl transition-colors text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                const words = currentLine?.text.split(/\s+/) || [];
+                const incorrectWords = Array.from(selectedWordIndices)
+                  .sort((a, b) => a - b)
+                  .map(idx => ({ wordIndex: idx, word: words[idx] }));
+                handleVerdict("incorrect", incorrectWords);
+              }}
+              disabled={selectedWordIndices.size === 0 || isSubmitting}
+              className="flex-1 py-2.5 bg-red-600/30 hover:bg-red-600/40 border border-red-500/50 text-red-300 font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-40"
+            >
+              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              Submit ({selectedWordIndices.size})
+            </button>
+          </div>
         </div>
-        <p className="text-center text-[10px] text-neutral-600 mt-1">
-          Swipe right = correct · Swipe left = incorrect
-        </p>
-      </div>
+      )}
+
+      {/* Action buttons - fixed at bottom (hidden during word selection) */}
+      {!isSelectingWords && (
+        <div className="flex-shrink-0 border-t border-neutral-800 px-4 py-3 bg-neutral-950">
+          <div className="flex gap-3 max-w-md mx-auto">
+            <button
+              onClick={() => handleVerdict("incorrect")}
+              disabled={isSubmitting}
+              className="flex-1 py-3.5 bg-red-600/20 hover:bg-red-600/30 border border-red-600/50 text-red-400 font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 active:scale-95"
+            >
+              <XCircle className="w-5 h-5" />
+              Incorrect
+            </button>
+            <button
+              onClick={() => handleVerdict("skipped")}
+              disabled={isSubmitting}
+              className="py-3.5 px-4 bg-neutral-700/30 hover:bg-neutral-700/50 border border-neutral-600/50 text-neutral-400 font-medium rounded-xl transition-colors flex items-center justify-center gap-2 active:scale-95 text-sm"
+            >
+              Skip
+            </button>
+            <button
+              onClick={() => handleVerdict("correct")}
+              disabled={isSubmitting}
+              className="flex-1 py-3.5 bg-green-600/20 hover:bg-green-600/30 border border-green-600/50 text-green-400 font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 active:scale-95"
+            >
+              <CheckCircle2 className="w-5 h-5" />
+              Correct
+            </button>
+          </div>
+          <p className="text-center text-[10px] text-neutral-600 mt-1">
+            Swipe right = correct · Swipe left = incorrect
+          </p>
+        </div>
+      )}
     </div>
   );
 }
