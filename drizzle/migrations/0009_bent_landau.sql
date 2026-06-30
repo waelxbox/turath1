@@ -1,0 +1,1 @@
+ALTER TABLE "validation_sessions" ADD COLUMN "arabicOnly" boolean DEFAULT true NOT NULL;

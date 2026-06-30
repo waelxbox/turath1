@@ -2518,13 +2518,17 @@ const validationRouter = router({
           }
         }
 
-        // Split into lines and filter to Arabic-only
+        // Split into lines — optionally filter to Arabic-only based on session setting
         const allLines = rawText.split("\n").map(l => l.trim()).filter(l => l.length > 0);
-        const arabicRegex = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
-        const englishOnlyRegex = /^[a-zA-Z0-9\s\[\]\(\)\-_:;.,!?'"]+$/;
-        lines = allLines
-          .map((text, idx) => ({ index: idx, text }))
-          .filter(l => arabicRegex.test(l.text) && !englishOnlyRegex.test(l.text));
+        const allIndexed = allLines.map((text, idx) => ({ index: idx, text }));
+
+        if (session.arabicOnly) {
+          const arabicRegex = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+          const englishOnlyRegex = /^[a-zA-Z0-9\s\[\]\(\)\-_:;.,!?'"]+$/;
+          lines = allIndexed.filter(l => arabicRegex.test(l.text) && !englishOnlyRegex.test(l.text));
+        } else {
+          lines = allIndexed;
+        }
       }
 
       // Update totalLines on assignment if not set
@@ -2595,6 +2599,7 @@ const validationRouter = router({
       title: z.string().min(1).max(255),
       documentIds: z.array(z.number()).min(1),
       reviewsPerDoc: z.number().min(1).max(20).optional(),
+      arabicOnly: z.boolean().optional(), // default true
     }))
     .mutation(async ({ ctx, input }) => {
       // Verify ownership
@@ -2608,6 +2613,7 @@ const validationRouter = router({
         shareToken,
         documentIds: input.documentIds,
         reviewsPerDoc: input.reviewsPerDoc,
+        arabicOnly: input.arabicOnly ?? true,
       });
       return { session, shareLink: `/review/${shareToken}` };
     }),

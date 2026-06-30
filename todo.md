@@ -574,3 +574,8 @@
 - [x] Update frontend: when user clicks "Incorrect", line splits into selectable words
 - [x] User can tap individual words to mark them as incorrect, then submit
 - [x] Store and track word-level error data for analytics
+
+## Features (Round 52) — Arabic-Only Filter Toggle for Validation Sessions
+- [x] Add `arabicOnly` boolean field to validation_sessions table (default true for backward compat)
+- [x] Add toggle in validation session creation UI
+- [x] Pass the flag through to the review portal so it filters lines accordingly

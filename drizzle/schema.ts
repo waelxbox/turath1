@@ -441,6 +441,7 @@ export const validationSessions = pgTable("validation_sessions", {
   reviewsPerDoc: integer("reviewsPerDoc").notNull().default(5),
   status: validationSessionStatusEnum("status").default("active").notNull(),
   documentIds: jsonb("documentIds").notNull(), // number[] — selected document IDs
+  arabicOnly: boolean("arabicOnly").notNull().default(true), // filter to Arabic-text lines only
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   closedAt: timestamp("closedAt"),
 }, (t) => [

@@ -1157,6 +1157,7 @@ export async function createValidationSession(data: {
   shareToken: string;
   documentIds: number[];
   reviewsPerDoc?: number;
+  arabicOnly?: boolean;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1167,6 +1168,7 @@ export async function createValidationSession(data: {
     totalDocs: data.documentIds.length,
     reviewsPerDoc: data.reviewsPerDoc ?? 5,
     documentIds: data.documentIds,
+    arabicOnly: data.arabicOnly ?? true,
   }).returning();
   return row;
 }

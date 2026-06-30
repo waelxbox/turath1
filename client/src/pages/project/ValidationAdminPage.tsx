@@ -82,6 +82,7 @@ function CreateSessionForm({
   const [selectedDocs, setSelectedDocs] = useState<Set<number>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [limit, setLimit] = useState(50);
+  const [arabicOnly, setArabicOnly] = useState(true);
 
   // Fetch documents paginated — most recent first, any status with transcription
   const docsQuery = trpc.documents.listPaginated.useQuery({
@@ -109,6 +110,7 @@ function CreateSessionForm({
         projectId,
         title: title.trim(),
         documentIds: Array.from(selectedDocs),
+        arabicOnly,
       });
       const fullLink = `${window.location.origin}${result.shareLink}`;
       await navigator.clipboard.writeText(fullLink);
@@ -211,6 +213,22 @@ function CreateSessionForm({
         <p className="text-[10px] text-muted-foreground mt-1">
           Showing {allDocs.length} documents{hasMore ? " (more available)" : ""}
         </p>
+      </div>
+
+      {/* Arabic-only filter toggle */}
+      <div className="flex items-center gap-3">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={arabicOnly}
+            onChange={(e) => setArabicOnly(e.target.checked)}
+            className="w-4 h-4 rounded border-border"
+          />
+          <span className="text-sm text-foreground">Arabic lines only</span>
+        </label>
+        <span className="text-[10px] text-muted-foreground">
+          {arabicOnly ? "Only lines containing Arabic text will be shown to reviewers" : "All lines will be shown (including French, English, etc.)"}
+        </span>
       </div>
 
       <div className="flex justify-end gap-2 pt-2">
