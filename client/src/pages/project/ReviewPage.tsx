@@ -11,8 +11,10 @@ import { toast } from "sonner";
 import {
   CheckCircle2, Flag, ChevronLeft, ChevronRight, Loader2,
   Eye, Filter, Zap, AlertCircle, ImageOff, RotateCcw,
-  MoreVertical, Trash2, Pencil, Search, Layers
+  MoreVertical, Trash2, Pencil, Search, Layers,
+  Minus, Plus, Maximize2, X, RotateCw, PanelLeftClose, PanelLeftOpen, Info
 } from "lucide-react";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -199,6 +201,8 @@ function ReviewDocPanel({
   documents,
   currentIndex,
   onNavigate,
+  sidebarCollapsed,
+  onToggleSidebar,
 }: {
   projectId: number;
   project: Project;
@@ -206,13 +210,60 @@ function ReviewDocPanel({
   documents: Array<{ id: number; filename: string; status: string; errorMessage?: string | null; groupId?: number | null; pageNumber?: number | null }>;
   currentIndex: number;
   onNavigate: (docId: number) => void;
+  sidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
 }) {
   const [editedFields, setEditedFields] = useState<Record<string, unknown>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isBatchTranscribing, setIsBatchTranscribing] = useState(false);
   const [activePageDocId, setActivePageDocId] = useState(currentDocId);
+  // Image viewer state
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [rotation, setRotation] = useState(0);
+  const [fullscreen, setFullscreen] = useState(false);
+  const imgContainerRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef(false);
+  const lastPos = useRef({ x: 0, y: 0 });
   const utils = trpc.useUtils();
+
+  // Image viewer handlers
+  const handleZoomIn = () => setZoom(prev => Math.min(prev + 0.5, 6));
+  const handleZoomOut = () => {
+    const nz = Math.max(zoom - 0.5, 1);
+    setZoom(nz);
+    if (nz === 1) setPan({ x: 0, y: 0 });
+  };
+  const handleResetView = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
+  const handleRotate = () => setRotation(prev => (prev + 90) % 360);
+
+  const handleImgMouseDown = (e: React.MouseEvent) => {
+    if (zoom <= 1) return;
+    e.preventDefault();
+    dragging.current = true;
+    lastPos.current = { x: e.clientX, y: e.clientY };
+  };
+  const handleImgMouseMove = (e: React.MouseEvent) => {
+    if (!dragging.current) return;
+    const dx = e.clientX - lastPos.current.x;
+    const dy = e.clientY - lastPos.current.y;
+    lastPos.current = { x: e.clientX, y: e.clientY };
+    setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+  };
+  const handleImgMouseUp = () => { dragging.current = false; };
+  const handleImgWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.2 : 0.2;
+    const nz = Math.max(1, Math.min(6, zoom + delta));
+    setZoom(nz);
+    if (nz === 1) setPan({ x: 0, y: 0 });
+  };
+
+  // Reset image viewer when doc changes
+  useEffect(() => {
+    setZoom(1); setPan({ x: 0, y: 0 }); setRotation(0);
+  }, [currentDocId]);
 
   // Detect if this document belongs to a group
   const currentDoc = documents.find(d => d.id === currentDocId);
@@ -320,11 +371,30 @@ function ReviewDocPanel({
     await transcribeDoc.mutateAsync({ documentId: currentDocId, projectId });
   }, [currentDocId, projectId, transcribeDoc]);
 
+  // Keyboard shortcut: Cmd/Ctrl+Enter to save & approve
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && transcription && !isSaving) {
+        e.preventDefault();
+        handleSave('reviewed');
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [transcription, isSaving, handleSave]);
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Doc header */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-border flex-shrink-0">
+      {/* Doc header — navigation + filename only, no action buttons */}
+      <div className="flex items-center justify-between px-4 py-2 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-3">
+          <button
+            onClick={onToggleSidebar}
+            className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+            title={sidebarCollapsed ? "Show document list" : "Hide document list"}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+          </button>
           <div className="flex items-center gap-1">
             <Button
               variant="ghost" size="icon" className="h-7 w-7"
@@ -342,7 +412,7 @@ function ReviewDocPanel({
               <ChevronRight className="w-4 h-4" />
             </Button>
           </div>
-          <span className="text-sm font-medium">{currentDoc?.filename}</span>
+          <span className="text-sm font-medium truncate max-w-[200px]">{currentDoc?.filename}</span>
           {currentDoc && <StatusBadge status={currentDoc.status} />}
           {isMultiPage && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium">
@@ -352,7 +422,6 @@ function ReviewDocPanel({
           )}
         </div>
         <div className="flex items-center gap-2">
-          {/* Retranscribe — always visible when a doc is loaded */}
           {currentDoc && (
             <Button
               variant="ghost"
@@ -367,29 +436,6 @@ function ReviewDocPanel({
                 : <RotateCcw className="w-3.5 h-3.5" />}
               {isTranscribing ? "Reading…" : "Re-read"}
             </Button>
-          )}
-          {transcription && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 bg-transparent border-orange-500/30 text-orange-400 hover:bg-orange-500/10"
-                onClick={() => handleSave("flagged")}
-                disabled={isSaving || isTranscribing}
-              >
-                {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Flag className="w-3.5 h-3.5" />}
-                Flag for later
-              </Button>
-              <Button
-                size="sm"
-                className="gap-1.5"
-                onClick={() => handleSave("reviewed")}
-                disabled={isSaving || isTranscribing}
-              >
-                {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                Approve
-              </Button>
-            </>
           )}
         </div>
       </div>
@@ -447,29 +493,90 @@ function ReviewDocPanel({
 
       {/* Split view */}
       <div className="flex-1 overflow-hidden flex">
-        {/* Image panel */}
-        <div className="w-1/2 border-r border-border overflow-auto p-4 bg-black/20 flex items-start justify-center">
-          {imageLoading ? (
-            <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
-              <Loader2 className="w-6 h-6 animate-spin" />
-              <span className="text-xs">Loading image…</span>
+        {/* Image panel with zoom/pan/rotate controls */}
+        <div className={`relative flex flex-col border-r border-border ${fullscreen ? 'fixed inset-0 z-[100] bg-black' : 'w-1/2'}`}>
+          {/* Image controls bar */}
+          <div className="flex-shrink-0 flex items-center justify-between px-2 py-1 bg-black/80 border-b border-white/10">
+            <div className="flex items-center gap-0.5">
+              <button onClick={handleZoomOut} disabled={zoom <= 1} className="p-1.5 rounded text-white/70 hover:text-white disabled:text-white/30">
+                <Minus className="w-4 h-4" />
+              </button>
+              <span className="text-[11px] text-white/70 font-mono w-10 text-center">{Math.round(zoom * 100)}%</span>
+              <button onClick={handleZoomIn} disabled={zoom >= 6} className="p-1.5 rounded text-white/70 hover:text-white disabled:text-white/30">
+                <Plus className="w-4 h-4" />
+              </button>
+              {zoom > 1 && (
+                <button onClick={handleResetView} className="ml-1 px-2 py-0.5 rounded text-[10px] text-white/60 hover:text-white bg-white/5 hover:bg-white/10">
+                  Reset
+                </button>
+              )}
+              <div className="w-px h-4 bg-white/20 mx-1.5" />
+              <button onClick={handleRotate} className="p-1.5 rounded text-white/70 hover:text-white" title="Rotate 90°">
+                <RotateCw className="w-4 h-4" />
+              </button>
             </div>
-          ) : imageData?.url ? (
-            <img
-              src={imageData.url}
-              alt={currentDoc?.filename}
-              className="w-full rounded shadow-lg"
-            />
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
-              <ImageOff className="w-8 h-8" />
-              <span className="text-xs">Image not available</span>
+            <div className="flex items-center gap-1">
+              {!fullscreen ? (
+                <button onClick={() => setFullscreen(true)} className="p-1.5 rounded text-white/70 hover:text-white" title="Fullscreen">
+                  <Maximize2 className="w-4 h-4" />
+                </button>
+              ) : (
+                <button onClick={() => setFullscreen(false)} className="p-1.5 rounded text-white/70 hover:text-white" title="Exit fullscreen">
+                  <X className="w-4 h-4" />
+                </button>
+              )}
             </div>
-          )}
+          </div>
+          {/* Image area */}
+          <div
+            ref={imgContainerRef}
+            className="flex-1 overflow-hidden flex items-center justify-center bg-black/40"
+            style={{ cursor: zoom > 1 ? 'grab' : 'default', touchAction: 'none' }}
+            onMouseDown={handleImgMouseDown}
+            onMouseMove={handleImgMouseMove}
+            onMouseUp={handleImgMouseUp}
+            onMouseLeave={handleImgMouseUp}
+            onWheel={handleImgWheel}
+            onDoubleClick={(e) => {
+              if (zoom > 1.5) { setZoom(1); setPan({ x: 0, y: 0 }); }
+              else {
+                const rect = imgContainerRef.current?.getBoundingClientRect();
+                if (rect) {
+                  const tapX = e.clientX - rect.left - rect.width / 2;
+                  const tapY = e.clientY - rect.top - rect.height / 2;
+                  setZoom(2.5);
+                  setPan({ x: -tapX * 1.5, y: -tapY * 1.5 });
+                } else setZoom(2.5);
+              }
+            }}
+          >
+            {imageLoading ? (
+              <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
+                <Loader2 className="w-6 h-6 animate-spin" />
+                <span className="text-xs">Loading image…</span>
+              </div>
+            ) : imageData?.url ? (
+              <img
+                src={imageData.url}
+                alt={currentDoc?.filename}
+                className="max-w-full max-h-full object-contain select-none pointer-events-none"
+                style={{
+                  transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px) rotate(${rotation}deg)`,
+                  transition: dragging.current ? 'none' : 'transform 0.15s ease-out',
+                }}
+                draggable={false}
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
+                <ImageOff className="w-8 h-8" />
+                <span className="text-xs">Image not available</span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Form / transcription panel */}
-        <div className="w-1/2 overflow-auto p-6">
+        <div className={`overflow-auto p-6 ${fullscreen ? 'hidden' : 'w-1/2'}`}>
           {/* Not yet transcribed */}
           {!transcriptionLoading && !transcription && currentDoc?.status !== "error" && (
             <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
@@ -604,26 +711,29 @@ function ReviewDocPanel({
                   ))
               )}
 
-              <div className="flex gap-2 pt-4 border-t border-border sticky bottom-0 bg-card/95 backdrop-blur-sm py-3">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5 bg-transparent border-orange-500/30 text-orange-400 hover:bg-orange-500/10"
-                  onClick={() => handleSave("flagged")}
-                  disabled={isSaving}
-                >
-                  {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Flag className="w-3.5 h-3.5" />}
-                  Flag for review
-                </Button>
-                <Button
-                  size="sm"
-                  className="gap-1.5 flex-1"
-                  onClick={() => handleSave("reviewed")}
-                  disabled={isSaving}
-                >
-                  {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                  Save & mark reviewed
-                </Button>
+              <div className="sticky bottom-0 bg-card/95 backdrop-blur-sm border-t border-border pt-3 pb-3 mt-4 -mx-6 px-6">
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 bg-transparent border-orange-500/30 text-orange-400 hover:bg-orange-500/10"
+                    onClick={() => handleSave("flagged")}
+                    disabled={isSaving}
+                  >
+                    {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Flag className="w-3.5 h-3.5" />}
+                    Flag
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="gap-1.5 flex-1"
+                    onClick={() => handleSave("reviewed")}
+                    disabled={isSaving}
+                  >
+                    {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                    Save & approve
+                    <kbd className="ml-1 text-[10px] opacity-60 font-mono">⌘⏎</kbd>
+                  </Button>
+                </div>
               </div>
             </div>
           )}
@@ -694,6 +804,24 @@ function FieldEntityAnnotations({ value, entities, projectId }: { value: unknown
   );
 }
 
+function FieldLabel({ label, description }: { label: string; description?: string }) {
+  return (
+    <div className="flex items-center gap-1 mb-1">
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-medium">{label}</span>
+      {description && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Info className="w-3 h-3 text-muted-foreground/50 cursor-help" />
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-[250px] text-xs">
+            {description}
+          </TooltipContent>
+        </Tooltip>
+      )}
+    </div>
+  );
+}
+
 function DynamicField({
   fieldKey,
   label,
@@ -714,10 +842,7 @@ function DynamicField({
   if (fieldDef.type === "boolean") {
     return (
       <div className="flex items-center justify-between py-1">
-        <div>
-          <Label className="text-sm capitalize">{label}</Label>
-          {fieldDef.description && <p className="text-xs text-muted-foreground">{fieldDef.description}</p>}
-        </div>
+        <FieldLabel label={label} description={fieldDef.description} />
         <Switch checked={Boolean(value)} onCheckedChange={onChange} />
       </div>
     );
@@ -727,7 +852,6 @@ function DynamicField({
     const arr = Array.isArray(value) ? (value as unknown[]) : [];
     const [tagInput, setTagInput] = useState("");
     
-    // Match each array item to an entity
     const getEntityForTag = (tag: unknown): DocEntity | undefined => {
       if (typeof tag !== "string" || !entities || entities.length === 0) return undefined;
       const normalizedTag = tag.toLowerCase().trim();
@@ -739,8 +863,7 @@ function DynamicField({
 
     return (
       <div>
-        <Label className="text-sm mb-1.5 block capitalize">{label}</Label>
-        {fieldDef.description && <p className="text-xs text-muted-foreground mb-2">{fieldDef.description}</p>}
+        <FieldLabel label={label} description={fieldDef.description} />
         <div className="flex flex-wrap gap-1.5 mb-2 min-h-[24px]">
           {arr.map((tag, i) => {
             const matchedEntity = getEntityForTag(tag);
@@ -772,7 +895,7 @@ function DynamicField({
               }
             }}
             placeholder="Type and press Enter to add"
-            className="bg-background text-sm h-8"
+            className="bg-transparent border-transparent hover:border-border focus:border-border text-sm h-8 transition-colors"
           />
         </div>
       </div>
@@ -785,12 +908,11 @@ function DynamicField({
   if (isLong) {
     return (
       <div>
-        <Label className="text-sm mb-1.5 block capitalize">{label}</Label>
-        {fieldDef.description && <p className="text-xs text-muted-foreground mb-2">{fieldDef.description}</p>}
+        <FieldLabel label={label} description={fieldDef.description} />
         <Textarea
           value={strVal}
           onChange={e => onChange(e.target.value)}
-          className="bg-background text-sm resize-none"
+          className="bg-transparent border-transparent hover:border-border focus:border-border text-sm text-foreground font-normal resize-none transition-colors"
           rows={4}
         />
         <FieldEntityAnnotations value={value} entities={entities} projectId={projectId} />
@@ -800,13 +922,12 @@ function DynamicField({
 
   return (
     <div>
-      <Label className="text-sm mb-1.5 block capitalize">{label}</Label>
-      {fieldDef.description && <p className="text-xs text-muted-foreground mb-2">{fieldDef.description}</p>}
+      <FieldLabel label={label} description={fieldDef.description} />
       <div className="flex items-center gap-2">
         <Input
           value={strVal}
           onChange={e => onChange(e.target.value)}
-          className="bg-background text-sm flex-1"
+          className="bg-transparent border-transparent hover:border-border focus:border-border text-sm text-foreground font-normal flex-1 transition-colors"
         />
         <FieldEntityAnnotations value={value} entities={entities} projectId={projectId} />
       </div>
@@ -824,6 +945,7 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
   const [deleteDoc, setDeleteDoc] = useState<{ id: number; filename: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const utils = trpc.useUtils();
 
@@ -945,7 +1067,7 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
   return (
     <div className="flex h-full">
       {/* Document list sidebar */}
-      <div className="w-64 border-r border-border flex flex-col flex-shrink-0">
+      <div className={`border-r border-border flex flex-col flex-shrink-0 transition-all duration-200 ${sidebarCollapsed ? 'w-0 overflow-hidden border-r-0' : 'w-64'}`}>
         {/* Search + Filter header */}
         <div className="p-3 border-b border-border space-y-2">
           <div className="relative">
@@ -1079,6 +1201,8 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
             documents={documents}
             currentIndex={currentIndex}
             onNavigate={handleNavigate}
+            sidebarCollapsed={sidebarCollapsed}
+            onToggleSidebar={() => setSidebarCollapsed(prev => !prev)}
           />
         )}
       </div>

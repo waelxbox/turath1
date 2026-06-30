@@ -599,3 +599,21 @@
 - [x] "My Queue" view — each member sees their assigned docs with progress (endpoint ready)
 - [x] Assignment management UI for project owner/editors
 - [x] Per-member stats: docs assigned, completed, pending
+
+## Features (Round 55) — Review Page UX Overhaul
+### Image Viewer
+- [x] Add quick rotation button (90° increments)
+- [x] Add explicit zoom +/- buttons and fit-to-width/height toggle
+- [x] Allow collapsible left sidebar to maximize image space
+- [x] Add fullscreen mode for image viewer (hides form panel)
+
+### Action Buttons
+- [x] Remove duplicate top-right action buttons (Flag/Approve)
+- [x] Keep only bottom-right "Save & approve" and "Flag"
+- [x] Make action buttons sticky at bottom of right panel
+- [x] Add Cmd/Ctrl+Enter keyboard shortcut for "Save & approve"
+
+### Metadata Fields UX
+- [x] Replace verbose field descriptions with small tooltip (?) icons
+- [x] Invert visual weight: labels small/muted/uppercase, data larger/brighter/bolder
+- [x] Implement read-mode vs edit-mode: plain text by default, input borders only on focus/click
