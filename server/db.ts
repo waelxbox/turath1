@@ -943,6 +943,15 @@ export async function updateEntityName(entityId: number, projectId: number, newN
     .where(and(eq(entities.id, entityId), eq(entities.projectId, projectId)));
 }
 
+/** Delete entities by IDs (cascades to aliases and document_entities) */
+export async function deleteEntities(entityIds: number[], projectId: number) {
+  const db = (await getDb())!;
+  if (entityIds.length === 0) return;
+  await db
+    .delete(entities)
+    .where(and(inArray(entities.id, entityIds), eq(entities.projectId, projectId)));
+}
+
 // ─── Project Members & Invites ──────────────────────────────────────────────
 
 /** Get all members of a project (includes owner info from projects table) */
@@ -1190,6 +1199,13 @@ export async function closeValidationSession(sessionId: number) {
   const db = await getDb();
   if (!db) return;
   await db.update(validationSessions).set({ status: "closed", closedAt: new Date() }).where(eq(validationSessions.id, sessionId));
+}
+
+export async function deleteValidationSession(sessionId: number) {
+  const db = await getDb();
+  if (!db) return;
+  // Cascade: delete reviews -> assignments -> session (FK cascade handles it)
+  await db.delete(validationSessions).where(eq(validationSessions.id, sessionId));
 }
 
 export async function getNextAssignment(sessionId: number, reviewerUsername: string) {

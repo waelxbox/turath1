@@ -25,6 +25,7 @@ import {
   Merge,
   CheckSquare,
   X,
+  Trash2,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -74,6 +75,13 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
   const [canonicalName, setCanonicalName] = useState("");
   const [isMerging, setIsMerging] = useState(false);
   const utils = trpc.useUtils();
+
+  const deleteEntitiesMutation = trpc.entities.delete.useMutation({
+    onSuccess: () => {
+      utils.entities.list.invalidate();
+      utils.entities.stats.invalidate();
+    },
+  });
 
   const manualMergeMutation = trpc.merge.manual.useMutation({
     onSuccess: () => {
@@ -482,6 +490,29 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
             >
               <Merge className="h-3.5 w-3.5" />
               Merge Selected
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              className="gap-1.5"
+              onClick={async () => {
+                if (!confirm(`Delete ${selectedForMerge.size} ${selectedForMerge.size === 1 ? "entity" : "entities"} permanently? This cannot be undone.`)) return;
+                try {
+                  await deleteEntitiesMutation.mutateAsync({
+                    projectId,
+                    entityIds: Array.from(selectedForMerge),
+                  });
+                  toast.success(`Deleted ${selectedForMerge.size} ${selectedForMerge.size === 1 ? "entity" : "entities"}`);
+                  setSelectedForMerge(new Set());
+                  setMergeMode(false);
+                  setSelectedEntityId(null);
+                } catch (err) {
+                  toast.error("Failed to delete entities");
+                }
+              }}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete
             </Button>
             <Button
               size="sm"

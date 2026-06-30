@@ -579,3 +579,8 @@
 - [x] Add `arabicOnly` boolean field to validation_sessions table (default true for backward compat)
 - [x] Add toggle in validation session creation UI
 - [x] Pass the flag through to the review portal so it filters lines accordingly
+
+## Fixes (Round 53) — Validation RTL + Delete Buttons
+- [x] Auto-detect text direction per line in validation portal (LTR for Latin/French, RTL for Arabic)
+- [x] Add delete validation session button on admin page
+- [x] Add entity delete button accessible from entity selection mode

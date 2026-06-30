@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   Plus, Copy, Link2, CheckCircle2, XCircle, Users,
-  FileText, BarChart3, Loader2, X, Lock
+  FileText, BarChart3, Loader2, X, Lock, Trash2
 } from "lucide-react";
 
 interface Props {
@@ -271,6 +271,7 @@ function SessionCard({
     { enabled: showStats }
   );
   const closeSession = trpc.validation.close.useMutation();
+  const deleteSession = trpc.validation.delete.useMutation();
   const utils = trpc.useUtils();
 
   const shareLink = `${window.location.origin}/review/${session.shareToken}`;
@@ -321,6 +322,20 @@ function SessionCard({
               <Lock className="w-4 h-4" />
             </Button>
           )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={async () => {
+              if (!confirm("Delete this session permanently? All review data will be lost.")) return;
+              await deleteSession.mutateAsync({ sessionId: session.id });
+              utils.validation.list.invalidate({ projectId });
+              toast.success("Session deleted");
+            }}
+            title="Delete session"
+            className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
         </div>
       </div>
 

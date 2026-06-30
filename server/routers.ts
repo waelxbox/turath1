@@ -46,6 +46,7 @@ import {
   getEntityAliasesBatch,
   searchEntitiesByNameOrAlias,
   updateEntityName,
+  deleteEntities,
   createDocumentGroup,
   getDocumentGroupsByProject,
   getDocumentGroupById,
@@ -69,7 +70,7 @@ import { generateMergeSuggestions, executeMerge, rejectMerge, skipMerge, process
 import { invokeLLM } from "./_core/llm";
 import { seedDemoProject } from "./demoSeed";
 import { awardXp, getUserStats, getLeaderboard, maybeAwardStreakBonus, XP_VALUES, xpProgressInLevel } from "./gamification";
-import { getReviewSession, saveReviewSession, createValidationSession, getValidationSessionByToken, getValidationSessionsByProject, closeValidationSession, getNextAssignment, getAssignmentById, submitLineVerdict, completeAssignment, getReviewerProgress, getValidationStats, getReviewsForAssignment, getResearchConversations, getResearchConversation, createResearchConversation, updateResearchConversation, deleteResearchConversation } from "./db";
+import { getReviewSession, saveReviewSession, createValidationSession, getValidationSessionByToken, getValidationSessionsByProject, closeValidationSession, deleteValidationSession, getNextAssignment, getAssignmentById, submitLineVerdict, completeAssignment, getReviewerProgress, getValidationStats, getReviewsForAssignment, getResearchConversations, getResearchConversation, createResearchConversation, updateResearchConversation, deleteResearchConversation } from "./db";
 import { runResearchAgent } from "./researchAgent";
 
 // ─── Auth Router ──────────────────────────────────────────────────────────────
@@ -1489,6 +1490,19 @@ const entitiesRouter = router({
       return { success: true };
     }),
 
+  /** Bulk delete entities */
+  delete: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      entityIds: z.array(z.number()).min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role || role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      await deleteEntities(input.entityIds, input.projectId);
+      return { success: true, deleted: input.entityIds.length };
+    }),
+
   /** Export entities as TEI-XML authority file */
   exportTeiXml: protectedProcedure
     .input(z.object({ projectId: z.number() }))
@@ -2639,6 +2653,14 @@ const validationRouter = router({
     .input(z.object({ sessionId: z.number() }))
     .mutation(async ({ input }) => {
       await closeValidationSession(input.sessionId);
+      return { success: true };
+    }),
+
+  // Admin: delete a session
+  delete: protectedProcedure
+    .input(z.object({ sessionId: z.number() }))
+    .mutation(async ({ input }) => {
+      await deleteValidationSession(input.sessionId);
       return { success: true };
     }),
 });

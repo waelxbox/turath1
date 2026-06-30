@@ -3,6 +3,17 @@ import { useRoute } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { CheckCircle2, XCircle, Loader2, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Check } from "lucide-react";
 
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/** Detect if text is predominantly RTL (Arabic/Hebrew) */
+function detectRtl(text: string): boolean {
+  const rtlChars = text.match(/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u0590-\u05FF]/g);
+  const latinChars = text.match(/[a-zA-Z\u00C0-\u024F]/g);
+  const rtlCount = rtlChars?.length ?? 0;
+  const latinCount = latinChars?.length ?? 0;
+  return rtlCount > latinCount;
+}
+
 // ─── Username Gate ──────────────────────────────────────────────────────────
 
 function UsernameGate({ onSubmit }: { onSubmit: (username: string) => void }) {
@@ -685,16 +696,17 @@ function ReviewInterface({
             {contextLines.map((line, i) => {
               const actualIdx = contextStart + i;
               const isCurrent = actualIdx === currentLineIdx;
+              const isRtl = detectRtl(line.text);
               return (
                 <div
                   key={line.index}
-                  className={`px-3 py-1.5 text-right leading-relaxed rounded ${
+                  className={`px-3 py-1.5 leading-relaxed rounded ${
                     isCurrent
                       ? "border border-orange-500 bg-orange-500/5"
                       : ""
-                  }`}
-                  dir="rtl"
-                  style={{ fontFamily: "'Noto Naskh Arabic', serif" }}
+                  } ${isRtl ? "text-right" : "text-left"}`}
+                  dir={isRtl ? "rtl" : "ltr"}
+                  style={{ fontFamily: isRtl ? "'Noto Naskh Arabic', serif" : "inherit" }}
                 >
                   <span className={`text-white ${isCurrent ? "text-base font-medium" : "text-sm"}`}>
                     {line.text}
@@ -713,16 +725,17 @@ function ReviewInterface({
           <div className="space-y-1">
             {lines.map((line, idx) => {
               const isCurrent = idx === currentLineIdx;
+              const isRtl = detectRtl(line.text);
               return (
                 <div
                   key={line.index}
-                  className={`px-3 py-1 text-right leading-relaxed rounded ${
+                  className={`px-3 py-1 leading-relaxed rounded ${
                     isCurrent
                       ? "border border-orange-500 bg-orange-500/5"
                       : ""
-                  }`}
-                  dir="rtl"
-                  style={{ fontFamily: "'Noto Naskh Arabic', serif" }}
+                  } ${isRtl ? "text-right" : "text-left"}`}
+                  dir={isRtl ? "rtl" : "ltr"}
+                  style={{ fontFamily: isRtl ? "'Noto Naskh Arabic', serif" : "inherit" }}
                 >
                   <span className={`text-white ${isCurrent ? "text-sm font-medium" : "text-xs"}`}>
                     {line.text}
