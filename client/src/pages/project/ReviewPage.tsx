@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import type { Project } from "../../../../drizzle/schema";
 import { trpc } from "@/lib/trpc";
@@ -12,7 +12,8 @@ import {
   CheckCircle2, Flag, ChevronLeft, ChevronRight, Loader2,
   Eye, Filter, Zap, AlertCircle, ImageOff, RotateCcw,
   MoreVertical, Trash2, Pencil, Search, Layers,
-  Minus, Plus, Maximize2, X, RotateCw, PanelLeftClose, PanelLeftOpen, Info
+  Minus, Plus, Maximize2, X, RotateCw, PanelLeftClose, PanelLeftOpen, Info,
+  FileText, Sparkles
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -35,36 +36,65 @@ type SchemaField = {
   items?: { type: string };
 };
 
+/* ─── Status indicator ─────────────────────────────────────────────────── */
+function StatusDot({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    pending: "bg-zinc-400",
+    processing: "bg-amber-400 animate-pulse",
+    needs_review: "bg-yellow-400",
+    reviewed: "bg-emerald-400",
+    flagged: "bg-orange-400",
+    error: "bg-red-400",
+  };
+  const labels: Record<string, string> = {
+    pending: "Pending",
+    processing: "Processing",
+    needs_review: "Needs review",
+    reviewed: "Approved",
+    flagged: "Flagged",
+    error: "Error",
+  };
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${colors[status] || "bg-zinc-400"}`} />
+      </TooltipTrigger>
+      <TooltipContent side="right" className="text-xs">
+        {labels[status] || status}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
     pending: { label: "Pending", cls: "status-pending" },
     processing: { label: "Processing", cls: "status-processing" },
     needs_review: { label: "Needs review", cls: "status-needs-review" },
-    reviewed: { label: "Reviewed", cls: "status-reviewed" },
+    reviewed: { label: "Approved", cls: "status-reviewed" },
     flagged: { label: "Flagged", cls: "status-flagged" },
     error: { label: "Error", cls: "status-error" },
   };
   const info = map[status] ?? { label: status, cls: "" };
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${info.cls}`}>
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${info.cls}`}>
       {info.label}
     </span>
   );
 }
 
+/* ─── Retry All Button ─────────────────────────────────────────────────── */
 function RetryAllButton({ projectId }: { projectId: number }) {
   const utils = trpc.useUtils();
   const [isRunning, setIsRunning] = useState(false);
   const [totalQueued, setTotalQueued] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Poll stats while running
   const { data: stats } = trpc.projects.stats.useQuery(
     { id: projectId },
     { refetchInterval: isRunning ? 4000 : false }
   );
 
-  // Detect completion: when running and no more pending/processing
   useEffect(() => {
     if (isRunning && stats && stats.pending === 0 && stats.processing === 0) {
       setIsRunning(false);
@@ -74,7 +104,6 @@ function RetryAllButton({ projectId }: { projectId: number }) {
     }
   }, [isRunning, stats, utils]);
 
-  // Cleanup interval on unmount
   useEffect(() => {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, []);
@@ -87,13 +116,12 @@ function RetryAllButton({ projectId }: { projectId: number }) {
         setTotalQueued(data.queued);
         setIsRunning(true);
         toast.success(`Started transcribing ${data.queued} document(s)`);
-        // Also invalidate list periodically
         intervalRef.current = setInterval(() => {
           utils.documents.listPaginated.invalidate();
         }, 6000);
         setTimeout(() => {
           if (intervalRef.current) clearInterval(intervalRef.current);
-        }, 300000); // 5 min max
+        }, 300000);
       }
     },
     onError: (err) => toast.error(err.message),
@@ -107,36 +135,34 @@ function RetryAllButton({ projectId }: { projectId: number }) {
     const completed = totalQueued - remainingCount;
     const pct = totalQueued > 0 ? Math.round((completed / totalQueued) * 100) : 0;
     return (
-      <div className="flex items-center gap-2 h-8 px-2 rounded border border-border bg-background text-xs">
+      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/5 border border-primary/10 text-xs">
         <Loader2 className="w-3 h-3 animate-spin text-primary" />
         <span className="text-muted-foreground whitespace-nowrap">
-          {completed}/{totalQueued} done ({pct}%)
+          {completed}/{totalQueued} done
         </span>
-        <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
-          <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${pct}%` }} />
+        <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
+          <div className="h-full bg-primary/60 rounded-full transition-all" style={{ width: `${pct}%` }} />
         </div>
       </div>
     );
   }
 
-  // Only show button if there are pending docs
   if (pendingCount === 0 && processingCount === 0) return null;
 
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      className="h-8 text-xs gap-1 whitespace-nowrap"
+    <button
+      className="flex items-center gap-2 w-full px-3 py-2 rounded-lg bg-primary/5 hover:bg-primary/10 border border-primary/10 text-xs text-primary transition-colors"
       title={`Transcribe ${pendingCount} pending document(s)`}
       onClick={() => retryAll.mutate({ projectId })}
       disabled={retryAll.isPending}
     >
-      {retryAll.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
-      Retry pending ({pendingCount})
-    </Button>
+      {retryAll.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+      <span>Transcribe {pendingCount} pending</span>
+    </button>
   );
 }
 
+/* ─── Schema helpers ───────────────────────────────────────────────────── */
 function flattenSchema(
   schema: Record<string, SchemaField>,
   prefix = ""
@@ -172,11 +198,7 @@ function setNestedValue(obj: Record<string, unknown>, key: string, value: unknow
   return { ...obj, [head]: setNestedValue(nested, rest.join("."), value) };
 }
 
-/**
- * Inner component that is fully re-mounted when docId changes.
- * This guarantees editedFields always starts fresh for each document.
- */
-// Fields that are per-page (not shared across a multi-page document)
+/* ─── Per-page field detection ─────────────────────────────────────────── */
 const PER_PAGE_FIELDS = new Set([
   "transcription", "full_arabic_transcription", "original_transcription",
   "english_translation", "full_english_translation", "translation",
@@ -194,6 +216,197 @@ function isPerPageField(key: string): boolean {
   return PER_PAGE_FIELDS.has(base) || base.includes("transcription") || base.includes("translation");
 }
 
+/* ─── Entity helpers ───────────────────────────────────────────────────── */
+type DocEntity = { id: number; name: string; type: "person" | "location" | "organization"; contextSnippet: string | null };
+
+function EntityTag({ entity, projectId }: { entity: DocEntity; projectId?: number }) {
+  const [showTooltip, setShowTooltip] = useState(false);
+  const colors: Record<string, string> = {
+    person: "bg-orange-500/15 text-orange-300 border-orange-500/30",
+    location: "bg-green-500/15 text-green-300 border-green-500/30",
+    organization: "bg-indigo-500/15 text-indigo-300 border-indigo-500/30",
+  };
+  const typeLabels: Record<string, string> = { person: "Person", location: "Place", organization: "Organization" };
+  
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (projectId) {
+      window.location.href = `/projects/${projectId}/entities#entity=${entity.id}`;
+    }
+  };
+
+  return (
+    <span className="relative inline-flex">
+      <button
+        type="button"
+        className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded text-[10px] font-mono border cursor-pointer hover:scale-105 transition-transform ${colors[entity.type] || "bg-muted text-muted-foreground border-border"}`}
+        onClick={handleClick}
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+      >
+        #{entity.id}
+      </button>
+      {showTooltip && (
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 rounded-lg bg-popover border border-border shadow-lg text-[11px] whitespace-nowrap z-50 pointer-events-none">
+          <span className="font-medium text-foreground">{entity.name}</span>
+          <span className="text-muted-foreground ml-1">({typeLabels[entity.type] || entity.type})</span>
+        </div>
+      )}
+    </span>
+  );
+}
+
+function FieldEntityAnnotations({ value, entities, projectId }: { value: unknown; entities?: DocEntity[]; projectId?: number }) {
+  if (!entities || entities.length === 0 || typeof value !== "string" || !value.trim()) return null;
+  
+  const normalizedVal = value.toLowerCase().trim();
+  const matches = entities.filter(e => {
+    const normalizedName = e.name.toLowerCase().trim();
+    if (normalizedVal.length < 3 || normalizedName.length < 3) return false;
+    return normalizedVal.includes(normalizedName) || normalizedName.includes(normalizedVal);
+  });
+
+  if (matches.length === 0) return null;
+
+  return (
+    <span className="inline-flex items-center gap-0.5 flex-wrap">
+      {matches.slice(0, 5).map(e => <EntityTag key={e.id} entity={e} projectId={projectId} />)}
+    </span>
+  );
+}
+
+/* ─── Field components ─────────────────────────────────────────────────── */
+function FieldLabel({ label, description }: { label: string; description?: string }) {
+  return (
+    <div className="flex items-center gap-1.5 mb-1.5">
+      <span className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">{label}</span>
+      {description && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Info className="w-3 h-3 text-muted-foreground/40 cursor-help" />
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-[250px] text-xs">
+            {description}
+          </TooltipContent>
+        </Tooltip>
+      )}
+    </div>
+  );
+}
+
+function DynamicField({
+  fieldKey,
+  label,
+  fieldDef,
+  value,
+  onChange,
+  entities,
+  projectId,
+}: {
+  fieldKey: string;
+  label: string;
+  fieldDef: SchemaField;
+  value: unknown;
+  onChange: (v: unknown) => void;
+  entities?: DocEntity[];
+  projectId?: number;
+}) {
+  if (fieldDef.type === "boolean") {
+    return (
+      <div className="flex items-center justify-between py-2 px-1">
+        <FieldLabel label={label} description={fieldDef.description} />
+        <Switch checked={Boolean(value)} onCheckedChange={onChange} />
+      </div>
+    );
+  }
+
+  if (fieldDef.type === "array" || fieldDef.displayHint === "tag_list") {
+    const arr = Array.isArray(value) ? (value as unknown[]) : [];
+    const [tagInput, setTagInput] = useState("");
+    
+    const getEntityForTag = (tag: unknown): DocEntity | undefined => {
+      if (typeof tag !== "string" || !entities || entities.length === 0) return undefined;
+      const normalizedTag = tag.toLowerCase().trim();
+      return entities.find(e => {
+        const normalizedName = e.name.toLowerCase().trim();
+        return normalizedName === normalizedTag || normalizedName.includes(normalizedTag) || normalizedTag.includes(normalizedName);
+      });
+    };
+
+    return (
+      <div className="py-2 px-1">
+        <FieldLabel label={label} description={fieldDef.description} />
+        <div className="flex flex-wrap gap-1.5 mb-2 min-h-[28px]">
+          {arr.map((tag, i) => {
+            const matchedEntity = getEntityForTag(tag);
+            return (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs"
+              >
+                {String(tag)}{matchedEntity && <EntityTag entity={matchedEntity} projectId={projectId} />}
+                <button
+                  type="button"
+                  className="ml-0.5 hover:text-destructive transition-colors"
+                  onClick={() => onChange(arr.filter((_, j) => j !== i))}
+                >×</button>
+              </span>
+            );
+          })}
+          {arr.length === 0 && <span className="text-xs text-muted-foreground/50 italic">No items</span>}
+        </div>
+        <Input
+          value={tagInput}
+          onChange={e => setTagInput(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === "Enter" && tagInput.trim()) {
+              e.preventDefault();
+              onChange([...arr, tagInput.trim()]);
+              setTagInput("");
+            }
+          }}
+          placeholder="Type and press Enter to add"
+          className="bg-transparent border-transparent hover:border-border/50 focus:border-primary/30 focus:bg-card/50 text-sm h-9 transition-all rounded-lg"
+        />
+      </div>
+    );
+  }
+
+  const strVal = String(value ?? "");
+  const isLong = fieldDef.displayHint === "long_text" || strVal.length > 120;
+
+  if (isLong) {
+    return (
+      <div className="py-2 px-1">
+        <FieldLabel label={label} description={fieldDef.description} />
+        <Textarea
+          value={strVal}
+          onChange={e => onChange(e.target.value)}
+          className="bg-transparent border-transparent hover:border-border/50 focus:border-primary/30 focus:bg-card/50 text-sm text-foreground font-normal resize-none transition-all rounded-lg leading-relaxed"
+          rows={4}
+        />
+        <FieldEntityAnnotations value={value} entities={entities} projectId={projectId} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="py-2 px-1">
+      <FieldLabel label={label} description={fieldDef.description} />
+      <div className="flex items-center gap-2">
+        <Input
+          value={strVal}
+          onChange={e => onChange(e.target.value)}
+          className="bg-transparent border-transparent hover:border-border/50 focus:border-primary/30 focus:bg-card/50 text-sm text-foreground font-normal flex-1 transition-all rounded-lg h-9"
+        />
+        <FieldEntityAnnotations value={value} entities={entities} projectId={projectId} />
+      </div>
+    </div>
+  );
+}
+
+/* ─── ReviewDocPanel ───────────────────────────────────────────────────── */
 function ReviewDocPanel({
   projectId,
   project,
@@ -331,6 +544,7 @@ function ReviewDocPanel({
       }
       utils.documents.list.invalidate({ projectId });
       utils.projects.stats.invalidate({ id: projectId });
+      utils.documents.listPaginated.invalidate();
       // Auto-advance to next document
       if (currentIndex < documents.length - 1) {
         onNavigate(documents[currentIndex + 1].id);
@@ -385,37 +599,41 @@ function ReviewDocPanel({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Doc header — navigation + filename only, no action buttons */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border flex-shrink-0">
+      {/* Minimal top bar — navigation + filename */}
+      <div className="flex items-center justify-between px-5 py-2.5 border-b border-border/50 flex-shrink-0 bg-card/20">
         <div className="flex items-center gap-3">
           <button
             onClick={onToggleSidebar}
-            className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+            className="p-1.5 rounded-lg hover:bg-secondary/80 text-muted-foreground/70 hover:text-foreground transition-colors"
             title={sidebarCollapsed ? "Show document list" : "Hide document list"}
           >
             {sidebarCollapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
           </button>
-          <div className="flex items-center gap-1">
+          
+          <div className="flex items-center gap-1.5">
             <Button
-              variant="ghost" size="icon" className="h-7 w-7"
+              variant="ghost" size="icon" className="h-7 w-7 rounded-lg"
               disabled={currentIndex <= 0}
               onClick={() => documents[currentIndex - 1] && onNavigate(documents[currentIndex - 1].id)}
             >
               <ChevronLeft className="w-4 h-4" />
             </Button>
-            <span className="text-xs text-muted-foreground">{currentIndex + 1} / {documents.length}</span>
+            <span className="text-xs text-muted-foreground/70 tabular-nums">{currentIndex + 1} / {documents.length}</span>
             <Button
-              variant="ghost" size="icon" className="h-7 w-7"
+              variant="ghost" size="icon" className="h-7 w-7 rounded-lg"
               disabled={currentIndex >= documents.length - 1}
               onClick={() => documents[currentIndex + 1] && onNavigate(documents[currentIndex + 1].id)}
             >
               <ChevronRight className="w-4 h-4" />
             </Button>
           </div>
-          <span className="text-sm font-medium truncate max-w-[200px]">{currentDoc?.filename}</span>
+
+          <div className="h-4 w-px bg-border/40" />
+          
+          <span className="text-sm font-medium truncate max-w-[240px] text-foreground/90">{currentDoc?.filename}</span>
           {currentDoc && <StatusBadge status={currentDoc.status} />}
           {isMultiPage && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/8 text-primary text-[10px] font-medium">
               <Layers className="w-3 h-3" />
               {groupData?.title || "Multi-page"}
             </span>
@@ -426,7 +644,7 @@ function ReviewDocPanel({
             <Button
               variant="ghost"
               size="sm"
-              className="gap-1.5 text-muted-foreground hover:text-foreground"
+              className="gap-1.5 text-muted-foreground/70 hover:text-foreground rounded-lg text-xs"
               onClick={handleTranscribe}
               disabled={isTranscribing || isSaving}
               title="Ask the AI to re-read this document from scratch"
@@ -442,27 +660,24 @@ function ReviewDocPanel({
 
       {/* Page flipper for multi-page documents */}
       {isMultiPage && groupPages.length > 0 && (
-        <div className="flex items-center gap-1 px-6 py-2 border-b border-border bg-secondary/30 flex-shrink-0">
-          <span className="text-xs text-muted-foreground mr-2">Pages:</span>
+        <div className="flex items-center gap-1.5 px-5 py-2 border-b border-border/40 bg-card/10 flex-shrink-0">
+          <span className="text-[11px] text-muted-foreground/60 mr-2">Pages</span>
           {groupPages.map((page: any) => (
             <button
               key={page.id}
               onClick={() => setActivePageDocId(page.id)}
-              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
                 page.id === activePageDocId
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary hover:bg-secondary/80 text-muted-foreground"
+                  ? "bg-primary/15 text-primary shadow-sm"
+                  : "text-muted-foreground/60 hover:text-foreground hover:bg-secondary/50"
               }`}
             >
               {page.pageNumber || groupPages.indexOf(page) + 1}
             </button>
           ))}
-          {/* Batch transcribe button — shows when there are pending pages */}
           {groupPages.some((p: any) => p.status === "pending" || p.status === "error" || p.status === "processing") && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="ml-auto gap-1.5 text-xs"
+            <button
+              className="ml-auto flex items-center gap-1.5 px-3 py-1 rounded-md text-xs text-primary bg-primary/8 hover:bg-primary/15 transition-colors"
               disabled={isBatchTranscribing}
               onClick={async () => {
                 setIsBatchTranscribing(true);
@@ -484,53 +699,21 @@ function ReviewDocPanel({
               }}
             >
               {isBatchTranscribing
-                ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Transcribing all…</>
-                : <><Zap className="w-3.5 h-3.5" /> Transcribe all remaining</>}
-            </Button>
+                ? <><Loader2 className="w-3 h-3 animate-spin" /> Transcribing…</>
+                : <><Zap className="w-3 h-3" /> Transcribe remaining</>}
+            </button>
           )}
         </div>
       )}
 
-      {/* Split view */}
+      {/* Split view — image + form */}
       <div className="flex-1 overflow-hidden flex">
-        {/* Image panel with zoom/pan/rotate controls */}
-        <div className={`relative flex flex-col border-r border-border ${fullscreen ? 'fixed inset-0 z-[100] bg-black' : 'w-1/2'}`}>
-          {/* Image controls bar */}
-          <div className="flex-shrink-0 flex items-center justify-between px-2 py-1 bg-black/80 border-b border-white/10">
-            <div className="flex items-center gap-0.5">
-              <button onClick={handleZoomOut} disabled={zoom <= 1} className="p-1.5 rounded text-white/70 hover:text-white disabled:text-white/30">
-                <Minus className="w-4 h-4" />
-              </button>
-              <span className="text-[11px] text-white/70 font-mono w-10 text-center">{Math.round(zoom * 100)}%</span>
-              <button onClick={handleZoomIn} disabled={zoom >= 6} className="p-1.5 rounded text-white/70 hover:text-white disabled:text-white/30">
-                <Plus className="w-4 h-4" />
-              </button>
-              {zoom > 1 && (
-                <button onClick={handleResetView} className="ml-1 px-2 py-0.5 rounded text-[10px] text-white/60 hover:text-white bg-white/5 hover:bg-white/10">
-                  Reset
-                </button>
-              )}
-              <div className="w-px h-4 bg-white/20 mx-1.5" />
-              <button onClick={handleRotate} className="p-1.5 rounded text-white/70 hover:text-white" title="Rotate 90°">
-                <RotateCw className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="flex items-center gap-1">
-              {!fullscreen ? (
-                <button onClick={() => setFullscreen(true)} className="p-1.5 rounded text-white/70 hover:text-white" title="Fullscreen">
-                  <Maximize2 className="w-4 h-4" />
-                </button>
-              ) : (
-                <button onClick={() => setFullscreen(false)} className="p-1.5 rounded text-white/70 hover:text-white" title="Exit fullscreen">
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          </div>
-          {/* Image area */}
+        {/* Image panel */}
+        <div className={`relative flex flex-col ${fullscreen ? 'fixed inset-0 z-[100] bg-black' : 'w-1/2 border-r border-border/30'}`}>
+          {/* Image area with floating controls */}
           <div
             ref={imgContainerRef}
-            className="flex-1 overflow-hidden flex items-center justify-center bg-black/40"
+            className="flex-1 overflow-hidden flex items-center justify-center bg-gradient-to-b from-black/30 to-black/50"
             style={{ cursor: zoom > 1 ? 'grab' : 'default', touchAction: 'none' }}
             onMouseDown={handleImgMouseDown}
             onMouseMove={handleImgMouseMove}
@@ -551,8 +734,8 @@ function ReviewDocPanel({
             }}
           >
             {imageLoading ? (
-              <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
-                <Loader2 className="w-6 h-6 animate-spin" />
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/60">
+                <Loader2 className="w-5 h-5 animate-spin" />
                 <span className="text-xs">Loading image…</span>
               </div>
             ) : imageData?.url ? (
@@ -567,173 +750,230 @@ function ReviewDocPanel({
                 draggable={false}
               />
             ) : (
-              <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/40">
                 <ImageOff className="w-8 h-8" />
                 <span className="text-xs">Image not available</span>
               </div>
             )}
           </div>
+
+          {/* Floating controls — bottom of image panel */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1 px-2 py-1.5 rounded-xl bg-black/70 backdrop-blur-md border border-white/10 shadow-lg">
+            <button onClick={handleZoomOut} disabled={zoom <= 1} className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 disabled:text-white/20 transition-colors">
+              <Minus className="w-3.5 h-3.5" />
+            </button>
+            <span className="text-[10px] text-white/60 font-mono w-9 text-center">{Math.round(zoom * 100)}%</span>
+            <button onClick={handleZoomIn} disabled={zoom >= 6} className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 disabled:text-white/20 transition-colors">
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+            <div className="w-px h-4 bg-white/15 mx-0.5" />
+            <button onClick={handleRotate} className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors" title="Rotate 90°">
+              <RotateCw className="w-3.5 h-3.5" />
+            </button>
+            <div className="w-px h-4 bg-white/15 mx-0.5" />
+            {!fullscreen ? (
+              <button onClick={() => setFullscreen(true)} className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors" title="Fullscreen">
+                <Maximize2 className="w-3.5 h-3.5" />
+              </button>
+            ) : (
+              <button onClick={() => setFullscreen(false)} className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors" title="Exit fullscreen">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {zoom > 1 && (
+              <>
+                <div className="w-px h-4 bg-white/15 mx-0.5" />
+                <button onClick={handleResetView} className="px-2 py-1 rounded-lg text-[10px] text-white/50 hover:text-white hover:bg-white/10 transition-colors">
+                  Reset
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Hint text when not zoomed */}
+          {zoom <= 1 && imageData?.url && !fullscreen && (
+            <div className="absolute bottom-4 right-4 text-[10px] text-white/30 pointer-events-none">
+              Double-click to zoom · Scroll to adjust
+            </div>
+          )}
         </div>
 
         {/* Form / transcription panel */}
-        <div className={`overflow-auto p-6 ${fullscreen ? 'hidden' : 'w-1/2'}`}>
-          {/* Not yet transcribed */}
-          {!transcriptionLoading && !transcription && currentDoc?.status !== "error" && (
-            <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
-              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-                <Zap className="w-6 h-6 text-primary" />
+        <div className={`overflow-auto ${fullscreen ? 'hidden' : 'w-1/2'}`}>
+          <div className="p-6 pb-32">
+            {/* Not yet transcribed */}
+            {!transcriptionLoading && !transcription && currentDoc?.status !== "error" && (
+              <div className="flex flex-col items-center justify-center h-full gap-5 text-center py-20">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/15 to-primary/5 flex items-center justify-center">
+                  <Sparkles className="w-7 h-7 text-primary/70" />
+                </div>
+                <div>
+                  <p className="font-medium text-foreground/90 mb-1.5">Not yet transcribed</p>
+                  <p className="text-sm text-muted-foreground/70 max-w-[260px]">
+                    Run the AI transcription to extract text and metadata from this document.
+                  </p>
+                </div>
+                <Button onClick={handleTranscribe} disabled={isTranscribing} className="gap-2 rounded-lg">
+                  {isTranscribing
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Transcribing…</>
+                    : <><Sparkles className="w-4 h-4" /> Transcribe now</>
+                  }
+                </Button>
               </div>
-              <div>
-                <p className="font-medium mb-1">Not yet transcribed</p>
-                <p className="text-sm text-muted-foreground">
-                  Run the AI transcription engine on this document to extract its metadata.
-                </p>
+            )}
+
+            {/* Loading */}
+            {transcriptionLoading && (
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/60 py-20">
+                <Loader2 className="w-5 h-5 animate-spin text-primary/50" />
+                <p className="text-sm">Loading transcription…</p>
               </div>
-              <Button onClick={handleTranscribe} disabled={isTranscribing} className="gap-2">
-                {isTranscribing
-                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Transcribing…</>
-                  : <><Zap className="w-4 h-4" /> Transcribe now</>
-                }
-              </Button>
-            </div>
-          )}
+            )}
 
-          {/* Loading */}
-          {transcriptionLoading && (
-            <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
-              <Loader2 className="w-6 h-6 animate-spin text-primary" />
-              <p className="text-sm">Loading transcription…</p>
-            </div>
-          )}
+            {/* Error state */}
+            {!transcriptionLoading && currentDoc?.status === "error" && !transcription && (
+              <div className="flex flex-col items-center justify-center h-full gap-4 text-center py-20">
+                <div className="w-12 h-12 rounded-2xl bg-destructive/10 flex items-center justify-center">
+                  <AlertCircle className="w-6 h-6 text-destructive/70" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-destructive/90 mb-1">Transcription failed</p>
+                  {currentDoc.errorMessage && (
+                    <p className="text-xs text-muted-foreground/60 max-w-xs">
+                      {currentDoc.errorMessage}
+                    </p>
+                  )}
+                </div>
+                <Button variant="outline" size="sm" onClick={handleTranscribe} disabled={isTranscribing} className="gap-2 rounded-lg">
+                  {isTranscribing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                  Retry
+                </Button>
+              </div>
+            )}
 
-          {/* Error state */}
-          {!transcriptionLoading && currentDoc?.status === "error" && !transcription && (
-            <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
-              <AlertCircle className="w-8 h-8 text-destructive" />
-              <p className="text-sm text-destructive">Transcription failed</p>
-              {currentDoc.errorMessage && (
-                <p className="text-xs text-muted-foreground font-mono bg-secondary rounded p-2 max-w-xs">
-                  {currentDoc.errorMessage}
-                </p>
-              )}
-              <Button variant="outline" size="sm" onClick={handleTranscribe} disabled={isTranscribing} className="gap-2">
-                {isTranscribing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-                Retry
-              </Button>
-            </div>
-          )}
+            {/* Transcription loaded — the form */}
+            {!transcriptionLoading && transcription && (
+              <div className="space-y-1">
+                {/* Subtle metadata line */}
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground/40 pb-4 flex-wrap">
+                  <span>Model: {transcription.modelUsed}</span>
+                  {transcription.reviewedAt && (
+                    <span>· Reviewed {new Date(transcription.reviewedAt).toLocaleDateString()}</span>
+                  )}
+                </div>
 
-          {/* Transcription loaded */}
-          {!transcriptionLoading && transcription && (
-            <div className="space-y-5">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground pb-3 border-b border-border flex-wrap">
-                <span>Model: <span className="font-mono">{transcription.modelUsed}</span></span>
-                {transcription.reviewedAt && (
-                  <span>· Reviewed {new Date(transcription.reviewedAt).toLocaleDateString()}</span>
+                {/* Original text (collapsible) */}
+                {transcription.originalText && (
+                  <details className="group mb-4">
+                    <summary className="text-[11px] uppercase tracking-wider text-muted-foreground/50 font-medium cursor-pointer hover:text-muted-foreground/70 transition-colors flex items-center gap-1.5 py-1">
+                      <ChevronRight className="w-3 h-3 group-open:rotate-90 transition-transform" />
+                      Original transcription (pass 1)
+                    </summary>
+                    <div className="mt-2 bg-card/30 rounded-xl p-4 text-sm text-muted-foreground/70 max-h-40 overflow-y-auto whitespace-pre-wrap leading-relaxed border border-border/30">
+                      {transcription.originalText}
+                    </div>
+                  </details>
+                )}
+
+                {/* Dynamic fields */}
+                {flatFields && flatFields.length > 0 ? (
+                  <div className="space-y-0.5">
+                    {/* For multi-page docs, show shared metadata section header */}
+                    {isMultiPage && (
+                      <div className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider pb-2 pt-2 border-b border-border/30 mb-2">
+                        Shared Metadata
+                      </div>
+                    )}
+                    {flatFields.filter(f => !isMultiPage || !isPerPageField(f.key)).map(({ key, label, def }) => (
+                      <DynamicField
+                        key={key}
+                        fieldKey={key}
+                        label={label}
+                        fieldDef={def}
+                        value={getNestedValue(editedFields, key)}
+                        onChange={v => setEditedFields(prev => setNestedValue(prev, key, v))}
+                        entities={docEntities}
+                        projectId={projectId}
+                      />
+                    ))}
+                    {/* Per-page fields section */}
+                    {isMultiPage && (
+                      <div className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider pb-2 pt-4 border-b border-border/30 mb-2">
+                        Page {groupPages.findIndex((p: any) => p.id === activePageDocId) + 1} Content
+                      </div>
+                    )}
+                    {flatFields.filter(f => !isMultiPage || isPerPageField(f.key)).map(({ key, label, def }) => (
+                      <DynamicField
+                        key={`${effectiveDocId}-${key}`}
+                        fieldKey={key}
+                        label={label}
+                        fieldDef={def}
+                        value={getNestedValue(editedFields, key)}
+                        onChange={v => setEditedFields(prev => setNestedValue(prev, key, v))}
+                        entities={docEntities}
+                        projectId={projectId}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  rawData && (
+                    <div className="space-y-3">
+                      {Object.entries(rawData)
+                        .filter(([k]) => !k.startsWith("_"))
+                        .map(([key, val]) => (
+                          <div key={key} className="py-2 px-1">
+                            <FieldLabel label={key.replace(/_/g, " ")} />
+                            {typeof val === "object" && val !== null ? (
+                              <Textarea
+                                value={JSON.stringify(val, null, 2)}
+                                onChange={e => {
+                                  try {
+                                    setEditedFields(prev => ({ ...prev, [key]: JSON.parse(e.target.value) }));
+                                  } catch { /* ignore parse error while typing */ }
+                                }}
+                                className="bg-transparent border-transparent hover:border-border/50 focus:border-primary/30 focus:bg-card/50 text-xs font-mono resize-none transition-all rounded-lg"
+                                rows={4}
+                              />
+                            ) : (
+                              <Input
+                                value={String(val ?? "")}
+                                onChange={e => setEditedFields(prev => ({ ...prev, [key]: e.target.value }))}
+                                className="bg-transparent border-transparent hover:border-border/50 focus:border-primary/30 focus:bg-card/50 text-sm transition-all rounded-lg h-9"
+                              />
+                            )}
+                          </div>
+                        ))}
+                    </div>
+                  )
                 )}
               </div>
+            )}
+          </div>
 
-              {transcription.originalText && (
-                <div>
-                  <Label className="text-xs text-muted-foreground uppercase tracking-wide mb-2 block">
-                    Original transcription (pass 1)
-                  </Label>
-                  <div className="bg-background rounded-lg p-3 text-sm font-mono text-muted-foreground max-h-32 overflow-y-auto whitespace-pre-wrap">
-                    {transcription.originalText}
-                  </div>
-                </div>
-              )}
-
-              {flatFields && flatFields.length > 0 ? (
-                <>
-                  {/* For multi-page docs, show shared metadata section header */}
-                  {isMultiPage && (
-                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide pb-1 border-b border-border">
-                      Shared Metadata (applies to all pages)
-                    </div>
-                  )}
-                  {flatFields.filter(f => !isMultiPage || !isPerPageField(f.key)).map(({ key, label, def }) => (
-                    <DynamicField
-                      key={key}
-                      fieldKey={key}
-                      label={label}
-                      fieldDef={def}
-                      value={getNestedValue(editedFields, key)}
-                      onChange={v => setEditedFields(prev => setNestedValue(prev, key, v))}
-                      entities={docEntities}
-                      projectId={projectId}
-                    />
-                  ))}
-                  {/* Per-page fields section */}
-                  {isMultiPage && (
-                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide pb-1 pt-3 border-b border-border">
-                      Page {groupPages.findIndex((p: any) => p.id === activePageDocId) + 1} Content
-                    </div>
-                  )}
-                  {flatFields.filter(f => !isMultiPage || isPerPageField(f.key)).map(({ key, label, def }) => (
-                    <DynamicField
-                      key={`${effectiveDocId}-${key}`}
-                      fieldKey={key}
-                      label={label}
-                      fieldDef={def}
-                      value={getNestedValue(editedFields, key)}
-                      onChange={v => setEditedFields(prev => setNestedValue(prev, key, v))}
-                      entities={docEntities}
-                      projectId={projectId}
-                    />
-                  ))}
-                </>
-              ) : (
-                rawData && Object.entries(rawData)
-                  .filter(([k]) => !k.startsWith("_"))
-                  .map(([key, val]) => (
-                    <div key={key}>
-                      <Label className="text-sm mb-1.5 block capitalize">{key.replace(/_/g, " ")}</Label>
-                      {typeof val === "object" && val !== null ? (
-                        <Textarea
-                          value={JSON.stringify(val, null, 2)}
-                          onChange={e => {
-                            try {
-                              setEditedFields(prev => ({ ...prev, [key]: JSON.parse(e.target.value) }));
-                            } catch { /* ignore parse error while typing */ }
-                          }}
-                          className="bg-background text-xs font-mono resize-none"
-                          rows={4}
-                        />
-                      ) : (
-                        <Input
-                          value={String(val ?? "")}
-                          onChange={e => setEditedFields(prev => ({ ...prev, [key]: e.target.value }))}
-                          className="bg-background text-sm"
-                        />
-                      )}
-                    </div>
-                  ))
-              )}
-
-              <div className="sticky bottom-0 bg-card/95 backdrop-blur-sm border-t border-border pt-3 pb-3 mt-4 -mx-6 px-6">
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5 bg-transparent border-orange-500/30 text-orange-400 hover:bg-orange-500/10"
-                    onClick={() => handleSave("flagged")}
-                    disabled={isSaving}
-                  >
-                    {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Flag className="w-3.5 h-3.5" />}
-                    Flag
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="gap-1.5 flex-1"
-                    onClick={() => handleSave("reviewed")}
-                    disabled={isSaving}
-                  >
-                    {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                    Save & approve
-                    <kbd className="ml-1 text-[10px] opacity-60 font-mono">⌘⏎</kbd>
-                  </Button>
-                </div>
+          {/* Sticky action bar */}
+          {!transcriptionLoading && transcription && (
+            <div className="sticky bottom-0 left-0 right-0 bg-gradient-to-t from-background via-background to-transparent pt-6 pb-4 px-6 pointer-events-none">
+              <div className="flex gap-2.5 pointer-events-auto">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 rounded-lg bg-transparent border-orange-500/20 text-orange-400/80 hover:text-orange-300 hover:bg-orange-500/10 hover:border-orange-500/30"
+                  onClick={() => handleSave("flagged")}
+                  disabled={isSaving}
+                >
+                  {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Flag className="w-3.5 h-3.5" />}
+                  Flag
+                </Button>
+                <Button
+                  size="sm"
+                  className="gap-1.5 flex-1 rounded-lg shadow-md shadow-primary/10"
+                  onClick={() => handleSave("reviewed")}
+                  disabled={isSaving}
+                >
+                  {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                  Approve
+                  <kbd className="ml-1.5 text-[10px] opacity-50 font-mono bg-primary-foreground/10 px-1 py-0.5 rounded">⌘⏎</kbd>
+                </Button>
               </div>
             </div>
           )}
@@ -743,198 +983,7 @@ function ReviewDocPanel({
   );
 }
 
-type DocEntity = { id: number; name: string; type: "person" | "location" | "organization"; contextSnippet: string | null };
-
-function EntityTag({ entity, projectId }: { entity: DocEntity; projectId?: number }) {
-  const [showTooltip, setShowTooltip] = useState(false);
-  const colors: Record<string, string> = {
-    person: "bg-orange-500/20 text-orange-300 border-orange-500/40",
-    location: "bg-green-500/20 text-green-300 border-green-500/40",
-    organization: "bg-indigo-500/20 text-indigo-300 border-indigo-500/40",
-  };
-  const typeLabels: Record<string, string> = { person: "Person", location: "Place", organization: "Organization" };
-  
-  const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    // Navigate to entity directory with this entity pre-selected
-    if (projectId) {
-      window.location.href = `/projects/${projectId}/entities#entity=${entity.id}`;
-    }
-  };
-
-  return (
-    <span className="relative inline-flex">
-      <button
-        type="button"
-        className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded text-[10px] font-mono border cursor-pointer hover:scale-105 transition-transform ${colors[entity.type] || "bg-muted text-muted-foreground border-border"}`}
-        onClick={handleClick}
-        onMouseEnter={() => setShowTooltip(true)}
-        onMouseLeave={() => setShowTooltip(false)}
-      >
-        #{entity.id}
-      </button>
-      {showTooltip && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 rounded bg-popover border border-border shadow-lg text-[11px] whitespace-nowrap z-50 pointer-events-none">
-          <span className="font-medium text-foreground">{entity.name}</span>
-          <span className="text-muted-foreground ml-1">({typeLabels[entity.type] || entity.type})</span>
-        </div>
-      )}
-    </span>
-  );
-}
-
-function FieldEntityAnnotations({ value, entities, projectId }: { value: unknown; entities?: DocEntity[]; projectId?: number }) {
-  if (!entities || entities.length === 0 || typeof value !== "string" || !value.trim()) return null;
-  
-  // Find entities whose name appears in this field value (or vice versa)
-  const normalizedVal = value.toLowerCase().trim();
-  const matches = entities.filter(e => {
-    const normalizedName = e.name.toLowerCase().trim();
-    if (normalizedVal.length < 3 || normalizedName.length < 3) return false;
-    return normalizedVal.includes(normalizedName) || normalizedName.includes(normalizedVal);
-  });
-
-  if (matches.length === 0) return null;
-
-  return (
-    <span className="inline-flex items-center gap-0.5 flex-wrap">
-      {matches.slice(0, 5).map(e => <EntityTag key={e.id} entity={e} projectId={projectId} />)}
-    </span>
-  );
-}
-
-function FieldLabel({ label, description }: { label: string; description?: string }) {
-  return (
-    <div className="flex items-center gap-1 mb-1">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-medium">{label}</span>
-      {description && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Info className="w-3 h-3 text-muted-foreground/50 cursor-help" />
-          </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-[250px] text-xs">
-            {description}
-          </TooltipContent>
-        </Tooltip>
-      )}
-    </div>
-  );
-}
-
-function DynamicField({
-  fieldKey,
-  label,
-  fieldDef,
-  value,
-  onChange,
-  entities,
-  projectId,
-}: {
-  fieldKey: string;
-  label: string;
-  fieldDef: SchemaField;
-  value: unknown;
-  onChange: (v: unknown) => void;
-  entities?: DocEntity[];
-  projectId?: number;
-}) {
-  if (fieldDef.type === "boolean") {
-    return (
-      <div className="flex items-center justify-between py-1">
-        <FieldLabel label={label} description={fieldDef.description} />
-        <Switch checked={Boolean(value)} onCheckedChange={onChange} />
-      </div>
-    );
-  }
-
-  if (fieldDef.type === "array" || fieldDef.displayHint === "tag_list") {
-    const arr = Array.isArray(value) ? (value as unknown[]) : [];
-    const [tagInput, setTagInput] = useState("");
-    
-    const getEntityForTag = (tag: unknown): DocEntity | undefined => {
-      if (typeof tag !== "string" || !entities || entities.length === 0) return undefined;
-      const normalizedTag = tag.toLowerCase().trim();
-      return entities.find(e => {
-        const normalizedName = e.name.toLowerCase().trim();
-        return normalizedName === normalizedTag || normalizedName.includes(normalizedTag) || normalizedTag.includes(normalizedName);
-      });
-    };
-
-    return (
-      <div>
-        <FieldLabel label={label} description={fieldDef.description} />
-        <div className="flex flex-wrap gap-1.5 mb-2 min-h-[24px]">
-          {arr.map((tag, i) => {
-            const matchedEntity = getEntityForTag(tag);
-            return (
-              <span
-                key={i}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/15 text-primary text-xs"
-              >
-                {String(tag)}{matchedEntity && <EntityTag entity={matchedEntity} projectId={projectId} />}
-                <button
-                  type="button"
-                  className="ml-0.5 hover:text-destructive transition-colors"
-                  onClick={() => onChange(arr.filter((_, j) => j !== i))}
-                >×</button>
-              </span>
-            );
-          })}
-          {arr.length === 0 && <span className="text-xs text-muted-foreground italic">No items</span>}
-        </div>
-        <div className="flex gap-2">
-          <Input
-            value={tagInput}
-            onChange={e => setTagInput(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === "Enter" && tagInput.trim()) {
-                e.preventDefault();
-                onChange([...arr, tagInput.trim()]);
-                setTagInput("");
-              }
-            }}
-            placeholder="Type and press Enter to add"
-            className="bg-transparent border-transparent hover:border-border focus:border-border text-sm h-8 transition-colors"
-          />
-        </div>
-      </div>
-    );
-  }
-
-  const strVal = String(value ?? "");
-  const isLong = fieldDef.displayHint === "long_text" || strVal.length > 120;
-
-  if (isLong) {
-    return (
-      <div>
-        <FieldLabel label={label} description={fieldDef.description} />
-        <Textarea
-          value={strVal}
-          onChange={e => onChange(e.target.value)}
-          className="bg-transparent border-transparent hover:border-border focus:border-border text-sm text-foreground font-normal resize-none transition-colors"
-          rows={4}
-        />
-        <FieldEntityAnnotations value={value} entities={entities} projectId={projectId} />
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <FieldLabel label={label} description={fieldDef.description} />
-      <div className="flex items-center gap-2">
-        <Input
-          value={strVal}
-          onChange={e => onChange(e.target.value)}
-          className="bg-transparent border-transparent hover:border-border focus:border-border text-sm text-foreground font-normal flex-1 transition-colors"
-        />
-        <FieldEntityAnnotations value={value} entities={entities} projectId={projectId} />
-      </div>
-    </div>
-  );
-}
-
+/* ─── Main ReviewPage ──────────────────────────────────────────────────── */
 export default function ReviewPage({ projectId, project, docId: docIdProp }: Props) {
   const [, navigate] = useLocation();
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -1066,28 +1115,28 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
 
   return (
     <div className="flex h-full">
-      {/* Document list sidebar */}
-      <div className={`border-r border-border flex flex-col flex-shrink-0 transition-all duration-200 ${sidebarCollapsed ? 'w-0 overflow-hidden border-r-0' : 'w-64'}`}>
+      {/* Document list sidebar — softer, more spacious */}
+      <div className={`flex flex-col flex-shrink-0 transition-all duration-200 bg-card/20 ${sidebarCollapsed ? 'w-0 overflow-hidden' : 'w-72 border-r border-border/30'}`}>
         {/* Search + Filter header */}
-        <div className="p-3 border-b border-border space-y-2">
+        <div className="p-4 space-y-3">
           <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/40" />
             <Input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search documents..."
-              className="h-8 text-xs pl-7 bg-background"
+              placeholder="Search documents…"
+              className="h-9 text-xs pl-8 bg-secondary/30 border-transparent hover:border-border/40 focus:border-primary/30 focus:bg-secondary/50 rounded-lg transition-all"
             />
           </div>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="h-8 text-xs bg-background">
-              <Filter className="w-3 h-3 mr-1.5" />
+            <SelectTrigger className="h-8 text-xs bg-transparent border-transparent hover:bg-secondary/30 rounded-lg">
+              <Filter className="w-3 h-3 mr-1.5 text-muted-foreground/50" />
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All documents</SelectItem>
               <SelectItem value="needs_review">Needs review</SelectItem>
-              <SelectItem value="reviewed">Reviewed</SelectItem>
+              <SelectItem value="reviewed">Approved</SelectItem>
               <SelectItem value="flagged">Flagged</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
               <SelectItem value="error">Errors</SelectItem>
@@ -1095,49 +1144,52 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
           </Select>
           <RetryAllButton projectId={projectId} />
         </div>
-        <div ref={listRef} className="flex-1 overflow-y-auto divide-y divide-border" onScroll={handleScroll}>
+
+        {/* Document list */}
+        <div ref={listRef} className="flex-1 overflow-y-auto px-2" onScroll={handleScroll}>
           {isLoadingFirst ? (
-            <div className="p-4 text-center">
-              <Loader2 className="w-4 h-4 animate-spin mx-auto mb-2 text-muted-foreground" />
-              <p className="text-xs text-muted-foreground">Loading documents...</p>
+            <div className="p-6 text-center">
+              <Loader2 className="w-4 h-4 animate-spin mx-auto mb-2 text-muted-foreground/40" />
+              <p className="text-xs text-muted-foreground/40">Loading…</p>
             </div>
           ) : !documents || documents.length === 0 ? (
-            <div className="p-4 text-center">
-              <p className="text-xs text-muted-foreground mb-2">
+            <div className="p-6 text-center">
+              <FileText className="w-8 h-8 text-muted-foreground/20 mx-auto mb-3" />
+              <p className="text-xs text-muted-foreground/50 mb-1">
                 {debouncedSearch ? "No matching documents" : "No documents yet"}
               </p>
-              <p className="text-[10px] text-muted-foreground/70">
-                {debouncedSearch ? "Try a different search term." : "Upload documents first, then they'll appear here for review."}
+              <p className="text-[10px] text-muted-foreground/30">
+                {debouncedSearch ? "Try a different search." : "Upload documents first."}
               </p>
             </div>
           ) : (
-            <>
+            <div className="space-y-0.5 pb-2">
               {documents.map(doc => (
                 <div
                   key={doc.id}
-                  className={`group flex items-center justify-between px-3 py-2.5 hover:bg-secondary/50 transition-colors cursor-pointer ${doc.id === currentDocId ? "bg-secondary" : ""}`}
+                  className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-all ${
+                    doc.id === currentDocId
+                      ? "bg-primary/8 border border-primary/15"
+                      : "hover:bg-secondary/40 border border-transparent"
+                  }`}
                   onClick={() => handleNavigate(doc.id)}
                 >
+                  <StatusDot status={doc.status} />
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1">
-                      <span className="text-xs font-medium truncate">{doc.filename}</span>
-                      {(doc as any).groupId && (
-                        <span className="flex-shrink-0" aria-label="Part of multi-page document">
-                          <Layers className="w-3 h-3 text-primary/60" />
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 mt-0.5">
-                      <StatusBadge status={doc.status} />
-                      {(doc as any).pageNumber && (
-                        <span className="text-[10px] text-muted-foreground">p.{(doc as any).pageNumber}</span>
-                      )}
-                    </div>
+                    <span className={`text-[13px] truncate block ${doc.id === currentDocId ? "text-foreground font-medium" : "text-foreground/80"}`}>
+                      {doc.filename}
+                    </span>
+                    {(doc as any).pageNumber && (
+                      <span className="text-[10px] text-muted-foreground/40">Page {(doc as any).pageNumber}</span>
+                    )}
                   </div>
+                  {(doc as any).groupId && (
+                    <Layers className="w-3 h-3 text-primary/40 flex-shrink-0" />
+                  )}
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                      <button className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-background/50 transition-opacity">
-                        <MoreVertical className="w-3.5 h-3.5 text-muted-foreground" />
+                      <button className="opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-secondary/80 transition-all">
+                        <MoreVertical className="w-3.5 h-3.5 text-muted-foreground/50" />
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
@@ -1169,13 +1221,15 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
               ))}
               {isLoadingMore && (
                 <div className="p-3 text-center">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin mx-auto text-muted-foreground" />
+                  <Loader2 className="w-3.5 h-3.5 animate-spin mx-auto text-muted-foreground/40" />
                 </div>
               )}
-            </>
+            </div>
           )}
         </div>
-        <div className="p-3 border-t border-border text-xs text-muted-foreground">
+
+        {/* Footer count */}
+        <div className="px-4 py-2.5 text-[11px] text-muted-foreground/40 border-t border-border/20">
           {documents.length}{hasMore ? "+" : ""} of {totalCount} documents
         </div>
       </div>
@@ -1185,10 +1239,12 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
         {!currentDocId || !documents || documents.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center max-w-xs">
-              <Eye className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-              <p className="text-muted-foreground text-sm font-medium mb-1">Select a document to review</p>
-              <p className="text-xs text-muted-foreground">
-                Approving a document makes it available in Search, Ask Archive, and Entities.
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center mx-auto mb-4">
+                <Eye className="w-7 h-7 text-primary/50" />
+              </div>
+              <p className="text-foreground/80 text-sm font-medium mb-1.5">Select a document</p>
+              <p className="text-xs text-muted-foreground/50 leading-relaxed">
+                Choose a document from the list to review its transcription and approve it for search and analysis.
               </p>
             </div>
           </div>
@@ -1218,6 +1274,7 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
               value={renameValue}
               onChange={(e) => setRenameValue(e.target.value)}
               placeholder="Document filename"
+              className="rounded-lg"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && renameValue.trim() && renameDoc) {
                   setIsRenaming(true);
@@ -1227,9 +1284,10 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRenameDoc(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setRenameDoc(null)} className="rounded-lg">Cancel</Button>
             <Button
               disabled={!renameValue.trim() || isRenaming}
+              className="rounded-lg"
               onClick={() => {
                 if (renameDoc && renameValue.trim()) {
                   setIsRenaming(true);
@@ -1254,9 +1312,9 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel className="rounded-lg">Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-lg"
               disabled={isDeleting}
               onClick={() => {
                 if (deleteDoc) {

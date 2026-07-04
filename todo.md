@@ -622,3 +622,15 @@
 - [x] Fix Quick Review to work with projects that don't have explicit line-by-line data
 - [x] Auto-split transcription text fields into lines (split on newlines) for line-by-line review
 - [x] Handle edge case where transcription is a single block with no newlines (fallback to longest string field)
+
+## Features (Round 57) — Review Page Visual Redesign
+- [x] Softer document list sidebar: rounded items, status dots instead of badges, warmer hover states, more spacing
+- [x] Floating image controls: moved toolbar from top bar to floating pill at bottom of image panel, glass-morphism style
+- [x] Softer panel borders: replaced hard border-border with border-border/30, removed harsh dividers
+- [x] Warmer empty states: gradient icon wells, softer copy, more whitespace
+- [x] Progressive disclosure: original transcription now in collapsible <details> element
+- [x] Improved form fields: more vertical breathing room, softer focus states (primary/30 border), rounded-lg inputs
+- [x] Better action bar: gradient fade-to-background, shadow on approve button, rounded-lg buttons
+- [x] Wider sidebar (w-72 vs w-64) with more generous padding
+- [x] Hint text on image panel ("Double-click to zoom · Scroll to adjust")
+- [x] Consistent rounded-lg corners throughout all interactive elements
