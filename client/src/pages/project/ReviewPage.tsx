@@ -962,7 +962,7 @@ function ReviewDocPanel({
                   disabled={isSaving}
                 >
                   {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Flag className="w-3.5 h-3.5" />}
-                  Flag
+                  Flag for later
                 </Button>
                 <Button
                   size="sm"
@@ -1161,6 +1161,7 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
               <p className="text-[10px] text-muted-foreground/30">
                 {debouncedSearch ? "Try a different search." : "Upload documents first."}
               </p>
+              {/* Approving a document makes it available in Search, Ask Archive, and Entities */}
             </div>
           ) : (
             <div className="space-y-0.5 pb-2">

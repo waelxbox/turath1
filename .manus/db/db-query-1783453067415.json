@@ -1,0 +1,9 @@
+{
+  "query": "SELECT p.id, p.name FROM projects p WHERE p.name LIKE '%Selim%' OR p.name LIKE '%selim%' OR p.name LIKE '%Hassan%' OR p.name LIKE '%ledger%';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute SELECT p.id, p.name FROM projects p WHERE p.name LIKE '%Selim%' OR p.name LIKE '%selim%' OR p.name LIKE '%Hassan%' OR p.name LIKE '%ledger%';",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1137
+}

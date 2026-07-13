@@ -487,6 +487,38 @@ export async function getAllTranscriptions(projectId: number) {
     .orderBy(desc(transcriptions.createdAt));
 }
 
+/** Get transcriptions for a specific set of document IDs */
+export async function getTranscriptionsByDocumentIds(projectId: number, documentIds: number[]) {
+  const db = await getDb();
+  if (!db || documentIds.length === 0) return [];
+  return db.select({
+    transcription: transcriptions,
+    document: documents,
+  }).from(transcriptions)
+    .innerJoin(documents, eq(transcriptions.documentId, documents.id))
+    .where(and(
+      eq(transcriptions.projectId, projectId),
+      inArray(documents.id, documentIds)
+    ))
+    .orderBy(desc(transcriptions.createdAt));
+}
+
+/** Get transcriptions filtered by document status */
+export async function getTranscriptionsByStatus(projectId: number, status: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    transcription: transcriptions,
+    document: documents,
+  }).from(transcriptions)
+    .innerJoin(documents, eq(transcriptions.documentId, documents.id))
+    .where(and(
+      eq(transcriptions.projectId, projectId),
+      eq(documents.status, status as any)
+    ))
+    .orderBy(desc(transcriptions.createdAt));
+}
+
 // ─── Jobs ─────────────────────────────────────────────────────────────────────
 
 export async function createJob(data: InsertJob) {

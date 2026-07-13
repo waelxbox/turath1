@@ -634,3 +634,12 @@
 - [x] Wider sidebar (w-72 vs w-64) with more generous padding
 - [x] Hint text on image panel ("Double-click to zoom · Scroll to adjust")
 - [x] Consistent rounded-lg corners throughout all interactive elements
+
+## Features (Round 58) — Selective Document Export
+
+- [x] Backend: Add db helpers getTranscriptionsByDocumentIds and getTranscriptionsByStatus
+- [x] Backend: Update CSV, JSON, and TEI-XML export endpoints to accept optional documentIds and statusFilter
+- [x] Frontend: Redesigned ExportPage with status filter pills, select-specific-docs mode with checkboxes
+- [x] Frontend: Select all / clear selection controls, export count reflecting current selection
+- [x] Frontend: Download buttons for CSV, JSON, TEI-XML corpus, and TEI entity authority file
+- [x] All 71 tests passing, zero TypeScript errors

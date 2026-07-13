@@ -1,0 +1,45 @@
+{
+  "query": "SELECT id, filename, \"projectId\", status, \"errorMessage\" FROM documents WHERE status = 'error' LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute SELECT id, filename, \"projectId\", status, \"errorMessage\" FROM documents WHERE status = 'error' LIMIT 5;",
+  "rows": [
+    {
+      "id": "90001",
+      "filename": "IMG_3139.jpeg",
+      "projectId": "projectId",
+      "status": "error",
+      "errorMessage": "errorMessage"
+    },
+    {
+      "id": "90002",
+      "filename": "IMG_3141.jpeg",
+      "projectId": "projectId",
+      "status": "error",
+      "errorMessage": "errorMessage"
+    },
+    {
+      "id": "90003",
+      "filename": "IMG_3142.jpeg",
+      "projectId": "projectId",
+      "status": "error",
+      "errorMessage": "errorMessage"
+    },
+    {
+      "id": "90004",
+      "filename": "IMG_3143.jpeg",
+      "projectId": "projectId",
+      "status": "error",
+      "errorMessage": "errorMessage"
+    },
+    {
+      "id": "90005",
+      "filename": "IMG_3144.jpeg",
+      "projectId": "projectId",
+      "status": "error",
+      "errorMessage": "errorMessage"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tfilename\tprojectId\tstatus\terrorMessage\n90001\tIMG_3139.jpeg\tprojectId\terror\terrorMessage\n90002\tIMG_3141.jpeg\tprojectId\terror\terrorMessage\n90003\tIMG_3142.jpeg\tprojectId\terror\terrorMessage\n90004\tIMG_3143.jpeg\tprojectId\terror\terrorMessage\n90005\tIMG_3144.jpeg\tprojectId\terror\terrorMessage\n",
+  "stderr": "",
+  "execution_time_ms": 576
+}

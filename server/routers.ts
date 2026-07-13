@@ -22,6 +22,8 @@ import {
   updateReviewedJson,
   getReviewedTranscriptions,
   getAllTranscriptions,
+  getTranscriptionsByDocumentIds,
+  getTranscriptionsByStatus,
   getReviewedDocsWithoutEmbeddings,
   createJob,
   getJobsByProjectId,
@@ -1185,14 +1187,26 @@ ${contextBlock}
 
 const exportRouter = router({
   csv: protectedProcedure
-    .input(z.object({ projectId: z.number(), includeAll: z.boolean().default(false) }))
+    .input(z.object({
+      projectId: z.number(),
+      includeAll: z.boolean().default(false),
+      documentIds: z.array(z.number()).optional(),
+      statusFilter: z.string().optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
-      const docs = input.includeAll
-        ? await getAllTranscriptions(input.projectId)
-        : await getReviewedTranscriptions(input.projectId);
+      let docs;
+      if (input.documentIds && input.documentIds.length > 0) {
+        docs = await getTranscriptionsByDocumentIds(input.projectId, input.documentIds);
+      } else if (input.statusFilter) {
+        docs = await getTranscriptionsByStatus(input.projectId, input.statusFilter);
+      } else {
+        docs = input.includeAll
+          ? await getAllTranscriptions(input.projectId)
+          : await getReviewedTranscriptions(input.projectId);
+      }
       if (docs.length === 0) return { csv: "", count: 0 };
 
       const schema = project.jsonSchema as Record<string, { type: string }> | null;
@@ -1223,14 +1237,26 @@ const exportRouter = router({
     }),
 
   jsonZip: protectedProcedure
-    .input(z.object({ projectId: z.number(), includeAll: z.boolean().default(false) }))
+    .input(z.object({
+      projectId: z.number(),
+      includeAll: z.boolean().default(false),
+      documentIds: z.array(z.number()).optional(),
+      statusFilter: z.string().optional(),
+    }))
     .query(async ({ ctx, input }) => {
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
-      const docs = input.includeAll
-        ? await getAllTranscriptions(input.projectId)
-        : await getReviewedTranscriptions(input.projectId);
+      let docs;
+      if (input.documentIds && input.documentIds.length > 0) {
+        docs = await getTranscriptionsByDocumentIds(input.projectId, input.documentIds);
+      } else if (input.statusFilter) {
+        docs = await getTranscriptionsByStatus(input.projectId, input.statusFilter);
+      } else {
+        docs = input.includeAll
+          ? await getAllTranscriptions(input.projectId)
+          : await getReviewedTranscriptions(input.projectId);
+      }
       return docs.map(({ transcription, document }) => ({
         filename: document.filename.replace(/\.[^.]+$/, "") + ".json",
         data: transcription.reviewedJson ?? transcription.rawJson,
@@ -1239,7 +1265,12 @@ const exportRouter = router({
 
   /** Full TEI-XML corpus export — each document as a proper TEI element with inline entity markup */
   teiXmlCorpus: protectedProcedure
-    .input(z.object({ projectId: z.number(), includeAll: z.boolean().default(false) }))
+    .input(z.object({
+      projectId: z.number(),
+      includeAll: z.boolean().default(false),
+      documentIds: z.array(z.number()).optional(),
+      statusFilter: z.string().optional(),
+    }))
     .query(async ({ ctx, input }) => {
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
@@ -1248,9 +1279,16 @@ const exportRouter = router({
       const { documentEntities, entities } = await import("../drizzle/schema");
       const { eq, inArray } = await import("drizzle-orm");
 
-      const docs = input.includeAll
-        ? await getAllTranscriptions(input.projectId)
-        : await getReviewedTranscriptions(input.projectId);
+      let docs;
+      if (input.documentIds && input.documentIds.length > 0) {
+        docs = await getTranscriptionsByDocumentIds(input.projectId, input.documentIds);
+      } else if (input.statusFilter) {
+        docs = await getTranscriptionsByStatus(input.projectId, input.statusFilter);
+      } else {
+        docs = input.includeAll
+          ? await getAllTranscriptions(input.projectId)
+          : await getReviewedTranscriptions(input.projectId);
+      }
 
       // Get all entities for inline markup
       const allEntities = await getEntitiesByProject(input.projectId);

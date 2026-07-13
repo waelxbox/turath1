@@ -11,6 +11,10 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { Streamdown } from "streamdown";
 
+// Onboarding step labels: Teach the AI, Check accuracy, Start project
+// Main CTA: Build my AI reader
+// Generating state: Building your custom AI reader — usually takes 30–60 seconds
+
 interface ChatMsg {
   role: "user" | "assistant";
   content: string;

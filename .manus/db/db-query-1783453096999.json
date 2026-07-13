@@ -1,0 +1,170 @@
+{
+  "query": "SELECT id, \"projectId\", filename, status, \"errorMessage\", \"uploadedAt\" FROM documents ORDER BY \"uploadedAt\" DESC LIMIT 20;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute SELECT id, \"projectId\", filename, status, \"errorMessage\", \"uploadedAt\" FROM documents ORDER BY \"uploadedAt\" DESC LIMIT 20;",
+  "rows": [
+    {
+      "id": "1",
+      "projectId": "projectId",
+      "filename": "sfe.png",
+      "status": "flagged",
+      "errorMessage": "errorMessage",
+      "uploadedAt": "uploadedAt"
+    },
+    {
+      "id": "2",
+      "projectId": "projectId",
+      "filename": "Screenshot 2026-03-30 at 11.33.17 AM.png",
+      "status": "needs_review",
+      "errorMessage": "errorMessage",
+      "uploadedAt": "uploadedAt"
+    },
+    {
+      "id": "30001",
+      "projectId": "projectId",
+      "filename": "Screenshot 2026-03-30 at 11.33.17 AM.png",
+      "status": "needs_review",
+      "errorMessage": "errorMessage",
+      "uploadedAt": "uploadedAt"
+    },
+    {
+      "id": "60001",
+      "projectId": "projectId",
+      "filename": "IMG_3153.jpeg",
+      "status": "needs_review",
+      "errorMessage": "errorMessage",
+      "uploadedAt": "uploadedAt"
+    },
+    {
+      "id": "90001",
+      "projectId": "projectId",
+      "filename": "IMG_3139.jpeg",
+      "status": "error",
+      "errorMessage": "errorMessage",
+      "uploadedAt": "uploadedAt"
+    },
+    {
+      "id": "90002",
+      "projectId": "projectId",
+      "filename": "IMG_3141.jpeg",
+      "status": "error",
+      "errorMessage": "errorMessage",
+      "uploadedAt": "uploadedAt"
+    },
+    {
+      "id": "90003",
+      "projectId": "projectId",
+      "filename": "IMG_3142.jpeg",
+      "status": "error",
+      "errorMessage": "errorMessage",
+      "uploadedAt": "uploadedAt"
+    },
+    {
+      "id": "90004",
+      "projectId": "projectId",
+      "filename": "IMG_3143.jpeg",
+      "status": "error",
+      "errorMessage": "errorMessage",
+      "uploadedAt": "uploadedAt"
+    },
+    {
+      "id": "90005",
+      "projectId": "projectId",
+      "filename": "IMG_3144.jpeg",
+      "status": "error",
+      "errorMessage": "errorMessage",
+      "uploadedAt": "uploadedAt"
+    },
+    {
+      "id": "90006",
+      "projectId": "projectId",
+      "filename": "IMG_3145.jpeg",
+      "status": "error",
+      "errorMessage": "errorMessage",
+      "uploadedAt": "uploadedAt"
+    },
+    {
+      "id": "90007",
+      "projectId": "projectId",
+      "filename": "IMG_3146.jpeg",
+      "status": "error",
+      "errorMessage": "errorMessage",
+      "uploadedAt": "uploadedAt"
+    },
+    {
+      "id": "90008",
+      "projectId": "projectId",
+      "filename": "IMG_3147.jpeg",
+      "status": "error",
+      "errorMessage": "errorMessage",
+      "uploadedAt": "uploadedAt"
+    },
+    {
+      "id": "90009",
+      "projectId": "projectId",
+      "filename": "IMG_3148.jpeg",
+      "status": "error",
+      "errorMessage": "errorMessage",
+      "uploadedAt": "uploadedAt"
+    },
+    {
+      "id": "90010",
+      "projectId": "projectId",
+      "filename": "IMG_3149.jpeg",
+      "status": "error",
+      "errorMessage": "errorMessage",
+      "uploadedAt": "uploadedAt"
+    },
+    {
+      "id": "90011",
+      "projectId": "projectId",
+      "filename": "IMG_3139.jpeg",
+      "status": "needs_review",
+      "errorMessage": "errorMessage",
+      "uploadedAt": "uploadedAt"
+    },
+    {
+      "id": "90012",
+      "projectId": "projectId",
+      "filename": "IMG_3141.jpeg",
+      "status": "needs_review",
+      "errorMessage": "errorMessage",
+      "uploadedAt": "uploadedAt"
+    },
+    {
+      "id": "90013",
+      "projectId": "projectId",
+      "filename": "IMG_3142.jpeg",
+      "status": "needs_review",
+      "errorMessage": "errorMessage",
+      "uploadedAt": "uploadedAt"
+    },
+    {
+      "id": "90014",
+      "projectId": "projectId",
+      "filename": "IMG_3143.jpeg",
+      "status": "needs_review",
+      "errorMessage": "errorMessage",
+      "uploadedAt": "uploadedAt"
+    },
+    {
+      "id": "90015",
+      "projectId": "projectId",
+      "filename": "IMG_3144.jpeg",
+      "status": "needs_review",
+      "errorMessage": "errorMessage",
+      "uploadedAt": "uploadedAt"
+    },
+    {
+      "id": "90016",
+      "projectId": "projectId",
+      "filename": "IMG_3145.jpeg",
+      "status": "needs_review",
+      "errorMessage": "errorMessage",
+      "uploadedAt": "uploadedAt"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tprojectId\tfilename\tstatus\terrorMessage\tuploadedAt\n1\tprojectId\tsfe.png\tflagged\terrorMessage\tuploadedAt\n2\tprojectId\tScreenshot 2026-03-30 at 11.33.17 AM.png\tneeds_review\terrorMessage\tuploadedAt\n30001\tprojectId\tScreenshot 2026-03-30 at 11.33.17 AM.png\tneeds_review\terrorMessage\tuploadedAt\n60001\tprojectId\tIMG_3153.jpeg\tneeds_review\terrorMessage\tuploadedAt\n90001\tprojectId\tIMG_3139.jpeg\terror\terrorMessage\tuploadedAt\n90002\tprojectId\tIMG_3141.jpeg\terror\terrorMessage\tuploadedAt\n90003\tprojectId\tIMG_3142.jpeg\terror\terrorMessage\tuploadedAt\n90004\tprojectId\tIMG_3143.jpeg\terror\terrorMessage\tuploadedAt\n90005\tprojectId\tIMG_3144.jpeg\terror\terrorMessage\tuploadedAt\n90006\tprojectId\tIMG_3145.jpeg\terror\terrorMessage\tuploadedAt\n90007\tprojectId\tIMG_3146.jpeg\terror\terrorMessage\tuploadedAt\n90008\tprojectId\tIMG_3147.jpeg\terror\terrorMessage\tuploadedAt\n90009\tprojectId\tIMG_3148.jpeg\terror\terrorMessage\tuploadedAt\n90010\tprojectId\tIMG_3149.jpeg\terror\terrorMessage\tuploadedAt\n90011\tprojectId\tIMG_3139.jpeg\tneeds_review\terrorMessage\tuploadedAt\n90012\tprojectId\tIMG_3141.jpeg\tneeds_review\terrorMessage\tuploadedAt\n90013\tprojectId\tIMG_3142.jpeg\tneeds_review\terrorMessage\tuploadedAt\n90014\tprojectId\tIMG_3143.jpeg\tneeds_review\terrorMessage\tuploadedAt\n90015\tprojectId\tIMG_3144.jpeg\tneeds_review\terrorMessage\tuploadedAt\n90016\tprojectId\tIMG_3145.jpeg\tneeds_review\terrorMessage\tuploadedAt\n",
+  "stderr": "",
+  "execution_time_ms": 575
+}
