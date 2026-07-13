@@ -1,0 +1,9 @@
+{
+  "query": "SELECT filename, COUNT(*) as cnt FROM documents WHERE \"projectId\" = (SELECT id FROM projects WHERE name LIKE '%Behna%' LIMIT 1) GROUP BY filename HAVING COUNT(*) > 1 ORDER BY COUNT(*) DESC LIMIT 15;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute SELECT filename, COUNT(*) as cnt FROM documents WHERE \"projectId\" = (SELECT id FROM projects WHERE name LIKE '%Behna%' LIMIT 1) GROUP BY filename HAVING COUNT(*) > 1 ORDER BY COUNT(*) DESC LIMIT 15;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 690
+}

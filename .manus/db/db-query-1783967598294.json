@@ -1,0 +1,26 @@
+{
+  "query": "SELECT id, name FROM projects ORDER BY id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute SELECT id, name FROM projects ORDER BY id;",
+  "rows": [
+    {
+      "id": "1",
+      "name": "Howard Crosby Butler Archive"
+    },
+    {
+      "id": "30001",
+      "name": "Brovarski Index Cards Collection"
+    },
+    {
+      "id": "60001",
+      "name": "example archive"
+    },
+    {
+      "id": "90001",
+      "name": "c"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\n1\tHoward Crosby Butler Archive\n30001\tBrovarski Index Cards Collection\n60001\texample archive\n90001\tc\n",
+  "stderr": "",
+  "execution_time_ms": 594
+}

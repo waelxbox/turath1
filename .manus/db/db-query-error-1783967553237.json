@@ -1,0 +1,13 @@
+{
+  "query": "SELECT d.filename, COUNT(t.id) as transcription_count \nFROM documents d \nJOIN transcriptions t ON t.\"documentId\" = d.id \nWHERE d.\"projectId\" = (SELECT id FROM projects WHERE name LIKE '%Behna%' LIMIT 1)\nGROUP BY d.filename \nHAVING COUNT(t.id) > 1 \nORDER BY COUNT(t.id) DESC \nLIMIT 20;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute SELECT d.filename, COUNT(t.id) as transcription_count \nFROM documents d \nJOIN transcriptions t ON t.\"documentId\" = d.id \nWHERE d.\"projectId\" = (SELECT id FROM projects WHERE name LIKE '%Behna%' LIMIT 1)\nGROUP BY d.filename \nHAVING COUNT(t.id) > 1 \nORDER BY COUNT(t.id) DESC \nLIMIT 20;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1064 (42000) at line 1: You have an error in your SQL syntax; check the manual that corresponds to your TiDB version for the right syntax to use line 3 column 40 near \"\"documentId\" = d.id ",
+    "WHERE d.\"projectId\" = (SELECT id FROM projects WHERE name LIKE '%Behna%' LIMIT 1)",
+    "GROUP BY d.filename ",
+    "HAVING COUNT(t.id) > 1 ",
+    "ORDER BY COUNT(t.id) DESC ",
+    "LIMIT 20\""
+  ]
+}

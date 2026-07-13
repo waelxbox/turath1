@@ -463,7 +463,8 @@ export async function updateReviewedJson(id: number, reviewedJson: unknown) {
 export async function getReviewedTranscriptions(projectId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select({
+  // Use subquery to get only the latest transcription per document
+  const allRows = await db.select({
     transcription: transcriptions,
     document: documents,
   }).from(transcriptions)
@@ -473,25 +474,39 @@ export async function getReviewedTranscriptions(projectId: number) {
       sql`${documents.status} IN ('reviewed', 'flagged')`
     ))
     .orderBy(desc(transcriptions.reviewedAt));
+  // Deduplicate: keep only the first (most recent) transcription per document
+  const seen = new Set<number>();
+  return allRows.filter(row => {
+    if (seen.has(row.document.id)) return false;
+    seen.add(row.document.id);
+    return true;
+  });
 }
 
 export async function getAllTranscriptions(projectId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select({
+  const allRows = await db.select({
     transcription: transcriptions,
     document: documents,
   }).from(transcriptions)
     .innerJoin(documents, eq(transcriptions.documentId, documents.id))
     .where(eq(transcriptions.projectId, projectId))
     .orderBy(desc(transcriptions.createdAt));
+  // Deduplicate: keep only the most recent transcription per document
+  const seen = new Set<number>();
+  return allRows.filter(row => {
+    if (seen.has(row.document.id)) return false;
+    seen.add(row.document.id);
+    return true;
+  });
 }
 
 /** Get transcriptions for a specific set of document IDs */
 export async function getTranscriptionsByDocumentIds(projectId: number, documentIds: number[]) {
   const db = await getDb();
   if (!db || documentIds.length === 0) return [];
-  return db.select({
+  const allRows = await db.select({
     transcription: transcriptions,
     document: documents,
   }).from(transcriptions)
@@ -501,13 +516,20 @@ export async function getTranscriptionsByDocumentIds(projectId: number, document
       inArray(documents.id, documentIds)
     ))
     .orderBy(desc(transcriptions.createdAt));
+  // Deduplicate: keep only the most recent transcription per document
+  const seen = new Set<number>();
+  return allRows.filter(row => {
+    if (seen.has(row.document.id)) return false;
+    seen.add(row.document.id);
+    return true;
+  });
 }
 
 /** Get transcriptions filtered by document status */
 export async function getTranscriptionsByStatus(projectId: number, status: string) {
   const db = await getDb();
   if (!db) return [];
-  return db.select({
+  const allRows = await db.select({
     transcription: transcriptions,
     document: documents,
   }).from(transcriptions)
@@ -517,6 +539,13 @@ export async function getTranscriptionsByStatus(projectId: number, status: strin
       eq(documents.status, status as any)
     ))
     .orderBy(desc(transcriptions.createdAt));
+  // Deduplicate: keep only the most recent transcription per document
+  const seen = new Set<number>();
+  return allRows.filter(row => {
+    if (seen.has(row.document.id)) return false;
+    seen.add(row.document.id);
+    return true;
+  });
 }
 
 // ─── Jobs ─────────────────────────────────────────────────────────────────────
