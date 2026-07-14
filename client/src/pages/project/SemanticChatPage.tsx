@@ -52,6 +52,7 @@ export default function SemanticChatPage({ projectId, project }: Props) {
   const [, navigate] = useLocation();
   const [messages, setMessages] = useSessionState<ChatMessage[]>(`turath-chat-messages-${projectId}`, []);
   const [input, setInput] = useSessionState(`turath-chat-input-${projectId}`, "");
+  const [scope, setScope] = useState<"reviewed" | "all">("reviewed");
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -163,12 +164,41 @@ export default function SemanticChatPage({ projectId, project }: Props) {
               </p>
             </div>
 
+            {/* Scope toggle */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Chat with:</span>
+              <div className="flex rounded-lg border border-border overflow-hidden">
+                <button
+                  onClick={() => setScope("reviewed")}
+                  className={`px-3 py-1 text-xs transition-colors ${
+                    scope === "reviewed"
+                      ? "bg-primary/15 text-primary font-medium"
+                      : "text-muted-foreground hover:bg-accent/50"
+                  }`}
+                >
+                  Reviewed only
+                </button>
+                <button
+                  onClick={() => setScope("all")}
+                  className={`px-3 py-1 text-xs border-l border-border transition-colors ${
+                    scope === "all"
+                      ? "bg-primary/15 text-primary font-medium"
+                      : "text-muted-foreground hover:bg-accent/50"
+                  }`}
+                >
+                  All documents
+                </button>
+              </div>
+            </div>
+
             {/* Info note */}
             <div className="flex items-start gap-2 bg-muted/40 rounded-lg p-3 max-w-sm text-left">
               <Info className="w-3.5 h-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
               <p className="text-xs text-muted-foreground">
-                Only <strong>approved</strong> documents are used to answer questions.
-                Approve documents in the Review page to include them here.
+                {scope === "reviewed"
+                  ? <>Only <strong>approved</strong> documents are used to answer questions. Approve documents in the Review page to include them here.</>
+                  : <>Querying <strong>all</strong> transcribed documents including unreviewed AI output. Answers may reflect transcription errors.</>
+                }
               </p>
             </div>
 
@@ -320,7 +350,10 @@ export default function SemanticChatPage({ projectId, project }: Props) {
           </Button>
         </div>
         <p className="text-[10px] text-muted-foreground/50 mt-1.5 text-center">
-          Answers are generated from your approved transcriptions only. Always verify against source documents.
+          {scope === "reviewed"
+            ? "Answers are generated from your approved transcriptions only. Always verify against source documents."
+            : "Searching all transcribed documents (including unreviewed). Answers may contain AI transcription errors."
+          }
         </p>
       </div>
     </div>

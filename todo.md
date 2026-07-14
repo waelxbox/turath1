@@ -643,3 +643,12 @@
 - [x] Frontend: Select all / clear selection controls, export count reflecting current selection
 - [x] Frontend: Download buttons for CSV, JSON, TEI-XML corpus, and TEI entity authority file
 - [x] All 71 tests passing, zero TypeScript errors
+
+## Features (Round 59) — Index All Documents for Search/Chat
+
+- [x] Backend: Update reindex-all to embed ALL transcribed docs (use rawJson for unreviewed, reviewedJson for reviewed)
+- [x] Backend: Add `scope` param to reindexAll endpoint (options: "reviewed" | "all")
+- [x] Backend: New getAllDocsWithoutEmbeddings helper for unreviewed docs
+- [x] Frontend: Add scope toggle to Semantic Search page
+- [x] Frontend: Add scope toggle to Ask Archive (chat) page
+- [x] Frontend: Add "Index all documents" button in project settings alongside "Index reviewed only"

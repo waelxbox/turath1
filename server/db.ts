@@ -719,7 +719,9 @@ export async function getReviewedDocsWithoutEmbeddings(projectId: number) {
       documentId: transcriptions.documentId,
       transcriptionId: transcriptions.id,
       reviewedJson: transcriptions.reviewedJson,
+      rawJson: transcriptions.rawJson,
       filename: documents.filename,
+      status: documents.status,
     })
     .from(transcriptions)
     .innerJoin(documents, eq(documents.id, transcriptions.documentId))
@@ -737,6 +739,46 @@ export async function getReviewedDocsWithoutEmbeddings(projectId: number) {
     );
 
   return results;
+}
+
+/** Get ALL transcribed docs (any status) that have no embedding yet */
+export async function getAllDocsWithoutEmbeddings(projectId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const allRows = await db
+    .select({
+      documentId: transcriptions.documentId,
+      transcriptionId: transcriptions.id,
+      reviewedJson: transcriptions.reviewedJson,
+      rawJson: transcriptions.rawJson,
+      filename: documents.filename,
+      status: documents.status,
+    })
+    .from(transcriptions)
+    .innerJoin(documents, eq(documents.id, transcriptions.documentId))
+    .leftJoin(documentEmbeddings, eq(documentEmbeddings.documentId, transcriptions.documentId))
+    .where(
+      and(
+        eq(transcriptions.projectId, projectId),
+        // Any doc that has a transcription (not pending/error)
+        or(
+          eq(documents.status, "reviewed"),
+          eq(documents.status, "flagged"),
+          eq(documents.status, "needs_review")
+        ),
+        sql`${documentEmbeddings.id} IS NULL`
+      )
+    )
+    .orderBy(desc(transcriptions.createdAt));
+
+  // Deduplicate: keep only the most recent transcription per document
+  const seen = new Set<number>();
+  return allRows.filter(row => {
+    if (seen.has(row.documentId)) return false;
+    seen.add(row.documentId);
+    return true;
+  });
 }
 
 

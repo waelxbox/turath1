@@ -517,25 +517,42 @@ export default function ProjectSettings({ projectId, project }: Props) {
               </div>
 
               {/* Re-index */}
-              <div className="flex items-start justify-between gap-4 pt-4 border-t border-border/50">
+              <div className="flex flex-col gap-3 pt-4 border-t border-border/50">
                 <div>
                   <h4 className="text-sm font-medium mb-1">Rebuild search index</h4>
                   <p className="text-xs text-muted-foreground max-w-md">
-                    If Search or Ask Archive aren't finding your approved documents, rebuild the index.
+                    If Search or Ask Archive aren't finding your documents, rebuild the index.
                   </p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2 flex-shrink-0"
-                  disabled={reindexAll.isPending}
-                  onClick={() => reindexAll.mutate({ id: projectId })}
-                >
-                  {reindexAll.isPending
-                    ? <Loader2 className="w-4 h-4 animate-spin" />
-                    : <RefreshCw className="w-4 h-4" />}
-                  {reindexAll.isPending ? "Indexing…" : "Rebuild index"}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    disabled={reindexAll.isPending}
+                    onClick={() => reindexAll.mutate({ id: projectId, scope: "reviewed" })}
+                  >
+                    {reindexAll.isPending
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : <RefreshCw className="w-4 h-4" />}
+                    Index reviewed only
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    disabled={reindexAll.isPending}
+                    onClick={() => reindexAll.mutate({ id: projectId, scope: "all" })}
+                  >
+                    {reindexAll.isPending
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : <RefreshCw className="w-4 h-4" />}
+                    Index all documents
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground/70">
+                  "Index all" includes unreviewed AI transcriptions so they appear in Search and Ask Archive.
+                </p>
               </div>
             </div>
           )}

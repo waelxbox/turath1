@@ -8,7 +8,7 @@
  * Clicking a result navigates directly to the review page for that document.
  */
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useSessionState } from "@/hooks/useSessionState";
@@ -55,6 +55,7 @@ const EXAMPLE_QUERIES = [
 export default function SemanticSearchPage({ projectId, project }: Props) {
   const [query, setQuery] = useSessionState(`turath-search-query-${projectId}`, "");
   const [submitted, setSubmitted] = useSessionState(`turath-search-submitted-${projectId}`, "");
+  const [scope, setScope] = useState<"reviewed" | "all">("reviewed");
   const [, navigate] = useLocation();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -102,29 +103,60 @@ export default function SemanticSearchPage({ projectId, project }: Props) {
 
       {/* Search bar */}
       <div className="flex-shrink-0 px-6 py-4 border-b border-border bg-background/50">
-        <div className="flex gap-2 max-w-2xl">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-            <Input
-              ref={inputRef}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Describe what you're looking for…"
-              className="pl-9 pr-4"
-            />
+        <div className="flex flex-col gap-3 max-w-2xl">
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+              <Input
+                ref={inputRef}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Describe what you're looking for…"
+                className="pl-9 pr-4"
+              />
+            </div>
+            <Button
+              onClick={handleSearch}
+              disabled={!query.trim() || isFetching}
+              className="gap-2"
+            >
+              {isFetching
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <Sparkles className="w-4 h-4" />
+              }
+              Search
+            </Button>
           </div>
-          <Button
-            onClick={handleSearch}
-            disabled={!query.trim() || isFetching}
-            className="gap-2"
-          >
-            {isFetching
-              ? <Loader2 className="w-4 h-4 animate-spin" />
-              : <Sparkles className="w-4 h-4" />
-            }
-            Search
-          </Button>
+          {/* Scope toggle */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Search in:</span>
+            <div className="flex rounded-lg border border-border overflow-hidden">
+              <button
+                onClick={() => setScope("reviewed")}
+                className={`px-3 py-1 text-xs transition-colors ${
+                  scope === "reviewed"
+                    ? "bg-primary/15 text-primary font-medium"
+                    : "text-muted-foreground hover:bg-accent/50"
+                }`}
+              >
+                Reviewed only
+              </button>
+              <button
+                onClick={() => setScope("all")}
+                className={`px-3 py-1 text-xs border-l border-border transition-colors ${
+                  scope === "all"
+                    ? "bg-primary/15 text-primary font-medium"
+                    : "text-muted-foreground hover:bg-accent/50"
+                }`}
+              >
+                All documents
+              </button>
+            </div>
+            {scope === "all" && (
+              <span className="text-[10px] text-amber-400/80 italic">includes unreviewed AI transcriptions</span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -147,8 +179,10 @@ export default function SemanticSearchPage({ projectId, project }: Props) {
             <div className="flex items-start gap-2 bg-muted/40 rounded-lg p-3 max-w-sm text-left">
               <Info className="w-3.5 h-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
               <p className="text-xs text-muted-foreground">
-                Only <strong>approved</strong> documents appear in search results.
-                Approve documents in the Review page to make them searchable.
+                {scope === "reviewed"
+                  ? <>Only <strong>approved</strong> documents appear in search results. Approve documents in the Review page to make them searchable.</>
+                  : <>Searching <strong>all</strong> transcribed documents including unreviewed AI output. Results may contain transcription errors.</>
+                }
               </p>
             </div>
 

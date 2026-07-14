@@ -25,6 +25,7 @@ import {
   getTranscriptionsByDocumentIds,
   getTranscriptionsByStatus,
   getReviewedDocsWithoutEmbeddings,
+  getAllDocsWithoutEmbeddings,
   createJob,
   getJobsByProjectId,
   updateJob,
@@ -251,13 +252,15 @@ const projectsRouter = router({
    * Returns the count of documents that were indexed.
    */
   reindexAll: protectedProcedure
-    .input(z.object({ id: z.number() }))
+    .input(z.object({ id: z.number(), scope: z.enum(["reviewed", "all"]).default("reviewed") }))
     .mutation(async ({ ctx, input }) => {
       const project = await getProjectById(input.id, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
-      // Get all reviewed/flagged documents that don't have embeddings
-      const docs = await getReviewedDocsWithoutEmbeddings(input.id);
+      // Get documents without embeddings based on scope
+      const docs = input.scope === "all"
+        ? await getAllDocsWithoutEmbeddings(input.id)
+        : await getReviewedDocsWithoutEmbeddings(input.id);
 
       // Generate embeddings in batches
       const batchSize = 5;
@@ -268,11 +271,13 @@ const projectsRouter = router({
         await Promise.all(
           batch.map(async (doc) => {
             try {
+              // Use reviewedJson if available, otherwise fall back to rawJson
+              const jsonToEmbed = (doc.reviewedJson ?? doc.rawJson) as Record<string, unknown>;
               await embedTranscription({
                 projectId: input.id,
                 documentId: doc.documentId,
                 transcriptionId: doc.transcriptionId,
-                reviewedJson: doc.reviewedJson as Record<string, unknown>,
+                reviewedJson: jsonToEmbed,
                 filename: doc.filename,
               });
               indexed++;
