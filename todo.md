@@ -652,3 +652,13 @@
 - [x] Frontend: Add scope toggle to Semantic Search page
 - [x] Frontend: Add scope toggle to Ask Archive (chat) page
 - [x] Frontend: Add "Index all documents" button in project settings alongside "Index reviewed only"
+
+## Features (Round 60) — Page Grouping from Review Sidebar
+
+- [x] Backend: Endpoints already existed (groups.create, groups.removePage, groups.reorderPages)
+- [x] Frontend: Add multi-select mode in review sidebar (Select/Cancel toggle + checkboxes)
+- [x] Frontend: Add "Group (N)" action button that opens naming dialog
+- [x] Frontend: Select All / None toggle for quick selection
+- [x] Frontend: "Remove from group" option in per-document dropdown menu
+- [x] Frontend: Group dialog with title input and Enter key support
+- [x] All 71 tests passing, zero TypeScript errors

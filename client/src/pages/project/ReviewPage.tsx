@@ -13,8 +13,9 @@ import {
   Eye, Filter, Zap, AlertCircle, ImageOff, RotateCcw,
   MoreVertical, Trash2, Pencil, Search, Layers,
   Minus, Plus, Maximize2, X, RotateCw, PanelLeftClose, PanelLeftOpen, Info,
-  FileText, Sparkles
+  FileText, Sparkles, CheckSquare, Square, FolderPlus, Unlink
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -995,6 +996,11 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedDocIds, setSelectedDocIds] = useState<Set<number>>(new Set());
+  const [showGroupDialog, setShowGroupDialog] = useState(false);
+  const [groupTitle, setGroupTitle] = useState("");
+  const [isGrouping, setIsGrouping] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const utils = trpc.useUtils();
 
@@ -1102,6 +1108,48 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
     onError: (err) => toast.error(err.message),
   });
 
+  const createGroupMutation = trpc.groups.create.useMutation({
+    onSuccess: (group) => {
+      toast.success(`Grouped ${selectedDocIds.size} pages into "${group.title}"`);
+      utils.documents.listPaginated.invalidate();
+      utils.documents.list.invalidate({ projectId });
+      setSelectedDocIds(new Set());
+      setSelectMode(false);
+      setShowGroupDialog(false);
+      setGroupTitle("");
+      setIsGrouping(false);
+    },
+    onError: (err) => {
+      toast.error(err.message);
+      setIsGrouping(false);
+    },
+  });
+
+  const ungroupMutation = trpc.groups.removePage.useMutation({
+    onSuccess: () => {
+      toast.success("Removed from group");
+      utils.documents.listPaginated.invalidate();
+      utils.documents.list.invalidate({ projectId });
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const toggleDocSelection = (docId: number) => {
+    setSelectedDocIds(prev => {
+      const next = new Set(prev);
+      if (next.has(docId)) next.delete(docId);
+      else next.add(docId);
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    if (!documents) return;
+    setSelectedDocIds(new Set(documents.map(d => d.id)));
+  };
+
+  const clearSelection = () => setSelectedDocIds(new Set());
+
   // Determine active document
   const currentDocId = docIdProp
     ? parseInt(docIdProp)
@@ -1143,6 +1191,39 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
             </SelectContent>
           </Select>
           <RetryAllButton projectId={projectId} />
+          {/* Select mode toggle */}
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant={selectMode ? "secondary" : "ghost"}
+              size="sm"
+              className="h-7 text-[11px] gap-1 rounded-lg"
+              onClick={() => { setSelectMode(!selectMode); if (selectMode) clearSelection(); }}
+            >
+              {selectMode ? <CheckSquare className="w-3 h-3" /> : <Square className="w-3 h-3" />}
+              {selectMode ? "Cancel" : "Select"}
+            </Button>
+            {selectMode && selectedDocIds.size > 0 && (
+              <Button
+                variant="default"
+                size="sm"
+                className="h-7 text-[11px] gap-1 rounded-lg"
+                onClick={() => setShowGroupDialog(true)}
+              >
+                <FolderPlus className="w-3 h-3" />
+                Group ({selectedDocIds.size})
+              </Button>
+            )}
+            {selectMode && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-[11px] rounded-lg"
+                onClick={selectedDocIds.size === documents.length ? clearSelection : selectAll}
+              >
+                {selectedDocIds.size === documents.length ? "None" : "All"}
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Document list */}
@@ -1169,12 +1250,21 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
                 <div
                   key={doc.id}
                   className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-all ${
-                    doc.id === currentDocId
-                      ? "bg-primary/8 border border-primary/15"
-                      : "hover:bg-secondary/40 border border-transparent"
+                    selectMode && selectedDocIds.has(doc.id)
+                      ? "bg-primary/10 border border-primary/20"
+                      : doc.id === currentDocId
+                        ? "bg-primary/8 border border-primary/15"
+                        : "hover:bg-secondary/40 border border-transparent"
                   }`}
-                  onClick={() => handleNavigate(doc.id)}
+                  onClick={() => selectMode ? toggleDocSelection(doc.id) : handleNavigate(doc.id)}
                 >
+                  {selectMode && (
+                    <Checkbox
+                      checked={selectedDocIds.has(doc.id)}
+                      onCheckedChange={() => toggleDocSelection(doc.id)}
+                      className="w-3.5 h-3.5"
+                    />
+                  )}
                   <StatusDot status={doc.status} />
                   <div className="flex-1 min-w-0">
                     <span className={`text-[13px] truncate block ${doc.id === currentDocId ? "text-foreground font-medium" : "text-foreground/80"}`}>
@@ -1213,6 +1303,11 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
                           ))}
                         </DropdownMenuSubContent>
                       </DropdownMenuSub>
+                      {(doc as any).groupId && (
+                        <DropdownMenuItem onClick={() => ungroupMutation.mutate({ documentId: doc.id, projectId })}>
+                          <Unlink className="w-3.5 h-3.5 mr-2" /> Remove from group
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteDoc({ id: doc.id, filename: doc.filename })}>
                         <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
                       </DropdownMenuItem>
@@ -1298,6 +1393,55 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
             >
               {isRenaming ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
               Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Group dialog */}
+      <Dialog open={showGroupDialog} onOpenChange={(open) => { if (!open) { setShowGroupDialog(false); setGroupTitle(""); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Group {selectedDocIds.size} pages</DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-3">
+            <p className="text-sm text-muted-foreground">Give this multi-page document a name. Pages will be ordered by their current position in the list.</p>
+            <Input
+              value={groupTitle}
+              onChange={(e) => setGroupTitle(e.target.value)}
+              placeholder="e.g. Expenditure Register, Feb 1936"
+              className="rounded-lg"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && groupTitle.trim()) {
+                  setIsGrouping(true);
+                  createGroupMutation.mutate({
+                    projectId,
+                    title: groupTitle.trim(),
+                    documentIds: Array.from(selectedDocIds),
+                  });
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowGroupDialog(false); setGroupTitle(""); }} className="rounded-lg">Cancel</Button>
+            <Button
+              disabled={!groupTitle.trim() || isGrouping}
+              className="rounded-lg gap-1.5"
+              onClick={() => {
+                if (groupTitle.trim()) {
+                  setIsGrouping(true);
+                  createGroupMutation.mutate({
+                    projectId,
+                    title: groupTitle.trim(),
+                    documentIds: Array.from(selectedDocIds),
+                  });
+                }
+              }}
+            >
+              {isGrouping ? <Loader2 className="w-4 h-4 animate-spin" /> : <FolderPlus className="w-4 h-4" />}
+              Create group
             </Button>
           </DialogFooter>
         </DialogContent>
