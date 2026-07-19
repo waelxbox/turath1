@@ -662,3 +662,10 @@
 - [x] Frontend: "Remove from group" option in per-document dropdown menu
 - [x] Frontend: Group dialog with title input and Enter key support
 - [x] All 71 tests passing, zero TypeScript errors
+
+## Features (Round 61) — Security Headers
+
+- [x] Install helmet package
+- [x] Add helmet middleware as first Express middleware (CSP disabled for Vite dev, COEP disabled for external images)
+- [x] Sets X-DNS-Prefetch-Control, X-Frame-Options, X-Content-Type-Options, HSTS, Referrer-Policy, X-XSS-Protection
+- [x] All 71 tests passing, zero TypeScript errors
