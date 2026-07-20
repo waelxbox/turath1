@@ -374,15 +374,13 @@ export interface CrossCheckResult {
 }
 
 /**
- * Pick a different model for cross-checking.
+ * Pick the verification model.
+ * Only gemini-3.1-pro-preview can reliably read Arabic script,
+ * so we always use it for cross-checking regardless of the project's primary model.
+ * The cross-check value comes from the independent re-read with a verification-focused prompt.
  */
-function pickVerificationModel(projectModel: string): string {
-  const geminiModels = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"];
-  if (geminiModels.includes(projectModel)) {
-    const alternatives = geminiModels.filter(m => m !== projectModel);
-    return alternatives[0] || "gemini-2.5-flash";
-  }
-  return "gemini-2.5-flash";
+function pickVerificationModel(_projectModel: string): string {
+  return "gemini-3.1-pro-preview";
 }
 
 /**
