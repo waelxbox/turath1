@@ -195,6 +195,7 @@ export async function generateConfigFromChat(
 
   // --- STEP 1: Generate prompts (systemPrompt, pass2Prompt, pipelineType, modelName) ---
   const promptGenSystem = `You are an expert AI system designer for TURATH, an archival document transcription platform.
+You specialize in building HIGH-ACCURACY transcription configs that achieve 80%+ accuracy on handwritten archival documents.
 
 CRITICAL: You must understand how the transcription engine works:
 
@@ -202,7 +203,6 @@ PASS 1 (systemPrompt):
 - The AI receives a DOCUMENT IMAGE + the system prompt (with glossary auto-appended at runtime)
 - The AI must output PLAIN TEXT — a verbatim line-by-line transcription
 - NOT JSON. Just raw text with line breaks preserved from the manuscript.
-- The system prompt should define: expert persona, transcription rules, how to handle illegible text, abbreviations, special characters
 - DO NOT include "Output ONLY valid JSON" in the system prompt — Pass 1 outputs plain text
 - DO NOT list field names or schema in the system prompt
 - DO NOT list glossary terms in the system prompt (they are auto-appended at runtime)
@@ -215,11 +215,80 @@ PASS 2 (pass2Prompt):
 - Array fields are FLAT arrays of strings (e.g., ["item1", "item2"]), NOT arrays of objects
 - End with: "Output the extracted information as a JSON object."
 
+═══════════════════════════════════════════════════════════════════════════
+MANDATORY REQUIREMENTS FOR HIGH-ACCURACY systemPrompt (Pass 1):
+═══════════════════════════════════════════════════════════════════════════
+
+The systemPrompt MUST include ALL of the following sections to achieve high accuracy:
+
+1. EXPERT PERSONA WITH COLLECTION CONTEXT:
+   - Name the specific collection, time period, geographic origin, and document type
+   - Example: "You are an expert Arabic paleographer specializing in early 20th-century Egyptian personal correspondence from the [Collection Name] (Cairo, circa 1919-1950)."
+   - NEVER use generic personas like "You are an expert archivist" — always be specific
+
+2. CLEAR TASK STATEMENT:
+   - "Your task is to produce a faithful, verbatim transcription of the document image in its ORIGINAL language ([language])."
+
+3. EXPLICIT TRANSCRIPTION RULES (minimum 8 rules):
+   - Transcribe exactly what you see. Do NOT translate.
+   - Preserve original spelling, punctuation, diacritics
+   - Preserve ALL original line breaks exactly as they appear
+   - For bilingual documents, transcribe in order of appearance
+   - Structural markers: [LETTERHEAD]/[HEADER] and [BODY] for printed vs handwritten sections
+   - [illegible] for unreadable words
+   - [...] for torn or missing fragments
+   - [STAMP: description] or [MARGIN: text] for annotations
+   - Do NOT extract metadata, do NOT summarize, do NOT translate. Only transcribe.
+   - Do NOT normalize or modernize spelling
+   - Do NOT add diacritics/marks not visible in the original
+
+4. SCRIPT/HANDWRITING-SPECIFIC GUIDANCE (critical for accuracy):
+   For Arabic: dot disambiguation (ب/ت/ث/ن/ي, ج/ح/خ), common dot omissions, connected letter ambiguity, use context to disambiguate
+   For French: accent marks, ligatures, abbreviation conventions
+   For any handwriting: ink bleed-through awareness, crossed-out text handling, margin notes
+   Include specific guidance about the handwriting STYLE in this collection (formal Naskh, informal cursive, etc.)
+
+5. COLLECTION-SPECIFIC CONVENTIONS:
+   - Common forms of address, salutations, closings
+   - Gender conventions (feminine/masculine forms if relevant)
+   - Number systems (Eastern Arabic numerals, Western, Roman)
+   - Date format conventions in this collection
+
+6. ANTI-HALLUCINATION RULES:
+   - "Do NOT guess words you cannot read — use [illegible]"
+   - "Do NOT add content that is not visible in the image"
+   - "Ignore ink bleed-through from the reverse side"
+   - Repeat the core constraint: "Only transcribe. Do NOT translate, summarize, or extract metadata."
+
+═══════════════════════════════════════════════════════════════════════════
+MANDATORY REQUIREMENTS FOR HIGH-ACCURACY pass2Prompt (Pass 2):
+═══════════════════════════════════════════════════════════════════════════
+
+The pass2Prompt MUST include:
+
+1. EXPERT PERSONA matching the collection
+2. CLEAR STATEMENT that it receives raw transcription text (not an image)
+3. NUMBERED INSTRUCTIONS:
+   - EXTRACT all structured metadata fields in ENGLISH
+   - Transliterate names to Latin script with examples
+   - Translate locations to English with examples
+   - KEEP the transcription field exactly as provided — do not modify
+   - PROVIDE faithful translation (if translation field exists)
+   - WRITE concise summary with example format
+4. RULES section:
+   - All metadata in English for searchability
+   - Consistent transliteration conventions
+   - If field cannot be determined, leave null. Do not guess.
+   - Specific guidance for identifying sender/recipient from context
+5. End with: "Output the extracted information as a JSON object."
+
+═══════════════════════════════════════════════════════════════════════════
+
 Generate a JSON object with exactly these keys:
 - pipelineType: "two_pass" (for documents needing transcription + metadata extraction) or "single_pass" (for simple transcription-only)
 - modelName: "gemini-3.1-pro-preview" (for Arabic/RTL handwriting) or "gemini-2.5-flash" (for printed/other)
-- systemPrompt: Pass 1 instructions (transcription rules ONLY, plain text output, NO JSON instructions, NO field lists)
-- pass2Prompt: Pass 2 instructions (metadata extraction from the raw transcription, list fields to extract with clear instructions for each)
+- systemPrompt: Pass 1 instructions following ALL mandatory requirements above
+- pass2Prompt: Pass 2 instructions following ALL mandatory requirements above
 - reasoning: 2-3 sentence explanation
 
 Output ONLY valid JSON. No markdown fences.`;
@@ -277,6 +346,7 @@ Output ONLY valid JSON. No markdown fences.`;
 
   // --- STEP 2: Generate jsonSchema ---
   const schemaGenSystem = `You are an expert metadata schema designer for TURATH, an archival document transcription platform.
+You design schemas that maximize SEARCHABILITY and ACCURACY for archival research.
 
 CRITICAL RULES FOR THE SCHEMA:
 1. Each field maps to a JSON output field. The field NAME you choose here is the EXACT key the AI will output.
@@ -287,23 +357,52 @@ CRITICAL RULES FOR THE SCHEMA:
    - "array": a FLAT array of strings. NOT an array of objects. Example: ["flour", "sugar", "eggs"]
 3. NO nested objects. If you need "ingredients with measurements", make it a SINGLE array field where each string includes the measurement, e.g., ["2 cups flour", "1 tsp salt"].
 4. displayHint guides the UI: "short_text" (one-liner), "long_text" (multi-line textarea), "tag_list" (array as tags)
-5. MUST include a "full_arabic_transcription" field (type: "string", nullable: false, displayHint: "long_text") — this is where the complete transcription goes
-6. MUST include a "full_english_translation" field (type: "string", nullable: true, displayHint: "long_text") — for the English translation
-7. Field names should use snake_case (e.g., "recipe_dish_title", "publication_date")
+5. MUST include a "transcription" field (type: "string", nullable: false, displayHint: "long_text") — the complete transcription in the ORIGINAL language, preserving line breaks
+6. MUST include an "english_translation" field (type: "string", nullable: true, displayHint: "long_text") — faithful English translation
+7. Field names should use snake_case (e.g., "document_type", "creation_date")
+
+═══════════════════════════════════════════════════════════════════════════
+FIELD DESCRIPTION QUALITY REQUIREMENTS:
+═══════════════════════════════════════════════════════════════════════════
+
+Every field description MUST be SPECIFIC and include:
+- What format to use (e.g., "in YYYY-MM-DD format", "transliterated into Latin script")
+- Examples of expected values (e.g., "e.g., 'Rachid Behna', 'Joseph Mizrahi'")
+- Clear guidance for edge cases (e.g., "If only a year is available, use YYYY-01-01")
+
+GOOD descriptions:
+- "The name of the person sending the letter, transliterated into Latin script (e.g., 'Rachid Behna', 'Joseph Mizrahi')."
+- "The date the document was created, in YYYY-MM-DD format. Prioritize handwritten dates over stamped dates if conflicting. If only a year is available, use YYYY-01-01."
+- "Categorize the document in English (e.g., 'Business Letter', 'Invoice', 'Ledger', 'Receipt', 'Telegram')."
+- "Significant physical items, products, or thematic keywords mentioned, in English (e.g., 'cotton bales', 'children\'s vests', 'tobacco')."
+
+BAD descriptions:
+- "The sender" (too vague — no format guidance)
+- "Date" (no format specified)
+- "Type of document" (no examples)
+
+═══════════════════════════════════════════════════════════════════════════
+METADATA LANGUAGE RULE:
+═══════════════════════════════════════════════════════════════════════════
+
+ALL metadata fields (sender, recipient, summary, keywords, document_type, location, etc.) MUST be described as requiring ENGLISH output for searchability.
+Names MUST be transliterated into Latin script.
+The ONLY field that stays in the original language is the "transcription" field.
+
+═══════════════════════════════════════════════════════════════════════════
 
 Generate a JSON object where each key is a field name and each value is an object with:
 - type: "string" | "number" | "boolean" | "array"
-- description: what this field captures (be specific about format expectations, e.g., "YYYY-MM-DD format")
+- description: DETAILED description with format, examples, and edge case guidance
 - nullable: true or false
 - displayHint: "short_text" | "long_text" | "tag_list"
 
-Include at least 8 fields total. Include Dublin Core concepts (title, creator, date, type, source) plus collection-specific fields.
+Include at least 10 fields total. Include Dublin Core concepts (title/sender, date, type, source) plus collection-specific fields relevant to the documents discussed.
 
-Output ONLY a flat JSON object (the schema). No wrapper key, no markdown fences. Example:
-{"full_arabic_transcription":{"type":"string","description":"The complete Arabic transcription of the document, preserving original line breaks","nullable":false,"displayHint":"long_text"},"title":{"type":"string","description":"Document title or headline","nullable":true,"displayHint":"short_text"},"ingredients":{"type":"array","description":"List of ingredients with measurements as strings, e.g. '2 cups flour'","nullable":true,"displayHint":"tag_list"}}`;
+Output ONLY a flat JSON object (the schema). No wrapper key, no markdown fences.`;
 
   const schemaUserContent: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail: "high" } }> = [
-    { type: "text", text: `Based on this conversation about a document collection, generate the metadata schema.\n\nCONVERSATION:\n${conversationSummary}\n\nGenerate the complete field schema as a flat JSON object. Remember: array fields are FLAT arrays of strings only, include full_arabic_transcription and full_english_translation fields.` },
+    { type: "text", text: `Based on this conversation about a document collection, generate the metadata schema.\n\nCONVERSATION:\n${conversationSummary}\n\nGenerate the complete field schema as a flat JSON object. Remember: array fields are FLAT arrays of strings only, include a 'transcription' field (original language) and an 'english_translation' field. All metadata fields must specify English output with transliteration for names.` },
   ];
   for (const url of allImageUrls.slice(0, 3)) {
     schemaUserContent.push({ type: "image_url", image_url: { url, detail: "high" } });
@@ -328,62 +427,98 @@ Output ONLY a flat JSON object (the schema). No wrapper key, no markdown fences.
         (field as any).displayHint = "tag_list";
       }
     }
-    // Ensure required fields exist
-    if (!jsonSchema.full_arabic_transcription) {
-      jsonSchema.full_arabic_transcription = { type: "string", description: "The complete Arabic transcription of the document", nullable: false, displayHint: "long_text" };
+    // Ensure required fields exist (accept either naming convention)
+    const hasTranscription = jsonSchema.transcription || jsonSchema.full_arabic_transcription || jsonSchema.full_transcription;
+    if (!hasTranscription) {
+      jsonSchema.transcription = { type: "string", description: "The complete and accurate transcription of the main body of the document in its ORIGINAL language (French or Arabic), preserving original spelling and line breaks.", nullable: false, displayHint: "long_text" };
     }
-    if (!jsonSchema.full_english_translation) {
-      jsonSchema.full_english_translation = { type: "string", description: "Full English translation of the Arabic transcription", nullable: true, displayHint: "long_text" };
+    const hasTranslation = jsonSchema.english_translation || jsonSchema.full_english_translation;
+    if (!hasTranslation) {
+      jsonSchema.english_translation = { type: "string", description: "A direct, faithful English translation of the full document body. Translate literally — do not paraphrase or summarize. Use [illegible] where the original has [illegible].", nullable: true, displayHint: "long_text" };
     }
   } catch {
-    // Fallback: basic schema
+    // Fallback: basic schema with high-quality descriptions
     jsonSchema = {
-      full_arabic_transcription: { type: "string", description: "The complete Arabic transcription of the document", nullable: false, displayHint: "long_text" },
-      full_english_translation: { type: "string", description: "Full English translation of the Arabic transcription", nullable: true, displayHint: "long_text" },
-      title: { type: "string", description: "Document title", nullable: true, displayHint: "short_text" },
-      creator: { type: "string", description: "Creator or author", nullable: true, displayHint: "short_text" },
-      date: { type: "string", description: "Date of the document in YYYY-MM-DD format", nullable: true, displayHint: "short_text" },
-      type: { type: "string", description: "Document type", nullable: true, displayHint: "short_text" },
-      source: { type: "string", description: "Source or origin", nullable: true, displayHint: "short_text" },
-      notes: { type: "string", description: "Additional observations", nullable: true, displayHint: "long_text" },
+      transcription: { type: "string", description: "The complete and accurate transcription of the main body of the document in its ORIGINAL language, preserving original spelling and line breaks.", nullable: false, displayHint: "long_text" },
+      english_translation: { type: "string", description: "A direct, faithful English translation of the full document body. Translate literally — do not paraphrase or summarize.", nullable: true, displayHint: "long_text" },
+      sender: { type: "string", description: "The name of the person or entity who sent/created the document, transliterated into Latin script (e.g., 'Rachid Behna', 'Huda Sha'rawi').", nullable: true, displayHint: "short_text" },
+      recipient: { type: "string", description: "The name of the person or entity the document is addressed to, transliterated into Latin script.", nullable: true, displayHint: "short_text" },
+      creation_date: { type: "string", description: "The date the document was created, in YYYY-MM-DD format. If only a year is available, use YYYY-01-01.", nullable: true, displayHint: "short_text" },
+      document_type: { type: "string", description: "Categorize the document in English (e.g., 'Letter', 'Invoice', 'Telegram', 'Receipt', 'Memorandum').", nullable: true, displayHint: "short_text" },
+      summary: { type: "string", description: "A 1-2 sentence English summary of the document's main purpose or content.", nullable: true, displayHint: "long_text" },
+      keywords_items: { type: "array", description: "Significant items, topics, or thematic keywords mentioned, in English (e.g., 'cotton bales', 'committee meeting', 'xenophobia').", nullable: true, displayHint: "tag_list" },
+      languages_present: { type: "array", description: "All languages present in the document (e.g., ['French', 'Arabic'] or ['Arabic']).", nullable: true, displayHint: "tag_list" },
+      notes: { type: "string", description: "Researcher notes and observations in English regarding physical condition, marginalia, or anomalies.", nullable: true, displayHint: "long_text" },
     };
   }
 
   // --- STEP 3: Generate glossary ---
   // The glossary gets auto-appended to the Pass 1 system prompt at runtime.
   // It should contain ACTUAL terms the AI will encounter in the handwriting.
-  const glossaryGenSystem = `You are a domain expert helping build a transcription glossary for an archival project.
+  const glossaryGenSystem = `You are a domain expert helping build a HIGH-ACCURACY transcription glossary for an archival project.
 
-CRITICAL: This glossary gets appended to the AI's transcription prompt at runtime to help it correctly read handwritten documents. Each entry should be:
-- KEY: The actual term, abbreviation, or shorthand as it appears in the handwriting (in the original script/language)
-- VALUE: What it means or how it should be transcribed
+CRITICAL: This glossary gets appended to the AI's transcription prompt at runtime to help it correctly read handwritten documents. The glossary is the #1 tool for improving transcription accuracy — it tells the AI what specific words/names/terms to expect.
 
-GOOD glossary entries (actual terms the AI encounters):
-- "م.ك." → "ملعقة كبيرة (tablespoon)"
-- "م.ص." → "ملعقة صغيرة (teaspoon)"  
-- "ك." → "كوب (cup)"
-- "بسكويت بست فلورا" → "Biscotti Best Flora (brand name)"
-- "١/٢" → "نصف (half)"
+Each entry should be:
+- KEY: The actual term, abbreviation, name, or shorthand as it appears in the handwriting (in the ORIGINAL script/language)
+- VALUE: What it means, how it should be transcribed, or its English translation/context
 
-BAD glossary entries (concept definitions that don't help transcription):
+═══════════════════════════════════════════════════════════════════════════
+CATEGORIES TO INCLUDE (aim for ALL of these):
+═══════════════════════════════════════════════════════════════════════════
+
+1. PROPER NAMES (people who appear in the documents):
+   - Key correspondents, recipients, family members
+   - Include both Arabic/original script AND transliterated form
+   - Example: "هدى شعراوي" → "Huda Sha'rawi (Egyptian feminist leader, common recipient)"
+
+2. PLACE NAMES (locations mentioned):
+   - Cities, districts, streets, institutions
+   - Example: "المنيرة" → "Al-Munira (Cairo district)"
+   - Example: "Le Caire" → "Cairo (city in Egypt), French name"
+
+3. HONORIFICS AND TITLES:
+   - Period-appropriate titles of address
+   - Example: "هانم" → "Hanem (honorific for women, equivalent to 'Madame')"
+   - Example: "Bey" → "Ottoman title of respect, equivalent to 'Sir' or 'Lord'"
+
+4. ABBREVIATIONS AND SHORTHAND:
+   - Common abbreviations in the handwriting
+   - Example: "Fr" → "French Franc (currency abbreviation)"
+   - Example: "Cie" → "Compagnie (Company)"
+
+5. DOMAIN-SPECIFIC TERMS:
+   - Terms specific to the subject matter (business, political, medical, etc.)
+   - Example: "الوفد" → "Al-Wafd (political party)"
+   - Example: "connaissement" → "Bill of lading (shipping document)"
+
+6. COMMON PHRASES AND FORMULAE:
+   - Salutations, closings, religious phrases common in the collection
+   - Example: "المخلص" → "The devoted/sincere (closing signature)"
+
+7. ILLEGIBILITY AND STRUCTURAL MARKERS:
+   - Always include: "[illegible]" → "Use this marker for text that cannot be read"
+   - Always include: "[...]" → "Use this marker for torn or missing fragments"
+
+═══════════════════════════════════════════════════════════════════════════
+BAD glossary entries (DO NOT include these):
+═══════════════════════════════════════════════════════════════════════════
 - "Arabic" → "Language of the original documents" (useless — the AI knows this)
 - "Egyptian" → "Cuisine origin" (useless — this is a metadata category, not a term)
 - "Measurements" → "Quantities or units" (useless — too vague)
+- Generic English words that don't help transcription
+- Definitions of concepts rather than actual terms in the documents
 
-Focus on:
-- Abbreviations and shorthand used in the handwriting
-- Proper nouns (people, places, brands, publications)
-- Domain-specific terms the AI might misread or not know
-- Common handwriting conventions (crossed-out text markers, underline meanings)
-- Measurement units and their expansions
+═══════════════════════════════════════════════════════════════════════════
 
-Generate a JSON object where each key is a term (in the original script) and each value is its expansion/meaning.
-Include at least 10 entries. Output ONLY a flat JSON object. No wrapper key, no markdown fences.`;
+Generate a JSON object where each key is a term (in the original script when applicable) and each value is its expansion/meaning.
+Include at LEAST 15-25 entries covering ALL categories above. More is better for accuracy.
+Output ONLY a flat JSON object. No wrapper key, no markdown fences.`;
 
   const glossaryResponse = await invokeLLM({
     messages: [
       { role: "system", content: glossaryGenSystem },
-      { role: "user", content: `Based on this conversation about a document collection, generate the domain glossary. Focus on ACTUAL terms, abbreviations, and proper nouns that would appear in the handwriting — not concept definitions.\n\nCONVERSATION:\n${conversationSummary}\n\nGenerate the glossary as a flat JSON object.` },
+      { role: "user", content: `Based on this conversation about a document collection, generate a COMPREHENSIVE domain glossary. Focus on ACTUAL terms, abbreviations, proper nouns, honorifics, place names, and common phrases that would appear in the handwriting — not concept definitions.\n\nCONVERSATION:\n${conversationSummary}\n\nGenerate the glossary as a flat JSON object with at least 15-25 entries. Include entries from ALL categories: proper names, places, honorifics, abbreviations, domain terms, common phrases, and structural markers ([illegible], [...]).` },
     ],
   });
 

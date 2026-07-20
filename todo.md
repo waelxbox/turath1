@@ -678,3 +678,9 @@
 - [x] Frontend: Results panel with overall assessment badge (color-coded), confidence score bar, corrections list, and summary
 - [x] Frontend: Clear results when navigating between documents
 - [x] All 38 tests passing, zero TypeScript errors
+## Features (Round 63) — Onboarding Config Quality (Behna-level accuracy)
+- [x] Rewrite promptGenSystem to enforce Behna-quality patterns (collection context, structural markers, anti-hallucination, handwriting-specific guidance)
+- [x] Improve glossary generation (15-25 entries, all categories: names, places, honorifics, abbreviations, domain terms, phrases, structural markers)
+- [x] Improve schema generation (specific descriptions with format, examples, edge cases; metadata in English; transliteration for names)
+- [x] Cross-validate pass2Prompt against schema field names (already existed)
+- [x] Verify TypeScript compilation and tests pass (38 tests, 0 source errors)
