@@ -1,0 +1,42 @@
+{
+  "query": "SELECT name, \"pipelineType\", \"systemPrompt\", \"pass2Prompt\", \"jsonSchema\", glossary FROM projects LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute SELECT name, \"pipelineType\", \"systemPrompt\", \"pass2Prompt\", \"jsonSchema\", glossary FROM projects LIMIT 5;",
+  "rows": [
+    {
+      "name": "Howard Crosby Butler Archive",
+      "pipelineType": "pipelineType",
+      "systemPrompt": "systemPrompt",
+      "pass2Prompt": "pass2Prompt",
+      "jsonSchema": "jsonSchema",
+      "glossary": "{}"
+    },
+    {
+      "name": "Brovarski Index Cards Collection",
+      "pipelineType": "pipelineType",
+      "systemPrompt": "systemPrompt",
+      "pass2Prompt": "pass2Prompt",
+      "jsonSchema": "jsonSchema",
+      "glossary": "{}"
+    },
+    {
+      "name": "example archive",
+      "pipelineType": "pipelineType",
+      "systemPrompt": "systemPrompt",
+      "pass2Prompt": "pass2Prompt",
+      "jsonSchema": "jsonSchema",
+      "glossary": "{}"
+    },
+    {
+      "name": "c",
+      "pipelineType": "pipelineType",
+      "systemPrompt": "systemPrompt",
+      "pass2Prompt": "pass2Prompt",
+      "jsonSchema": "jsonSchema",
+      "glossary": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "name\tpipelineType\tsystemPrompt\tpass2Prompt\tjsonSchema\tglossary\nHoward Crosby Butler Archive\tpipelineType\tsystemPrompt\tpass2Prompt\tjsonSchema\t{}\nBrovarski Index Cards Collection\tpipelineType\tsystemPrompt\tpass2Prompt\tjsonSchema\t{}\nexample archive\tpipelineType\tsystemPrompt\tpass2Prompt\tjsonSchema\t{}\nc\tpipelineType\tsystemPrompt\tpass2Prompt\tjsonSchema\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 1316
+}

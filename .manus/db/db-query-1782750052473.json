@@ -1,0 +1,54 @@
+{
+  "query": "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'transcriptions' ORDER BY ordinal_position;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'transcriptions' ORDER BY ordinal_position;",
+  "rows": [
+    {
+      "column_name": "id",
+      "data_type": "int"
+    },
+    {
+      "column_name": "documentId",
+      "data_type": "int"
+    },
+    {
+      "column_name": "projectId",
+      "data_type": "int"
+    },
+    {
+      "column_name": "modelUsed",
+      "data_type": "varchar"
+    },
+    {
+      "column_name": "rawJson",
+      "data_type": "json"
+    },
+    {
+      "column_name": "reviewedJson",
+      "data_type": "json"
+    },
+    {
+      "column_name": "originalText",
+      "data_type": "text"
+    },
+    {
+      "column_name": "confidenceNotes",
+      "data_type": "text"
+    },
+    {
+      "column_name": "reviewedAt",
+      "data_type": "timestamp"
+    },
+    {
+      "column_name": "createdAt",
+      "data_type": "timestamp"
+    },
+    {
+      "column_name": "updatedAt",
+      "data_type": "timestamp"
+    }
+  ],
+  "messages": [],
+  "stdout": "column_name\tdata_type\nid\tint\ndocumentId\tint\nprojectId\tint\nmodelUsed\tvarchar\nrawJson\tjson\nreviewedJson\tjson\noriginalText\ttext\nconfidenceNotes\ttext\nreviewedAt\ttimestamp\ncreatedAt\ttimestamp\nupdatedAt\ttimestamp\n",
+  "stderr": "",
+  "execution_time_ms": 715
+}

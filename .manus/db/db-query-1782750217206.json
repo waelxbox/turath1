@@ -1,0 +1,30 @@
+{
+  "query": "SELECT id, name, `jsonSchema` FROM projects LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute SELECT id, name, `jsonSchema` FROM projects LIMIT 10;",
+  "rows": [
+    {
+      "id": "1",
+      "name": "Howard Crosby Butler Archive",
+      "jsonSchema": "{}"
+    },
+    {
+      "id": "30001",
+      "name": "Brovarski Index Cards Collection",
+      "jsonSchema": "{\"Confidence_Notes\": \"<brief notes on uncertain readings, e.g. 'Line 3 word 2 unclear - possibly ŠNWT or ŠNBT. Line 7 last word illegible [?].' | null>\", \"Egyptian_Titles\": [\"<each distinct Egyptian title found on the card>\"], \"Full_Transcription\": \"<complete verbatim transcription preserving all line breaks, punctuation, diacriticals, and [HIEROGLYPHS_PRESENT] tags>\", \"Hieroglyphs_Present\": true, \"Museum_References\": [\"<museum code + number, e.g. Berlin 1111>\"], \"Object_Types\": [\"<object type, e.g. false door, stela>\"], \"Subject_Heading\": \"<the main heading of the card, e.g. IMY-R3 ŠNWT | null>\"}"
+    },
+    {
+      "id": "60001",
+      "name": "example archive",
+      "jsonSchema": "{}"
+    },
+    {
+      "id": "90001",
+      "name": "c",
+      "jsonSchema": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tjsonSchema\n1\tHoward Crosby Butler Archive\t{}\n30001\tBrovarski Index Cards Collection\t{\"Confidence_Notes\": \"<brief notes on uncertain readings, e.g. 'Line 3 word 2 unclear - possibly ŠNWT or ŠNBT. Line 7 last word illegible [?].' | null>\", \"Egyptian_Titles\": [\"<each distinct Egyptian title found on the card>\"], \"Full_Transcription\": \"<complete verbatim transcription preserving all line breaks, punctuation, diacriticals, and [HIEROGLYPHS_PRESENT] tags>\", \"Hieroglyphs_Present\": true, \"Museum_References\": [\"<museum code + number, e.g. Berlin 1111>\"], \"Object_Types\": [\"<object type, e.g. false door, stela>\"], \"Subject_Heading\": \"<the main heading of the card, e.g. IMY-R3 ŠNWT | null>\"}\n60001\texample archive\t{}\n90001\tc\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 580
+}

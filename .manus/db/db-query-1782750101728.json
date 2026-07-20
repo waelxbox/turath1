@@ -1,0 +1,17 @@
+{
+  "query": "SELECT d.id, d.filename, d.status, d.`projectId`, t.`rawJson`\nFROM documents d \nLEFT JOIN transcriptions t ON t.`documentId` = d.id\nWHERE d.status IN ('reviewed', 'flagged')\nLIMIT 2;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute SELECT d.id, d.filename, d.status, d.`projectId`, t.`rawJson`\nFROM documents d \nLEFT JOIN transcriptions t ON t.`documentId` = d.id\nWHERE d.status IN ('reviewed', 'flagged')\nLIMIT 2;",
+  "rows": [
+    {
+      "id": "1",
+      "filename": "sfe.png",
+      "status": "flagged",
+      "projectId": "1",
+      "rawJson": "{\"_model\": \"gemini-2.5-pro\", \"_review_status\": \"pending\", \"_source_image\": \"sfe.png\"}"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tfilename\tstatus\tprojectId\trawJson\n1\tsfe.png\tflagged\t1\t{\"_model\": \"gemini-2.5-pro\", \"_review_status\": \"pending\", \"_source_image\": \"sfe.png\"}\n",
+  "stderr": "",
+  "execution_time_ms": 587
+}

@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE document_groups (id INT AUTO_INCREMENT PRIMARY KEY, projectId INT NOT NULL, title VARCHAR(512) NOT NULL, sharedMetadata JSON, pageCount INT DEFAULT 1 NOT NULL, createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL, updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute CREATE TABLE document_groups (id INT AUTO_INCREMENT PRIMARY KEY, projectId INT NOT NULL, title VARCHAR(512) NOT NULL, sharedMetadata JSON, pageCount INT DEFAULT 1 NOT NULL, createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL, updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 761
+}

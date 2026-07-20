@@ -1,0 +1,8 @@
+{
+  "query": "SELECT d.filename, COUNT(t.id) as cnt \nFROM documents d \nJOIN transcriptions t ON t.document_id = d.id \nWHERE d.project_id = (SELECT id FROM projects WHERE name LIKE '%Behna%' LIMIT 1)\nGROUP BY d.filename \nHAVING COUNT(t.id) > 1 \nORDER BY COUNT(t.id) DESC \nLIMIT 20;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute SELECT d.filename, COUNT(t.id) as cnt \nFROM documents d \nJOIN transcriptions t ON t.document_id = d.id \nWHERE d.project_id = (SELECT id FROM projects WHERE name LIKE '%Behna%' LIMIT 1)\nGROUP BY d.filename \nHAVING COUNT(t.id) > 1 \nORDER BY COUNT(t.id) DESC \nLIMIT 20;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 1: Unknown column 't.document_id' in 'on clause'"
+  ]
+}

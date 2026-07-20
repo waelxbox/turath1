@@ -1,0 +1,15 @@
+{
+  "query": "SELECT id, name, JSON_KEYS(`jsonSchema`) as schema_keys FROM projects WHERE id IN (SELECT DISTINCT `projectId` FROM documents WHERE status IN ('reviewed', 'flagged')) LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute SELECT id, name, JSON_KEYS(`jsonSchema`) as schema_keys FROM projects WHERE id IN (SELECT DISTINCT `projectId` FROM documents WHERE status IN ('reviewed', 'flagged')) LIMIT 5;",
+  "rows": [
+    {
+      "id": "1",
+      "name": "Howard Crosby Butler Archive",
+      "schema_keys": "[]"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tschema_keys\n1\tHoward Crosby Butler Archive\t[]\n",
+  "stderr": "",
+  "execution_time_ms": 584
+}

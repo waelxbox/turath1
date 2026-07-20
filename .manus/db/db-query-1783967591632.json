@@ -1,0 +1,14 @@
+{
+  "query": "SELECT \n  (SELECT COUNT(*) FROM documents WHERE \"projectId\" = (SELECT id FROM projects WHERE name LIKE '%Behna%' LIMIT 1)) as doc_count,\n  (SELECT COUNT(*) FROM transcriptions WHERE \"projectId\" = (SELECT id FROM projects WHERE name LIKE '%Behna%' LIMIT 1)) as trans_count;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2rasizxRBcLx7p2.f192018d7610 --database HpdAiz2JmYPv8mLm449sXa --execute SELECT \n  (SELECT COUNT(*) FROM documents WHERE \"projectId\" = (SELECT id FROM projects WHERE name LIKE '%Behna%' LIMIT 1)) as doc_count,\n  (SELECT COUNT(*) FROM transcriptions WHERE \"projectId\" = (SELECT id FROM projects WHERE name LIKE '%Behna%' LIMIT 1)) as trans_count;",
+  "rows": [
+    {
+      "doc_count": "0",
+      "trans_count": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "doc_count\ttrans_count\n0\t0\n",
+  "stderr": "",
+  "execution_time_ms": 583
+}
