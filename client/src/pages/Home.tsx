@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { getLoginUrl } from "@/const";
@@ -8,8 +9,13 @@ export default function Home() {
   const { isAuthenticated, loading } = useAuth();
   const [, navigate] = useLocation();
 
+  useEffect(() => {
+    if (!loading && isAuthenticated) {
+      navigate("/dashboard");
+    }
+  }, [loading, isAuthenticated, navigate]);
+
   if (!loading && isAuthenticated) {
-    navigate("/dashboard");
     return null;
   }
 
