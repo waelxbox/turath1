@@ -94,6 +94,13 @@ export default function Onboarding() {
     if (!trimmedInput && pendingImages.length === 0) return;
     if (isLoading) return;
 
+    // If user sends a message after config was generated, reset so they can regenerate
+    if (generatedConfig) {
+      setGeneratedConfig(null);
+      setShowConfigPreview(false);
+      // configReady stays true so the banner reappears after the new response
+    }
+
     setIsLoading(true);
 
     // Upload images first
@@ -317,7 +324,9 @@ export default function Onboarding() {
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-green-500" />
               <span className="text-sm text-green-400 font-medium">
-                I have enough information to generate your config
+                {messages.length > 0 && generatedConfig === null && configReady
+                  ? "Ready to generate your config"
+                  : "I have enough information to generate your config"}
               </span>
             </div>
             <Button
@@ -381,7 +390,7 @@ export default function Onboarding() {
               </div>
             </div>
             <div className="border-t border-border px-4 py-3 flex items-center justify-between">
-              <p className="text-xs text-muted-foreground">Config saved to project. You can refine it in Settings anytime.</p>
+              <p className="text-xs text-muted-foreground">Keep chatting to refine, then regenerate — or go to your project.</p>
               <Button size="sm" onClick={handleGoToProject}>
                 Go to Project <ChevronDown className="w-3 h-3 ml-1 rotate-[-90deg]" />
               </Button>

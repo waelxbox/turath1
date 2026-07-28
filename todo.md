@@ -684,3 +684,8 @@
 - [x] Improve schema generation (specific descriptions with format, examples, edge cases; metadata in English; transliteration for names)
 - [x] Cross-validate pass2Prompt against schema field names (already existed)
 - [x] Verify TypeScript compilation and tests pass (38 tests, 0 source errors)
+
+## Bug Fixes (Round 31) — Onboarding Chat After Config Generation
+- [x] Fix: after config is generated, user can continue chatting and regenerate config with updated context
+- [x] Reset generatedConfig state when user sends a new message post-generation (re-shows Generate Config button)
+- [x] Update config preview footer text to say "Keep chatting to refine, then regenerate — or go to your project"
