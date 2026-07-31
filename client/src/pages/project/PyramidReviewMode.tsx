@@ -291,7 +291,7 @@ function IntegratedSwipeCard({
     <div className="relative w-full">
       {/* Swipe indicators outside card */}
       <motion.div
-        className="absolute left-1 top-1/3 -translate-y-1/2 text-red-400 font-bold text-xs z-10"
+        className="absolute left-1 top-1/3 -translate-y-1/2 text-red-600 dark:text-red-400 font-bold text-xs z-10"
         style={{ opacity: skipOpacity }}
       >
         ← SKIP
@@ -317,7 +317,7 @@ function IntegratedSwipeCard({
         <div className="px-4 pt-3 pb-2">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-[10px] text-muted-foreground">← skip</span>
-            <span className="text-xs text-amber-400 font-semibold">Line {lineIndex + 1}/{totalLines}</span>
+            <span className="text-xs text-amber-700 dark:text-amber-400 font-semibold">Line {lineIndex + 1}/{totalLines}</span>
             <span className="text-[10px] text-muted-foreground">verify →</span>
           </div>
           <div className="text-base font-medium leading-relaxed min-h-[2rem] text-center py-1">
@@ -339,7 +339,7 @@ function XpPopup({ xp, show }: { xp: number; show: boolean }) {
   if (!show) return null;
   return (
     <motion.div
-      className="absolute top-0 left-1/2 -translate-x-1/2 text-amber-400 font-bold text-lg pointer-events-none z-50"
+      className="absolute top-0 left-1/2 -translate-x-1/2 text-amber-700 dark:text-amber-400 font-bold text-lg pointer-events-none z-50"
       initial={{ opacity: 1, y: 0, scale: 1.3 }}
       animate={{ opacity: 0, y: -30, scale: 0.7 }}
       transition={{ duration: 0.8 }}
@@ -516,7 +516,7 @@ export default function PyramidReviewMode({ projectId }: Props) {
   if (docsLoading) return <div className="flex items-center justify-center h-full"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
   if (!documents?.documents?.length) return (
     <div className="flex flex-col items-center justify-center h-full gap-4 p-6">
-      <Trophy className="w-12 h-12 text-yellow-400" />
+      <Trophy className="w-12 h-12 text-yellow-700 dark:text-yellow-400" />
       <h2 className="text-xl font-semibold">All caught up!</h2>
       <p className="text-muted-foreground text-center">No documents need review.</p>
     </div>
@@ -536,14 +536,14 @@ export default function PyramidReviewMode({ projectId }: Props) {
             {stats && (
               <>
                 <div className="flex items-center gap-1">
-                  <Zap className="w-4 h-4 text-yellow-400" />
+                  <Zap className="w-4 h-4 text-yellow-700 dark:text-yellow-400" />
                   <span className="text-sm font-bold">{stats.totalXp} XP</span>
                 </div>
                 <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-900/40 text-amber-300 border border-amber-700/30">
                   <Star className="w-3 h-3" /> Lvl {stats.level}
                 </span>
                 {stats.currentStreak > 0 && (
-                  <div className="flex items-center gap-0.5 text-orange-400">
+                  <div className="flex items-center gap-0.5 text-orange-700 dark:text-orange-400">
                     <Flame className="w-3.5 h-3.5" />
                     <span className="text-xs font-semibold">{stats.currentStreak} Streak</span>
                   </div>
@@ -595,7 +595,7 @@ export default function PyramidReviewMode({ projectId }: Props) {
           <div className="w-[55%] flex flex-col min-h-0 bg-gradient-to-b from-[#0a0515] via-[#120a25] to-background">
             {/* Stats row */}
             <div className="flex-shrink-0 flex items-center justify-between px-4 py-2">
-              <span className="text-xs text-amber-400/80">{blocksText}</span>
+              <span className="text-xs text-amber-700 dark:text-amber-400/80">{blocksText}</span>
               <span className="text-xs text-muted-foreground">{currentDocIndex + 1}/{documents.documents.length} docs</span>
             </div>
 
@@ -610,7 +610,7 @@ export default function PyramidReviewMode({ projectId }: Props) {
               <AnimatePresence>
                 {showXp && (
                   <motion.div
-                    className="absolute top-4 left-1/2 -translate-x-1/2 text-amber-400 font-bold text-xl z-50"
+                    className="absolute top-4 left-1/2 -translate-x-1/2 text-amber-700 dark:text-amber-400 font-bold text-xl z-50"
                     initial={{ opacity: 1, y: 0 }}
                     animate={{ opacity: 0, y: -30 }}
                     transition={{ duration: 0.8 }}
@@ -624,7 +624,7 @@ export default function PyramidReviewMode({ projectId }: Props) {
             {/* Current line card */}
             <div className="flex-shrink-0 px-4 pb-2">
               <div className="relative border-2 border-amber-500/50 rounded-xl p-4 bg-card/50 backdrop-blur-sm">
-                <div className="absolute -top-2.5 left-4 bg-background px-2 text-[11px] text-amber-400 font-semibold">
+                <div className="absolute -top-2.5 left-4 bg-background px-2 text-[11px] text-amber-700 dark:text-amber-400 font-semibold">
                   Line {currentLineIndex + 1}/{totalLines}
                 </div>
                 {!editMode ? (
@@ -686,14 +686,14 @@ export default function PyramidReviewMode({ projectId }: Props) {
         {stats && (
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-0.5">
-              <Zap className="w-3.5 h-3.5 text-yellow-400" />
+              <Zap className="w-3.5 h-3.5 text-yellow-700 dark:text-yellow-400" />
               <span className="text-xs font-bold">{stats.totalXp} XP</span>
             </div>
             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-900/40 text-amber-300 font-semibold">
               <Star className="w-2.5 h-2.5 inline mr-0.5" />Lvl {stats.level}
             </span>
             {stats.currentStreak > 0 && (
-              <span className="flex items-center gap-0.5 text-orange-400 text-[10px]">
+              <span className="flex items-center gap-0.5 text-orange-700 dark:text-orange-400 text-[10px]">
                 <Flame className="w-3 h-3" />{stats.currentStreak} Streak
               </span>
             )}
@@ -739,7 +739,7 @@ export default function PyramidReviewMode({ projectId }: Props) {
         <AnimatePresence>
           {showXp && (
             <motion.div
-              className="absolute top-2 left-1/2 -translate-x-1/2 text-amber-400 font-bold text-lg z-50"
+              className="absolute top-2 left-1/2 -translate-x-1/2 text-amber-700 dark:text-amber-400 font-bold text-lg z-50"
               initial={{ opacity: 1, y: 0 }}
               animate={{ opacity: 0, y: -20 }}
               transition={{ duration: 0.7 }}
@@ -764,7 +764,7 @@ export default function PyramidReviewMode({ projectId }: Props) {
             />
           ) : (
             <div className="w-[92%] mx-auto rounded-xl border-2 border-amber-500/40 bg-card/90 backdrop-blur-sm p-4">
-              <div className="text-xs text-amber-400 font-semibold mb-2">Line {currentLineIndex + 1}/{totalLines} — Editing</div>
+              <div className="text-xs text-amber-700 dark:text-amber-400 font-semibold mb-2">Line {currentLineIndex + 1}/{totalLines} — Editing</div>
               <Input
                 ref={inputRef}
                 value={editedLine}

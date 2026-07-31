@@ -61,8 +61,8 @@ export default function MembersSection({ projectId }: Props) {
 
   const roleIcon = (role: string) => {
     switch (role) {
-      case "owner": return <Crown className="w-3.5 h-3.5 text-amber-400" />;
-      case "editor": return <Pencil className="w-3.5 h-3.5 text-blue-400" />;
+      case "owner": return <Crown className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" />;
+      case "editor": return <Pencil className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />;
       case "viewer": return <Eye className="w-3.5 h-3.5 text-muted-foreground" />;
       default: return <Shield className="w-3.5 h-3.5" />;
     }
@@ -140,7 +140,7 @@ export default function MembersSection({ projectId }: Props) {
       <div className="space-y-1">
         <div className="flex items-center gap-3 py-2 px-3 rounded-md bg-muted/30">
           <div className="w-7 h-7 rounded-full bg-amber-500/20 flex items-center justify-center">
-            <Crown className="w-3.5 h-3.5 text-amber-400" />
+            <Crown className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium truncate">You (Owner)</p>

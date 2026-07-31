@@ -192,7 +192,7 @@ export default function KnowledgeGraphPage({ projectId }: { projectId: number })
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-border">
         <div className="flex items-center gap-3">
-          <Network className="h-5 w-5 text-indigo-400" />
+          <Network className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
           <div>
             <h2 className="text-lg font-semibold">Entity Graph</h2>
             <p className="text-sm text-muted-foreground">
@@ -230,15 +230,15 @@ export default function KnowledgeGraphPage({ projectId }: { projectId: number })
       {stats && !statsLoading && (
         <div className="flex items-center gap-4 px-6 py-3 border-b border-border bg-muted/30">
           <div className="flex items-center gap-1.5">
-            <Users className="h-3.5 w-3.5 text-orange-400" />
+            <Users className="h-3.5 w-3.5 text-orange-700 dark:text-orange-400" />
             <span className="text-sm">{stats.persons} People</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <MapPin className="h-3.5 w-3.5 text-green-400" />
+            <MapPin className="h-3.5 w-3.5 text-green-700 dark:text-green-400" />
             <span className="text-sm">{stats.locations} Places</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <Building2 className="h-3.5 w-3.5 text-indigo-400" />
+            <Building2 className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
             <span className="text-sm">{stats.organizations} Organizations</span>
           </div>
           <div className="text-sm text-muted-foreground ml-auto">

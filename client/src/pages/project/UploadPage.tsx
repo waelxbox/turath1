@@ -202,10 +202,10 @@ export default function UploadPage({ projectId, project }: Props) {
   const statusIcon = (status: QueuedFile["status"]) => {
     switch (status) {
       case "queued": return <div className="w-4 h-4 rounded-full border border-border" />;
-      case "uploading": return <Loader2 className="w-4 h-4 animate-spin text-amber-400" />;
+      case "uploading": return <Loader2 className="w-4 h-4 animate-spin text-amber-700 dark:text-amber-400" />;
       case "transcribing": return <Loader2 className="w-4 h-4 animate-spin text-primary" />;
-      case "done": return <CheckCircle2 className="w-4 h-4 text-green-400" />;
-      case "error": return <XCircle className="w-4 h-4 text-red-400" />;
+      case "done": return <CheckCircle2 className="w-4 h-4 text-green-700 dark:text-green-400" />;
+      case "error": return <XCircle className="w-4 h-4 text-red-600 dark:text-red-400" />;
     }
   };
 
@@ -309,7 +309,7 @@ export default function UploadPage({ projectId, project }: Props) {
                 <span className="flex-1 truncate">{item.file.name}</span>
                 <div className="flex items-center gap-1.5">
                   {statusIcon(item.status)}
-                  <span className={`text-xs ${item.status === "done" ? "text-green-400" : item.status === "error" ? "text-red-400" : "text-muted-foreground"}`}>
+                  <span className={`text-xs ${item.status === "done" ? "text-green-700 dark:text-green-400" : item.status === "error" ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`}>
                     {statusLabel(item.status)}
                   </span>
                 </div>
@@ -331,8 +331,8 @@ export default function UploadPage({ projectId, project }: Props) {
       {showSuccess && doneCount > 0 && (
         <div className="bg-green-500/5 border border-green-500/20 rounded-xl p-5 mt-6">
           <div className="flex items-center gap-2 mb-2">
-            <CheckCircle2 className="w-4 h-4 text-green-400" />
-            <span className="text-sm font-medium text-green-400">Upload complete</span>
+            <CheckCircle2 className="w-4 h-4 text-green-700 dark:text-green-400" />
+            <span className="text-sm font-medium text-green-700 dark:text-green-400">Upload complete</span>
           </div>
           <p className="text-sm text-muted-foreground mb-4">
             Your documents have been transcribed by the AI. Review them to check accuracy, then they'll be available in Search and Ask Archive.

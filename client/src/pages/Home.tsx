@@ -117,9 +117,9 @@ export default function Home() {
                   </div>
                   <div className="space-y-2">
                     {[
-                      { name: "BRV_0047.jpg", status: "reviewed", color: "text-green-400" },
-                      { name: "BRV_0048.jpg", status: "needs review", color: "text-yellow-400" },
-                      { name: "BRV_0049.jpg", status: "processing", color: "text-amber-400" },
+                      { name: "BRV_0047.jpg", status: "reviewed", color: "text-green-700 dark:text-green-400" },
+                      { name: "BRV_0048.jpg", status: "needs review", color: "text-yellow-700 dark:text-yellow-400" },
+                      { name: "BRV_0049.jpg", status: "processing", color: "text-amber-700 dark:text-amber-400" },
                     ].map(row => (
                       <div key={row.name} className="flex items-center justify-between py-2 px-3 rounded bg-background/50 border border-border/50 text-xs">
                         <span className="text-foreground/70">{row.name}</span>

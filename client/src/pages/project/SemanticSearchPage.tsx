@@ -32,17 +32,17 @@ interface Props {
 
 // Similarity score → human-readable label + colour
 function similarityLabel(score: number): { label: string; className: string } {
-  if (score >= 0.025) return { label: "Excellent match", className: "text-green-400 bg-green-400/10" };
+  if (score >= 0.025) return { label: "Excellent match", className: "text-green-700 dark:text-green-400 bg-green-400/10" };
   if (score >= 0.018) return { label: "Strong match",   className: "text-emerald-400 bg-emerald-400/10" };
-  if (score >= 0.012) return { label: "Good match",     className: "text-yellow-400 bg-yellow-400/10" };
-  return                     { label: "Partial match", className: "text-orange-400 bg-orange-400/10" };
+  if (score >= 0.012) return { label: "Good match",     className: "text-yellow-700 dark:text-yellow-400 bg-yellow-400/10" };
+  return                     { label: "Partial match", className: "text-orange-700 dark:text-orange-400 bg-orange-400/10" };
 }
 
 // Match type badge for hybrid/semantic/keyword
 function matchTypeBadge(matchType: string): { label: string; className: string } {
   if (matchType === "hybrid")   return { label: "Best match",   className: "text-violet-400 bg-violet-400/10" };
-  if (matchType === "semantic") return { label: "Meaning match",  className: "text-blue-400 bg-blue-400/10" };
-  return                               { label: "Exact match",   className: "text-amber-400 bg-amber-400/10" };
+  if (matchType === "semantic") return { label: "Meaning match",  className: "text-blue-600 dark:text-blue-400 bg-blue-400/10" };
+  return                               { label: "Exact match",   className: "text-amber-700 dark:text-amber-400 bg-amber-400/10" };
 }
 
 const EXAMPLE_QUERIES = [
@@ -154,7 +154,7 @@ export default function SemanticSearchPage({ projectId, project }: Props) {
               </button>
             </div>
             {scope === "all" && (
-              <span className="text-[10px] text-amber-400/80 italic">includes unreviewed AI transcriptions</span>
+              <span className="text-[10px] text-amber-700 dark:text-amber-400/80 italic">includes unreviewed AI transcriptions</span>
             )}
           </div>
         </div>

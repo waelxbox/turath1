@@ -3,7 +3,8 @@ import { useParams, useLocation, Router, Route, Switch } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { getLoginUrl } from "@/const";
-import { Loader2, BookOpen, Upload, Eye, Download, Settings, ArrowLeft, ChevronRight, MessageSquare, Search, Network, Gamepad2, Menu, X, ClipboardCheck, Microscope, Activity, ListTodo, Users } from "lucide-react";
+import { Loader2, BookOpen, Upload, Eye, Download, Settings, ArrowLeft, ChevronRight, MessageSquare, Search, Network, Gamepad2, Menu, X, ClipboardCheck, Microscope, Activity, ListTodo, Users, Sun, Moon } from "lucide-react";
+import { useTheme } from "@/contexts/ThemeContext";
 import { Button } from "@/components/ui/button";
 import UploadPage from "./project/UploadPage";
 import ReviewPage from "./project/ReviewPage";
@@ -36,6 +37,17 @@ type NavGroup = {
   label: string;
   items: NavItem[];
 };
+
+/** Compact sun/moon toggle for the workspace header */
+function ThemeToggleButton() {
+  const { theme, toggleTheme } = useTheme();
+  if (!toggleTheme) return null;
+  return (
+    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={toggleTheme} title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
+      {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+    </Button>
+  );
+}
 
 function buildNavGroups(stats: { total: number; reviewed: number; needsReview: number } | null | undefined): NavGroup[] {
   const hasDocuments = (stats?.total ?? 0) > 0;
@@ -200,12 +212,13 @@ function WorkspaceInner({
             {stats && stats.total > 0 && (
               <div className="flex items-center gap-2 md:gap-3 text-[10px] md:text-xs text-muted-foreground">
                 <span>{stats.total} docs</span>
-                <span className="text-green-400">{stats.reviewed} approved</span>
+                <span className="text-green-700 dark:text-green-400">{stats.reviewed} approved</span>
                 {stats.needsReview > 0 && (
-                  <span className="text-yellow-400 hidden md:inline">{stats.needsReview} to review</span>
+                  <span className="text-yellow-700 dark:text-yellow-400 hidden md:inline">{stats.needsReview} to review</span>
                 )}
               </div>
             )}
+            <ThemeToggleButton />
           </div>
         </div>
       </header>
@@ -229,7 +242,7 @@ function WorkspaceInner({
               </div>
             </div>
             {stats && stats.needsReview > 0 && (
-              <span className="text-[10px] text-yellow-400">{stats.needsReview} to review</span>
+              <span className="text-[10px] text-yellow-700 dark:text-yellow-400">{stats.needsReview} to review</span>
             )}
           </div>
         </header>
@@ -290,7 +303,7 @@ function WorkspaceInner({
                             <Icon className="w-4 h-4 flex-shrink-0" />
                             {item.label}
                             {item.badge && item.badge > 0 ? (
-                              <span className="ml-auto text-[10px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded-full">
+                              <span className="ml-auto text-[10px] bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 px-1.5 py-0.5 rounded-full">
                                 {item.badge}
                               </span>
                             ) : null}
@@ -355,7 +368,7 @@ function WorkspaceInner({
                         <Icon className="w-4 h-4 flex-shrink-0" />
                         {item.label}
                         {item.badge && item.badge > 0 ? (
-                          <span className="ml-auto text-[10px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded-full">
+                          <span className="ml-auto text-[10px] bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 px-1.5 py-0.5 rounded-full">
                             {item.badge}
                           </span>
                         ) : null}

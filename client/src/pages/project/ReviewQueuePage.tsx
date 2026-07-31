@@ -82,7 +82,7 @@ export default function ReviewQueuePage({ projectId }: { projectId: number }) {
               <p className="text-xs text-muted-foreground">{s.assigneeName || `User #${s.assigneeId}`}</p>
               <div className="flex items-center gap-3 mt-1">
                 <span className="text-sm font-medium">{s.total} assigned</span>
-                <span className="text-xs text-green-400">{s.completed} done</span>
+                <span className="text-xs text-green-700 dark:text-green-400">{s.completed} done</span>
               </div>
             </div>
           ))}
@@ -127,7 +127,7 @@ export default function ReviewQueuePage({ projectId }: { projectId: number }) {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="gap-1 text-xs text-green-400"
+                        className="gap-1 text-xs text-green-700 dark:text-green-400"
                         onClick={() => updateStatusMutation.mutate({
                           assignmentId: item.id,
                           projectId,
@@ -162,7 +162,7 @@ export default function ReviewQueuePage({ projectId }: { projectId: number }) {
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="h-7 w-7 text-muted-foreground hover:text-red-400"
+                      className="h-7 w-7 text-muted-foreground hover:text-red-600 dark:text-red-400"
                       onClick={() => {
                         if (confirm("Remove this assignment?")) {
                           deleteMutation.mutate({ assignmentId: item.id, projectId });
@@ -191,8 +191,8 @@ export default function ReviewQueuePage({ projectId }: { projectId: number }) {
 }
 
 function StatusIcon({ status }: { status: string }) {
-  if (status === "completed") return <CheckCircle className="w-4 h-4 text-green-400" />;
-  if (status === "in_progress") return <Play className="w-4 h-4 text-yellow-400" />;
+  if (status === "completed") return <CheckCircle className="w-4 h-4 text-green-700 dark:text-green-400" />;
+  if (status === "in_progress") return <Play className="w-4 h-4 text-yellow-700 dark:text-yellow-400" />;
   return <Clock className="w-4 h-4 text-muted-foreground" />;
 }
 

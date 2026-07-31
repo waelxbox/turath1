@@ -689,3 +689,11 @@
 - [x] Fix: after config is generated, user can continue chatting and regenerate config with updated context
 - [x] Reset generatedConfig state when user sends a new message post-generation (re-shows Generate Config button)
 - [x] Update config preview footer text to say "Keep chatting to refine, then regenerate — or go to your project"
+## Light Mode Implementation (Round 64)
+- [x] Add light mode CSS variables (:root / .light block) based on approved palette
+- [x] Ensure ThemeProvider supports light/dark toggle with localStorage persistence
+- [x] Add theme toggle button (sun/moon) to app header/sidebar
+- [x] Test contrast across all screens (dashboard, review, onboarding, search, entities)
+- [x] Keep sidebar dark (#1A1D23) in both modes as anchor
+- [x] Bulk-fix all hard-coded text-*-400 colors with dark: variants (17 files)
+- [x] Add theme.test.ts vitest (7 tests verifying CSS structure, ThemeContext, toggle)

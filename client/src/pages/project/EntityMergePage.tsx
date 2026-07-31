@@ -33,15 +33,15 @@ const TYPE_ICONS: Record<string, typeof Users> = {
 };
 
 const TYPE_COLORS: Record<string, string> = {
-  person: "text-orange-400",
-  location: "text-green-400",
-  organization: "text-indigo-400",
+  person: "text-orange-700 dark:text-orange-400",
+  location: "text-green-700 dark:text-green-400",
+  organization: "text-indigo-600 dark:text-indigo-400",
 };
 
 const CONFIDENCE_COLORS: Record<string, string> = {
-  high: "bg-green-500/15 text-green-400 border-green-500/30",
-  medium: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
-  low: "bg-red-500/15 text-red-400 border-red-500/30",
+  high: "bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/30",
+  medium: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400 border-yellow-500/30",
+  low: "bg-red-500/15 text-red-600 dark:text-red-600 dark:text-red-400 border-red-500/30",
 };
 
 const ALL_STEPS = [
@@ -184,7 +184,7 @@ export default function EntityMergePage({ projectId }: { projectId: number }) {
             </Button>
             <div>
               <h1 className="text-lg font-semibold flex items-center gap-2">
-                <Merge className="h-5 w-5 text-amber-400" />
+                <Merge className="h-5 w-5 text-amber-700 dark:text-amber-400" />
                 Entity Merge Review
               </h1>
               <p className="text-sm text-muted-foreground mt-0.5">
@@ -217,7 +217,7 @@ export default function EntityMergePage({ projectId }: { projectId: number }) {
                   {ALL_STEPS[currentStepIdx]?.label || "Starting..."}
                 </span>
               </div>
-              <span className="text-xs text-amber-400/70">
+              <span className="text-xs text-amber-700 dark:text-amber-400/70">
                 Step {currentStepIdx + 1} of {ALL_STEPS.length}
                 {totalFound > 0 && ` · ${totalFound} found`}
               </span>
@@ -412,7 +412,7 @@ export default function EntityMergePage({ projectId }: { projectId: number }) {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="gap-1.5 text-red-400 border-red-500/30 hover:bg-red-500/10"
+                      className="gap-1.5 text-red-600 dark:text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/10"
                       onClick={() => rejectMutation.mutate({ suggestionId: suggestion.id, projectId })}
                       disabled={rejectMutation.isPending}
                     >

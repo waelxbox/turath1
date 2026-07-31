@@ -43,9 +43,53 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   TURATH Light Mode — "Sunlit Archive" palette
+   Warm cream/paper tones inspired by aged manuscripts and polished wood.
+   ═══════════════════════════════════════════════════════════════════════════ */
 :root {
-  /* TURATH — Dark scholarly palette with warm amber accents */
   --radius: 0.5rem;
+  --background: #F8F4EC;
+  --foreground: #191C22;
+  --card: #FFFDF8;
+  --card-foreground: #191C22;
+  --popover: #FFFDF8;
+  --popover-foreground: #191C22;
+  --primary: #835615;
+  --primary-foreground: #FFFFFF;
+  --secondary: #E9E2D6;
+  --secondary-foreground: #191C22;
+  --muted: #F1EBE1;
+  --muted-foreground: #504539;
+  --accent: #F3E4CB;
+  --accent-foreground: #191C22;
+  --destructive: #BA1A1A;
+  --destructive-foreground: #FFFFFF;
+  --border: #D8CFC0;
+  --input: #D8CFC0;
+  --ring: #C4883A;
+  --chart-1: #C4883A;
+  --chart-2: #835615;
+  --chart-3: #6B8E5A;
+  --chart-4: #A67B3C;
+  --chart-5: #BA1A1A;
+
+  /* Sidebar stays dark in BOTH modes — it's the structural anchor */
+  --sidebar: #1A1D23;
+  --sidebar-foreground: oklch(0.80 0.01 80);
+  --sidebar-primary: oklch(0.72 0.16 55);
+  --sidebar-primary-foreground: #1A1D23;
+  --sidebar-accent: oklch(0.18 0.012 240);
+  --sidebar-accent-foreground: oklch(0.80 0.01 80);
+  --sidebar-border: oklch(0.20 0.012 240);
+  --sidebar-ring: oklch(0.72 0.16 55);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TURATH Dark Mode — Deep scholarly palette with warm amber accents
+   Applied when .dark class is on <html>
+   ═══════════════════════════════════════════════════════════════════════════ */
+.dark {
   --background: oklch(0.12 0.01 240);
   --foreground: oklch(0.93 0.01 80);
   --card: oklch(0.16 0.012 240);
@@ -70,6 +114,8 @@
   --chart-3: oklch(0.65 0.12 240);
   --chart-4: oklch(0.70 0.18 80);
   --chart-5: oklch(0.65 0.18 25);
+
+  /* Sidebar — same dark values in dark mode */
   --sidebar: oklch(0.10 0.01 240);
   --sidebar-foreground: oklch(0.80 0.01 80);
   --sidebar-primary: oklch(0.72 0.16 55);
@@ -79,8 +125,6 @@
   --sidebar-border: oklch(0.20 0.012 240);
   --sidebar-ring: oklch(0.72 0.16 55);
 }
-
-/* Dark is the default — no .dark override needed */
 
 @layer base {
   * {
@@ -117,22 +161,12 @@
 @layer components {
   /**
    * Custom container utility that centers content and adds responsive padding.
-   *
-   * This overrides Tailwind's default container behavior to:
-   * - Auto-center content (mx-auto)
-   * - Add responsive horizontal padding
-   * - Set max-width for large screens
-   *
-   * Usage: <div className="container">...</div>
-   *
-   * For custom widths, use max-w-* utilities directly:
-   * <div className="max-w-6xl mx-auto px-4">...</div>
    */
   .container {
     width: 100%;
     margin-left: auto;
     margin-right: auto;
-    padding-left: 1rem; /* 16px - mobile padding */
+    padding-left: 1rem;
     padding-right: 1rem;
   }
 
@@ -143,27 +177,28 @@
 
   @media (min-width: 640px) {
     .container {
-      padding-left: 1.5rem; /* 24px - tablet padding */
+      padding-left: 1.5rem;
       padding-right: 1.5rem;
     }
   }
 
   @media (min-width: 1024px) {
     .container {
-      padding-left: 2rem; /* 32px - desktop padding */
+      padding-left: 2rem;
       padding-right: 2rem;
-      max-width: 1280px; /* Standard content width */
+      max-width: 1280px;
     }
   }
 }
+
 /* ── Document status badge utilities ─────────────────────────────────────── */
 @layer components {
-  .status-pending      { @apply bg-zinc-500/15 text-zinc-400 border border-zinc-500/30; }
-  .status-processing   { @apply bg-amber-500/15 text-amber-400 border border-amber-500/30; }
-  .status-needs-review { @apply bg-yellow-500/15 text-yellow-400 border border-yellow-500/30; }
-  .status-reviewed     { @apply bg-green-500/15 text-green-400 border border-green-500/30; }
-  .status-flagged      { @apply bg-orange-500/15 text-orange-400 border border-orange-500/30; }
-  .status-error        { @apply bg-red-500/15 text-red-400 border border-red-500/30; }
+  .status-pending      { @apply bg-zinc-500/15 text-zinc-600 dark:text-zinc-400 border border-zinc-500/30; }
+  .status-processing   { @apply bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30; }
+  .status-needs-review { @apply bg-yellow-500/15 text-yellow-700 dark:text-yellow-400 border border-yellow-500/30; }
+  .status-reviewed     { @apply bg-green-500/15 text-green-700 dark:text-green-400 border border-green-500/30; }
+  .status-flagged      { @apply bg-orange-500/15 text-orange-700 dark:text-orange-400 border border-orange-500/30; }
+  .status-error        { @apply bg-red-500/15 text-red-700 dark:text-red-400 border border-red-500/30; }
 }
 
 /* ── Font utilities ────────────────────────────────────────────────────────── */

@@ -295,7 +295,7 @@ function SessionCard({
           <div className="flex items-center gap-2">
             <h3 className="font-medium text-foreground truncate">{session.title}</h3>
             {session.status === "closed" && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-red-500/20 text-red-400">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-red-500/20 text-red-600 dark:text-red-400">
                 <Lock className="w-3 h-3" /> Closed
               </span>
             )}
@@ -332,7 +332,7 @@ function SessionCard({
               toast.success("Session deleted");
             }}
             title="Delete session"
-            className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+            className="text-red-600 dark:text-red-400 hover:text-red-300 hover:bg-red-500/10"
           >
             <Trash2 className="w-4 h-4" />
           </Button>
@@ -394,12 +394,12 @@ function StatsPanel({ stats }: { stats: ValidationStats }) {
         <MetricCard
           label="Overall Accuracy"
           value={stats.overallAccuracy != null ? `${(stats.overallAccuracy * 100).toFixed(1)}%` : "—"}
-          icon={<CheckCircle2 className="w-4 h-4 text-green-400" />}
+          icon={<CheckCircle2 className="w-4 h-4 text-green-700 dark:text-green-400" />}
         />
         <MetricCard
           label="Total Reviews"
           value={stats.totalReviews.toString()}
-          icon={<FileText className="w-4 h-4 text-blue-400" />}
+          icon={<FileText className="w-4 h-4 text-blue-600 dark:text-blue-400" />}
         />
         <MetricCard
           label="Reviewers"
@@ -409,17 +409,17 @@ function StatsPanel({ stats }: { stats: ValidationStats }) {
         <MetricCard
           label="Agreement Rate"
           value={stats.interRaterAgreement != null ? `${(stats.interRaterAgreement * 100).toFixed(1)}%` : "—"}
-          icon={<BarChart3 className="w-4 h-4 text-orange-400" />}
+          icon={<BarChart3 className="w-4 h-4 text-orange-700 dark:text-orange-400" />}
         />
       </div>
 
       {/* Error breakdown */}
       <div className="flex items-center gap-4 text-sm">
-        <span className="text-green-400">
+        <span className="text-green-700 dark:text-green-400">
           <CheckCircle2 className="w-3 h-3 inline mr-1" />
           {stats.totalCorrect} correct
         </span>
-        <span className="text-red-400">
+        <span className="text-red-600 dark:text-red-400">
           <XCircle className="w-3 h-3 inline mr-1" />
           {stats.totalIncorrect} incorrect
         </span>
@@ -439,8 +439,8 @@ function StatsPanel({ stats }: { stats: ValidationStats }) {
                 <div className="flex items-center gap-3 text-muted-foreground">
                   <span>{r.docsCompleted} docs</span>
                   <span>{r.linesReviewed} lines</span>
-                  <span className="text-green-400">{r.correctCount}✓</span>
-                  <span className="text-red-400">{r.incorrectCount}✗</span>
+                  <span className="text-green-700 dark:text-green-400">{r.correctCount}✓</span>
+                  <span className="text-red-600 dark:text-red-400">{r.incorrectCount}✗</span>
                 </div>
               </div>
             ))}
@@ -457,7 +457,7 @@ function StatsPanel({ stats }: { stats: ValidationStats }) {
               <div key={d.documentId} className="flex items-center justify-between text-xs bg-muted/30 rounded px-3 py-2">
                 <span className="text-muted-foreground">Doc #{d.documentId}</span>
                 <div className="flex items-center gap-3">
-                  <span className={d.accuracy != null && d.accuracy >= 0.9 ? "text-green-400" : d.accuracy != null && d.accuracy >= 0.7 ? "text-yellow-400" : "text-red-400"}>
+                  <span className={d.accuracy != null && d.accuracy >= 0.9 ? "text-green-700 dark:text-green-400" : d.accuracy != null && d.accuracy >= 0.7 ? "text-yellow-700 dark:text-yellow-400" : "text-red-600 dark:text-red-400"}>
                     {d.accuracy != null ? `${(d.accuracy * 100).toFixed(0)}%` : "—"}
                   </span>
                   <span className="text-muted-foreground">{d.reviewerCount}/{5} reviewers</span>

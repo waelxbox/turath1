@@ -164,7 +164,7 @@ export default function ProjectOverview({ projectId, project, stats }: Props) {
               className={`flex items-start gap-3 ${step.done ? "opacity-60" : ""}`}
             >
               {step.done ? (
-                <CheckCircle2 className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle2 className="w-5 h-5 text-green-700 dark:text-green-400 flex-shrink-0 mt-0.5" />
               ) : (
                 <Circle className={`w-5 h-5 flex-shrink-0 mt-0.5 ${step.active ? "text-primary" : "text-muted-foreground/40"}`} />
               )}

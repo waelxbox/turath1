@@ -571,7 +571,7 @@ export default function ProjectSettings({ projectId, project }: Props) {
 
         {/* Danger Zone */}
         <div className="border-t border-red-500/30 pt-6 mt-8">
-          <h3 className="text-sm font-semibold text-red-400 mb-2">Danger zone</h3>
+          <h3 className="text-sm font-semibold text-red-600 dark:text-red-400 mb-2">Danger zone</h3>
           <p className="text-xs text-muted-foreground mb-4">
             Permanently delete this project and all its documents, transcriptions, and data.
           </p>

@@ -323,7 +323,7 @@ export default function Onboarding() {
           <div className="mx-4 mb-3 p-3 bg-green-500/10 border border-green-500/30 rounded-xl flex items-center justify-between">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-green-500" />
-              <span className="text-sm text-green-400 font-medium">
+              <span className="text-sm text-green-700 dark:text-green-400 font-medium">
                 {messages.length > 0 && generatedConfig === null && configReady
                   ? "Ready to generate your config"
                   : "I have enough information to generate your config"}

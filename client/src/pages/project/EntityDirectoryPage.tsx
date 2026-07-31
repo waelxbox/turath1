@@ -32,9 +32,9 @@ import { useLocation } from "wouter";
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const TYPE_COLORS: Record<string, string> = {
-  person: "bg-orange-500/15 text-orange-400 border-orange-500/30",
-  location: "bg-green-500/15 text-green-400 border-green-500/30",
-  organization: "bg-indigo-500/15 text-indigo-400 border-indigo-500/30",
+  person: "bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/30",
+  location: "bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/30",
+  organization: "bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/30",
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -192,7 +192,7 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
         <div className="p-4 border-b border-border space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <BookOpenText className="h-5 w-5 text-amber-400" />
+              <BookOpenText className="h-5 w-5 text-amber-700 dark:text-amber-400" />
               <h2 className="text-base font-semibold">Entities</h2>
             </div>
             <div className="flex items-center gap-1">
@@ -531,7 +531,7 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Merge className="h-5 w-5 text-amber-400" />
+              <Merge className="h-5 w-5 text-amber-700 dark:text-amber-400" />
               Merge Entities
             </DialogTitle>
           </DialogHeader>

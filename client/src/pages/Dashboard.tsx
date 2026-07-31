@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { getLoginUrl } from "@/const";
 import { useLocation } from "wouter";
-import { Plus, FolderOpen, Clock, CheckCircle2, AlertCircle, Loader2, ArrowRight, BookOpen, Sparkles, HelpCircle } from "lucide-react";
+import { Plus, FolderOpen, Clock, CheckCircle2, AlertCircle, Loader2, ArrowRight, BookOpen, Sparkles, HelpCircle, Sun, Moon } from "lucide-react";
+import { useTheme } from "@/contexts/ThemeContext";
 import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -12,10 +13,21 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import GuidedTour, { useTourState } from "@/components/GuidedTour";
 
+/** Theme toggle for the dashboard header */
+function DashboardThemeToggle() {
+  const { theme, toggleTheme } = useTheme();
+  if (!toggleTheme) return null;
+  return (
+    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={toggleTheme} title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
+      {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+    </Button>
+  );
+}
+
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  onboarding: { label: "Setting up", color: "text-blue-400" },
-  validating: { label: "Validating", color: "text-amber-400" },
-  active: { label: "Active", color: "text-green-400" },
+  onboarding: { label: "Setting up", color: "text-blue-600 dark:text-blue-400" },
+  validating: { label: "Validating", color: "text-amber-600 dark:text-amber-400" },
+  active: { label: "Active", color: "text-green-600 dark:text-green-700 dark:text-green-400" },
   archived: { label: "Archived", color: "text-muted-foreground" },
 };
 
@@ -84,17 +96,17 @@ function ProjectCard({ project }: { project: { id: number; name: string; descrip
       {stats && (stats.needsReview > 0 || stats.flagged > 0 || (stats.reviewed > 0 && stats.needsReview === 0)) && (
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           {stats.needsReview > 0 && (
-            <span className="flex items-center gap-1 text-yellow-400">
+            <span className="flex items-center gap-1 text-yellow-700 dark:text-yellow-400">
               <Clock className="w-3 h-3" /> {stats.needsReview} to review
             </span>
           )}
           {stats.flagged > 0 && (
-            <span className="flex items-center gap-1 text-orange-400">
+            <span className="flex items-center gap-1 text-orange-700 dark:text-orange-400">
               <AlertCircle className="w-3 h-3" /> {stats.flagged} flagged
             </span>
           )}
           {stats.reviewed > 0 && stats.needsReview === 0 && (
-            <span className="flex items-center gap-1 text-green-400">
+            <span className="flex items-center gap-1 text-green-700 dark:text-green-400">
               <CheckCircle2 className="w-3 h-3" /> Up to date
             </span>
           )}
@@ -187,6 +199,7 @@ export default function Dashboard() {
           </div>
           <div className="flex items-center gap-3">
             <span className="text-sm text-muted-foreground">{user?.name ?? user?.email}</span>
+            <DashboardThemeToggle />
             <Button variant="outline" size="sm" onClick={() => navigate("/logout")} className="bg-transparent">
               Sign out
             </Button>

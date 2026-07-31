@@ -105,11 +105,11 @@ export default function ExportPage({ projectId, project }: Props) {
 
   const statusOptions: { value: StatusFilter; label: string; color: string }[] = [
     { value: "all", label: "All documents", color: "text-muted-foreground" },
-    { value: "reviewed", label: "Reviewed", color: "text-green-400" },
-    { value: "needs_review", label: "Needs review", color: "text-amber-400" },
-    { value: "flagged", label: "Flagged", color: "text-red-400" },
+    { value: "reviewed", label: "Reviewed", color: "text-green-700 dark:text-green-700 dark:text-green-400" },
+    { value: "needs_review", label: "Needs review", color: "text-amber-700 dark:text-amber-700 dark:text-amber-400" },
+    { value: "flagged", label: "Flagged", color: "text-red-600 dark:text-red-600 dark:text-red-400" },
     { value: "pending", label: "Pending", color: "text-muted-foreground" },
-    { value: "error", label: "Error", color: "text-red-400" },
+    { value: "error", label: "Error", color: "text-red-600 dark:text-red-600 dark:text-red-400" },
   ];
 
   return (
@@ -231,10 +231,10 @@ export default function ExportPage({ projectId, project }: Props) {
                   />
                   <span className="text-sm truncate flex-1">{doc.filename}</span>
                   <span className={`text-xs px-2 py-0.5 rounded-full ${
-                    doc.status === "reviewed" ? "bg-green-500/10 text-green-400" :
-                    doc.status === "needs_review" ? "bg-amber-500/10 text-amber-400" :
-                    doc.status === "flagged" ? "bg-red-500/10 text-red-400" :
-                    doc.status === "error" ? "bg-red-500/10 text-red-400" :
+                    doc.status === "reviewed" ? "bg-green-500/10 text-green-700 dark:text-green-400" :
+                    doc.status === "needs_review" ? "bg-amber-500/10 text-amber-700 dark:text-amber-400" :
+                    doc.status === "flagged" ? "bg-red-500/10 text-red-600 dark:text-red-400" :
+                    doc.status === "error" ? "bg-red-500/10 text-red-600 dark:text-red-400" :
                     "bg-muted text-muted-foreground"
                   }`}>
                     {doc.status.replace("_", " ")}
@@ -269,7 +269,7 @@ export default function ExportPage({ projectId, project }: Props) {
         <div className="bg-card border border-border rounded-xl p-6 hover:border-primary/30 transition-colors">
           <div className="flex items-start gap-4 mb-4">
             <div className="w-10 h-10 rounded-lg bg-green-500/15 border border-green-500/30 flex items-center justify-center flex-shrink-0">
-              <FileText className="w-5 h-5 text-green-400" />
+              <FileText className="w-5 h-5 text-green-700 dark:text-green-400" />
             </div>
             <div>
               <h3 className="font-semibold mb-1">CSV Export</h3>
@@ -279,8 +279,8 @@ export default function ExportPage({ projectId, project }: Props) {
             </div>
           </div>
           <div className="text-xs text-muted-foreground mb-4 space-y-1">
-            <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-400" /> Dynamic columns from schema</div>
-            <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-400" /> UTF-8 encoded for multilingual text</div>
+            <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-700 dark:text-green-400" /> Dynamic columns from schema</div>
+            <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-700 dark:text-green-400" /> UTF-8 encoded for multilingual text</div>
           </div>
           <Button
             className="w-full gap-2"
@@ -296,7 +296,7 @@ export default function ExportPage({ projectId, project }: Props) {
         <div className="bg-card border border-border rounded-xl p-6 hover:border-primary/30 transition-colors">
           <div className="flex items-start gap-4 mb-4">
             <div className="w-10 h-10 rounded-lg bg-blue-500/15 border border-blue-500/30 flex items-center justify-center flex-shrink-0">
-              <FileJson className="w-5 h-5 text-blue-400" />
+              <FileJson className="w-5 h-5 text-blue-600 dark:text-blue-400" />
             </div>
             <div>
               <h3 className="font-semibold mb-1">JSON Export</h3>
@@ -306,8 +306,8 @@ export default function ExportPage({ projectId, project }: Props) {
             </div>
           </div>
           <div className="text-xs text-muted-foreground mb-4 space-y-1">
-            <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-400" /> Full nested structure preserved</div>
-            <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-400" /> Includes original AI output</div>
+            <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-700 dark:text-green-400" /> Full nested structure preserved</div>
+            <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-700 dark:text-green-400" /> Includes original AI output</div>
           </div>
           <Button
             variant="outline"
@@ -340,7 +340,7 @@ export default function ExportPage({ projectId, project }: Props) {
       <div className="mt-5 bg-card border border-border rounded-xl p-6 hover:border-primary/30 transition-colors">
         <div className="flex items-start gap-4 mb-4">
           <div className="w-10 h-10 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center flex-shrink-0">
-            <FileText className="w-5 h-5 text-amber-400" />
+            <FileText className="w-5 h-5 text-amber-700 dark:text-amber-400" />
           </div>
           <div>
             <h3 className="font-semibold mb-1">TEI-XML Corpus</h3>
@@ -350,8 +350,8 @@ export default function ExportPage({ projectId, project }: Props) {
           </div>
         </div>
         <div className="text-xs text-muted-foreground mb-4 space-y-1">
-          <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-400" /> Full teiCorpus structure with headers</div>
-          <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-400" /> Inline entity markup (persName, placeName, orgName)</div>
+          <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-700 dark:text-green-400" /> Full teiCorpus structure with headers</div>
+          <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-700 dark:text-green-400" /> Inline entity markup (persName, placeName, orgName)</div>
         </div>
         <Button
           className="w-full gap-2"
@@ -395,8 +395,8 @@ export default function ExportPage({ projectId, project }: Props) {
           </div>
         </div>
         <div className="text-xs text-muted-foreground mb-4 space-y-1">
-          <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-400" /> Unique numeric IDs for each entity</div>
-          <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-400" /> Document mention references with context</div>
+          <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-700 dark:text-green-400" /> Unique numeric IDs for each entity</div>
+          <div className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-green-700 dark:text-green-400" /> Document mention references with context</div>
         </div>
         <Button
           variant="outline"

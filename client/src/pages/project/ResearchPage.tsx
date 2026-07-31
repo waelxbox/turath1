@@ -587,7 +587,7 @@ export default function ResearchPage({ projectId }: Props) {
               {showSidebar ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
             </Button>
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-indigo-400" />
+              <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
             </div>
             <div>
               <h1 className="text-sm font-semibold">Codex</h1>
@@ -604,7 +604,7 @@ export default function ResearchPage({ projectId }: Props) {
             /* Empty state */
             <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500/15 to-purple-500/15 flex items-center justify-center">
-                <Sparkles className="w-8 h-8 text-indigo-400/70" />
+                <Sparkles className="w-8 h-8 text-indigo-600 dark:text-indigo-400/70" />
               </div>
               <div>
                 <h2 className="text-base font-semibold mb-1">Research your archive</h2>
@@ -640,7 +640,7 @@ export default function ResearchPage({ projectId }: Props) {
                     <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
                       msg.role === "user" ? "bg-primary/15" : "bg-gradient-to-br from-indigo-500/20 to-purple-500/20"
                     }`}>
-                      {msg.role === "user" ? <User className="w-3.5 h-3.5 text-primary" /> : <Sparkles className="w-3.5 h-3.5 text-indigo-400" />}
+                      {msg.role === "user" ? <User className="w-3.5 h-3.5 text-primary" /> : <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />}
                     </div>
 
                     {/* Content */}
@@ -722,7 +722,7 @@ export default function ResearchPage({ projectId }: Props) {
               {askMutation.isPending && (
                 <div className="flex gap-3">
                   <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center flex-shrink-0">
-                    <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                   </div>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
