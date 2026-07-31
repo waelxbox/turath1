@@ -211,7 +211,7 @@ describe("SimpleReviewPage", () => {
 
     it("hides workspace chrome when in doc review", () => {
       expect(workspaceSource).toContain("isDocReview");
-      expect(workspaceSource).toContain("location.match(/^\\/review\\/\\d+/)");
+      expect(workspaceSource).toContain("location.match(/^\\/review\\/\\d+\\/full/)");
     });
 
     it("hides sidebar when in doc review", () => {

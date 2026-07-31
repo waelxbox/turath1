@@ -708,3 +708,7 @@
 - [x] Auto-save indicator and entity highlighting in transcription text
 - [x] Keyboard shortcuts: ⌘+Enter approve, F flag, ← prev, → next
 - [x] Write vitest for the new review page (46 tests)
+## Review Interface Fixes (Round 66)
+- [x] Make SimpleReviewPage accessible only via "Full Page Viewer" button on ReviewPage (not default route)
+- [x] Fix Next/Back navigation (broken path construction with wouter relative routing)
+- [x] Fix metadata section: show ALL non-transcription fields, not just hardcoded set

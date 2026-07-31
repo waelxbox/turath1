@@ -698,6 +698,18 @@ function ReviewDocPanel({
               {isTranscribing ? "Reading…" : "Re-read"}
             </Button>
           )}
+          {currentDoc && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-muted-foreground/70 hover:text-foreground rounded-lg text-xs"
+              onClick={() => window.location.href = window.location.pathname.replace(/\/review\/.*/, `/review/${currentDocId}/full`)}
+              title="Open full-page review viewer"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+              Full Page
+            </Button>
+          )}
         </div>
       </div>
 

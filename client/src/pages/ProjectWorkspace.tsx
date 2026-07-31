@@ -179,7 +179,7 @@ function WorkspaceInner({
   // Check if we're on the quick-review page (full-screen on mobile)
   const isQuickReview = activeNav === "quick-review";
   // Check if we're in the full-screen document review (SimpleReviewPage)
-  const isDocReview = location.match(/^\/review\/\d+/);
+  const isDocReview = location.match(/^\/review\/\d+\/full/);
 
   return (
     <div className="flex flex-col min-h-0 flex-1">
@@ -413,13 +413,19 @@ function WorkspaceInner({
               <Route path="/settings">
                 <ProjectSettings projectId={projectId} project={project} />
               </Route>
-              {/* review with a specific document selected — new full-screen interface */}
-              <Route path="/review/:docId">
+              {/* Full-screen review viewer (accessed via button) */}
+              <Route path="/review/:docId/full">
                 {(params) => (
                   <SimpleReviewPage projectId={projectId} project={project} docId={params.docId} />
                 )}
               </Route>
-              {/* review queue (no specific doc) — shows document list first */}
+              {/* review with a specific document selected */}
+              <Route path="/review/:docId">
+                {(params) => (
+                  <ReviewPage projectId={projectId} project={project} docId={params.docId} />
+                )}
+              </Route>
+              {/* review queue (no specific doc) */}
               <Route path="/review">
                 <ReviewPage projectId={projectId} project={project} />
               </Route>

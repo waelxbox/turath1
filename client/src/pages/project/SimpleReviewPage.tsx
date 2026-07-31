@@ -101,8 +101,9 @@ function isTagField(key: string): boolean {
 }
 
 function isMetadataField(key: string): boolean {
-  const base = key.split(".")[0].toLowerCase();
-  return METADATA_FIELDS.has(base);
+  // ALL non-transcription fields are metadata (shown in collapsible section)
+  // This ensures nothing is hidden
+  return !isTranscriptionField(key);
 }
 
 /* ─── Entity highlighting in text ─────────────────────────────────────── */
@@ -418,7 +419,7 @@ export default function SimpleReviewPage({ projectId, project, docId: docIdProp 
       utils.projects.stats.invalidate({ id: projectId });
       // Auto-advance
       if (currentIndex < documents.length - 1) {
-        navigate(`/review/${documents[currentIndex + 1].id}`);
+        navigate(`/review/${documents[currentIndex + 1].id}/full`);
       }
     },
     onError: (err) => toast.error(err.message),
@@ -498,9 +499,10 @@ export default function SimpleReviewPage({ projectId, project, docId: docIdProp 
   const metadataItems = useMemo(() => {
     if (!flatFields || !editedFields) return [];
     return flatFields
-      .filter(f => isMetadataField(f.key) && !isTagField(f.key))
+      .filter(f => !isTranscriptionField(f.key) && !isTagField(f.key))
       .map(f => {
         const val = getNestedValue(editedFields, f.key);
+        if (Array.isArray(val)) return { key: f.key, label: f.label, value: val.join(", ") };
         return { key: f.key, label: f.label, value: val != null ? String(val) : "" };
       })
       .filter(item => item.value.trim());
@@ -517,11 +519,8 @@ export default function SimpleReviewPage({ projectId, project, docId: docIdProp 
       }));
   }, [flatFields, editedFields]);
 
-  // Other fields (not tags, not metadata, not transcription)
-  const otherFields = useMemo(() => {
-    if (!flatFields || !editedFields) return [];
-    return flatFields.filter(f => !isTranscriptionField(f.key) && !isMetadataField(f.key) && !isTagField(f.key));
-  }, [flatFields, editedFields]);
+  // Other fields — now empty since metadataItems captures everything non-transcription
+  const otherFields = useMemo(() => [] as typeof flatFields, []);
 
   // Actions
   const handleSave = useCallback(async (status: "reviewed" | "flagged") => {
@@ -542,19 +541,19 @@ export default function SimpleReviewPage({ projectId, project, docId: docIdProp 
 
   const handleSkip = useCallback(() => {
     if (currentIndex < documents.length - 1) {
-      navigate(`/review/${documents[currentIndex + 1].id}`);
+      navigate(`/review/${documents[currentIndex + 1].id}/full`);
     }
   }, [currentIndex, documents, navigate]);
 
   const handlePrev = useCallback(() => {
     if (currentIndex > 0) {
-      navigate(`/review/${documents[currentIndex - 1].id}`);
+      navigate(`/review/${documents[currentIndex - 1].id}/full`);
     }
   }, [currentIndex, documents, navigate]);
 
   const handleNext = useCallback(() => {
     if (currentIndex < documents.length - 1) {
-      navigate(`/review/${documents[currentIndex + 1].id}`);
+      navigate(`/review/${documents[currentIndex + 1].id}/full`);
     }
   }, [currentIndex, documents, navigate]);
 
