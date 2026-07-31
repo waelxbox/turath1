@@ -375,7 +375,7 @@ export default function SimpleReviewPage({ projectId, project, docId: docIdProp 
 
   // Fetch document list for navigation
   const { data: docsData } = trpc.documents.listPaginated.useQuery(
-    { projectId, limit: 500, status: "needs_review" },
+    { projectId, limit: 100, status: "needs_review" },
     { staleTime: 30000 }
   );
   const documents = docsData?.documents ?? [];
