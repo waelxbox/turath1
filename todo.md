@@ -697,3 +697,14 @@
 - [x] Keep sidebar dark (#1A1D23) in both modes as anchor
 - [x] Bulk-fix all hard-coded text-*-400 colors with dark: variants (17 files)
 - [x] Add theme.test.ts vitest (7 tests verifying CSS structure, ThemeContext, toggle)
+## New Review Interface (Round 65)
+- [x] Create SimpleReviewPage.tsx — full-screen review with text-first design
+- [x] Image viewer panel (left) with floating toolbar: zoom, rotate, contrast, fit-to-width, fullscreen
+- [x] Transcription panel (right): tags row, collapsible metadata, inline-editable transcription text, researcher notes
+- [x] Sticky bottom action bar: Prev/Next/Skip/Flag/Approve with keyboard shortcuts
+- [x] Top header bar: back arrow, "DOCUMENT REVIEW", progress counter, stats, Check AI button
+- [x] Wire into ProjectWorkspace routing as full-screen takeover (no sidebar/header chrome)
+- [x] Mobile responsive layout (stacked: image top, transcription bottom)
+- [x] Auto-save indicator and entity highlighting in transcription text
+- [x] Keyboard shortcuts: ⌘+Enter approve, F flag, ← prev, → next
+- [x] Write vitest for the new review page (46 tests)

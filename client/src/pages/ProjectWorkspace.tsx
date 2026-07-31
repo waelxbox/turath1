@@ -17,6 +17,7 @@ import KnowledgeGraphPage from "./project/KnowledgeGraphPage";
 import EntityDirectoryPage from "./project/EntityDirectoryPage";
 import EntityMergePage from "./project/EntityMergePage";
 import QuickReviewPage from "./project/QuickReviewPage";
+import SimpleReviewPage from "./project/SimpleReviewPage";
 import ValidationAdminPage from "./project/ValidationAdminPage";
 import ResearchPage from "./project/ResearchPage";
 import ActivityFeedPage from "./project/ActivityFeedPage";
@@ -177,11 +178,13 @@ function WorkspaceInner({
 
   // Check if we're on the quick-review page (full-screen on mobile)
   const isQuickReview = activeNav === "quick-review";
+  // Check if we're in the full-screen document review (SimpleReviewPage)
+  const isDocReview = location.match(/^\/review\/\d+/);
 
   return (
     <div className="flex flex-col min-h-0 flex-1">
       {/* Top header with breadcrumb — compact on mobile */}
-      <header className={`border-b border-border bg-card/50 flex-shrink-0 ${isQuickReview ? "md:block hidden" : ""}`}>
+      <header className={`border-b border-border bg-card/50 flex-shrink-0 ${isQuickReview ? "md:block hidden" : ""} ${isDocReview ? "hidden" : ""}`}>
         <div className="container flex items-center justify-between h-12 md:h-14 px-3 md:px-4">
           <div className="flex items-center gap-2 text-sm min-w-0">
             {/* Mobile menu toggle */}
@@ -332,8 +335,8 @@ function WorkspaceInner({
           </div>
         )}
 
-        {/* Desktop sidebar — hidden on mobile */}
-        <aside className="hidden md:flex w-52 border-r border-border bg-sidebar flex-shrink-0 flex-col">
+        {/* Desktop sidebar — hidden on mobile, hidden in doc review */}
+        <aside className={`hidden md:flex w-52 border-r border-border bg-sidebar flex-shrink-0 flex-col ${isDocReview ? "!hidden" : ""}`}>
           <nav className="flex-1 p-3 space-y-4 overflow-y-auto">
             {navGroups.map(group => (
               <div key={group.label}>
@@ -410,13 +413,13 @@ function WorkspaceInner({
               <Route path="/settings">
                 <ProjectSettings projectId={projectId} project={project} />
               </Route>
-              {/* review with a specific document selected */}
+              {/* review with a specific document selected — new full-screen interface */}
               <Route path="/review/:docId">
                 {(params) => (
-                  <ReviewPage projectId={projectId} project={project} docId={params.docId} />
+                  <SimpleReviewPage projectId={projectId} project={project} docId={params.docId} />
                 )}
               </Route>
-              {/* review queue (no specific doc) */}
+              {/* review queue (no specific doc) — shows document list first */}
               <Route path="/review">
                 <ReviewPage projectId={projectId} project={project} />
               </Route>
