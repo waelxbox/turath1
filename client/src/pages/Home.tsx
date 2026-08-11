@@ -75,7 +75,7 @@ export default function Home() {
 
           {/* Hero visual */}
           <div className="mt-20 max-w-5xl mx-auto">
-            <div className="rounded-xl border border-border bg-card overflow-hidden shadow-2xl shadow-black/40">
+            <div className="rounded-xl border border-border bg-card overflow-hidden shadow-2xl shadow-black/10 dark:shadow-black/40">
               {/* Fake browser chrome */}
               <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-secondary/50">
                 <div className="w-3 h-3 rounded-full bg-red-500/60" />

@@ -712,3 +712,18 @@
 - [x] Make SimpleReviewPage accessible only via "Full Page Viewer" button on ReviewPage (not default route)
 - [x] Fix Next/Back navigation (broken path construction with wouter relative routing)
 - [x] Fix metadata section: show ALL non-transcription fields, not just hardcoded set
+## UI Audit — Remaining Fixes (Round 67)
+- [x] Fix 4 remaining text-*-400 colors without dark: variants (ActivityFeedPage, ExportPage, SemanticSearchPage)
+- [x] Fix NotFound page: replace hard-coded slate/blue with semantic design tokens
+- [x] Fix Onboarding border-white/20 on image thumbnails (invisible in light mode)
+- [x] Fix Home page shadow-black/40 too harsh in light mode (now /10 light, /40 dark)
+- [ ] Full UI audit of all screens in light mode (Dashboard, Workspace, Upload, Search, Entities, Settings, Export, Activity)
+- [ ] Add "Archival Intelligence" tagline to hero/landing page
+- [ ] Implement approved Stitch home/hero page redesign (warm humanistic landing, manuscript→structured data visual)
+- [ ] Review page: check field editor spacing and label alignment in light mode
+- [ ] Onboarding page: verify chat bubbles have sufficient contrast in light mode
+- [ ] Upload page: verify drag-drop zone border visibility in light mode
+- [ ] Search/Entities pages: verify badge/chip colors readable on cream background
+- [ ] Settings page: verify form inputs have visible borders in light mode
+- [ ] Mobile responsive audit across all pages (especially ProjectWorkspace sidebar collapse)
+- [ ] Check all modals/dialogs for proper bg-card usage in light mode

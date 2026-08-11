@@ -385,7 +385,7 @@ export default function ExportPage({ projectId, project }: Props) {
       <div className="mt-5 bg-card border border-border rounded-xl p-6 hover:border-primary/30 transition-colors">
         <div className="flex items-start gap-4 mb-4">
           <div className="w-10 h-10 rounded-lg bg-purple-500/15 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
-            <FileText className="w-5 h-5 text-purple-400" />
+            <FileText className="w-5 h-5 text-purple-700 dark:text-purple-400" />
           </div>
           <div>
             <h3 className="font-semibold mb-1">TEI-XML Entity Authority File</h3>

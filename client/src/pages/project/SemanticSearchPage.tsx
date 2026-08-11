@@ -33,7 +33,7 @@ interface Props {
 // Similarity score → human-readable label + colour
 function similarityLabel(score: number): { label: string; className: string } {
   if (score >= 0.025) return { label: "Excellent match", className: "text-green-700 dark:text-green-400 bg-green-400/10" };
-  if (score >= 0.018) return { label: "Strong match",   className: "text-emerald-400 bg-emerald-400/10" };
+  if (score >= 0.018) return { label: "Strong match",   className: "text-emerald-700 dark:text-emerald-400 bg-emerald-400/10" };
   if (score >= 0.012) return { label: "Good match",     className: "text-yellow-700 dark:text-yellow-400 bg-yellow-400/10" };
   return                     { label: "Partial match", className: "text-orange-700 dark:text-orange-400 bg-orange-400/10" };
 }

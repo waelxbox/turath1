@@ -6,12 +6,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 const ACTION_LABELS: Record<string, { label: string; icon: React.ComponentType<{ className?: string }>; color: string }> = {
   document_uploaded: { label: "Uploaded", icon: Upload, color: "text-blue-600 dark:text-blue-400" },
-  document_transcribed: { label: "Transcribed", icon: Zap, color: "text-purple-400" },
+  document_transcribed: { label: "Transcribed", icon: Zap, color: "text-purple-700 dark:text-purple-400" },
   document_reviewed: { label: "Reviewed", icon: Eye, color: "text-yellow-700 dark:text-yellow-400" },
   document_approved: { label: "Approved", icon: CheckCircle, color: "text-green-700 dark:text-green-400" },
   document_flagged: { label: "Flagged", icon: Flag, color: "text-red-600 dark:text-red-400" },
   document_assigned: { label: "Assigned", icon: Users, color: "text-cyan-400" },
-  entity_created: { label: "Entity created", icon: Network, color: "text-emerald-400" },
+  entity_created: { label: "Entity created", icon: Network, color: "text-emerald-700 dark:text-emerald-400" },
   entity_merged: { label: "Entities merged", icon: Network, color: "text-amber-700 dark:text-amber-400" },
   entity_deleted: { label: "Entity deleted", icon: Network, color: "text-red-600 dark:text-red-400" },
   validation_session_created: { label: "Validation created", icon: Activity, color: "text-indigo-600 dark:text-indigo-400" },

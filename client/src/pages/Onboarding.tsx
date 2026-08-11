@@ -286,7 +286,7 @@ export default function Onboarding() {
                         key={j}
                         src={url}
                         alt="Sample"
-                        className="w-20 h-20 object-cover rounded-lg border border-white/20"
+                        className="w-20 h-20 object-cover rounded-lg border border-border"
                       />
                     ))}
                   </div>
