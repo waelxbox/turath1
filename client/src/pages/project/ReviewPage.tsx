@@ -809,9 +809,9 @@ function ReviewDocPanel({
       )}
 
       {/* Split view — image + form */}
-      <div className="flex-1 overflow-hidden flex">
+      <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
         {/* Image panel */}
-        <div className={`relative flex flex-col ${fullscreen ? 'fixed inset-0 z-[100] bg-black' : 'w-1/2 border-r border-border/30'}`}>
+        <div className={`relative flex flex-col ${fullscreen ? 'fixed inset-0 z-[100] bg-black' : 'h-[35vh] md:h-auto md:w-1/2 border-b md:border-b-0 md:border-r border-border/30'}`}>
           {/* Image area with floating controls */}
           <div
             ref={imgContainerRef}
@@ -901,7 +901,7 @@ function ReviewDocPanel({
         </div>
 
         {/* Form / transcription panel */}
-        <div className={`flex flex-col ${fullscreen ? 'hidden' : 'w-1/2'}`}>
+        <div className={`flex flex-col ${fullscreen ? 'hidden' : 'flex-1 md:w-1/2'}`}>
           {/* Tab bar — sticky at top */}
           {!transcriptionLoading && transcription && (
             <div className="flex items-center border-b border-border/50 px-4 bg-card/30 flex-shrink-0 overflow-x-auto">
