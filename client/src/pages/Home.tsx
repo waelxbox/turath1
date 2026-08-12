@@ -42,11 +42,11 @@ export default function Home() {
       </nav>
 
       {/* Hero */}
-      <section className="pt-36 pb-24 relative">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-primary/5 rounded-full blur-3xl pointer-events-none" />
+      <section className="pt-40 pb-32 relative">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[600px] bg-primary/3 rounded-full blur-3xl pointer-events-none" />
         <div className="max-w-7xl mx-auto px-6 relative">
           <div className="max-w-4xl mx-auto text-center">
-            <p className="text-xs font-semibold text-primary uppercase tracking-[0.2em] mb-8">
+            <p className="text-[11px] font-semibold text-primary uppercase tracking-[0.15em] mb-10">
               Archival Intelligence
             </p>
             <h1 className="text-5xl sm:text-6xl lg:text-[4.5rem] font-serif font-semibold leading-[1.08] tracking-tight mb-6">
@@ -68,9 +68,9 @@ export default function Home() {
       </section>
 
       {/* Visual Metaphor — Manuscript → Structured Data */}
-      <section className="pb-32 px-6">
+      <section className="pb-36 px-6">
         <div className="max-w-5xl mx-auto">
-          <div className="relative w-full rounded-xl border border-border bg-card overflow-hidden flex flex-col md:flex-row shadow-xl shadow-black/5 dark:shadow-black/30">
+          <div className="relative w-full rounded-2xl border border-border bg-card overflow-hidden flex flex-col md:flex-row shadow-2xl shadow-black/8 dark:shadow-black/40 ring-1 ring-black/5 dark:ring-white/5">
             {/* Left: Manuscript Image */}
             <div className="w-full md:w-1/2 h-72 md:h-[460px] relative border-b md:border-b-0 md:border-r border-border">
               <div
@@ -111,7 +111,7 @@ export default function Home() {
       </section>
 
       {/* How it works */}
-      <section id="how-it-works" className="py-28 border-t border-border/50 bg-secondary/30 dark:bg-secondary/10">
+      <section id="how-it-works" className="py-32 border-t border-border/50">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-20">
             <h2 className="text-3xl sm:text-4xl font-serif font-semibold mb-4">A thoughtful approach to preservation</h2>
@@ -138,8 +138,8 @@ export default function Home() {
               },
             ].map(({ icon: Icon, title, desc }) => (
               <div key={title} className="flex flex-col items-center text-center group">
-                <div className="w-16 h-16 rounded-full border border-border bg-card flex items-center justify-center mb-6 text-primary group-hover:border-primary transition-colors duration-300">
-                  <Icon className="w-7 h-7" />
+                <div className="w-20 h-20 rounded-full border-2 border-border bg-card flex items-center justify-center mb-8 text-primary group-hover:border-primary group-hover:shadow-lg group-hover:shadow-primary/10 transition-all duration-300">
+                  <Icon className="w-8 h-8" strokeWidth={1.5} />
                 </div>
                 <h3 className="font-semibold text-lg mb-3">{title}</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
@@ -150,7 +150,7 @@ export default function Home() {
       </section>
 
       {/* What becomes possible — Editorial layout */}
-      <section id="about" className="py-28 border-t border-border/50">
+      <section id="about" className="py-32 border-t border-border/50">
         <div className="max-w-7xl mx-auto px-6">
           <div className="mb-20">
             <h2 className="text-3xl sm:text-4xl font-serif font-semibold mb-4">What becomes possible</h2>
@@ -201,7 +201,7 @@ export default function Home() {
       </section>
 
       {/* CTA */}
-      <section className="py-28 border-t border-border/50 text-center">
+      <section className="py-32 border-t border-border/50 text-center">
         <div className="max-w-3xl mx-auto px-6">
           <h2 className="text-3xl sm:text-4xl font-serif font-semibold mb-6">Ready to unlock your archive?</h2>
           <p className="text-muted-foreground text-lg mb-10 max-w-xl mx-auto">
