@@ -3,7 +3,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { getLoginUrl } from "@/const";
 import { useLocation } from "wouter";
-import { ArrowRight, Search, BookOpen, Network, Eye, Upload, Sparkles, CheckCircle2 } from "lucide-react";
+import { ArrowRight, Search, BookOpen, Network, Eye, Upload, CheckCircle2 } from "lucide-react";
 
 export default function Home() {
   const { isAuthenticated, loading } = useAuth();
@@ -46,10 +46,9 @@ export default function Home() {
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-primary/5 rounded-full blur-3xl pointer-events-none" />
         <div className="max-w-7xl mx-auto px-6 relative">
           <div className="max-w-4xl mx-auto text-center">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-primary/30 bg-primary/10 text-primary text-xs font-semibold tracking-wide uppercase mb-8">
-              <Sparkles className="w-3.5 h-3.5" />
+            <p className="text-xs font-semibold text-primary uppercase tracking-[0.2em] mb-8">
               Archival Intelligence
-            </div>
+            </p>
             <h1 className="text-5xl sm:text-6xl lg:text-[4.5rem] font-serif font-semibold leading-[1.08] tracking-tight mb-6">
               Unlock the stories your{" "}
               <span className="text-primary">archive</span> holds
@@ -204,7 +203,6 @@ export default function Home() {
       {/* CTA */}
       <section className="py-28 border-t border-border/50 text-center">
         <div className="max-w-3xl mx-auto px-6">
-          <Sparkles className="w-8 h-8 text-primary mx-auto mb-6" />
           <h2 className="text-3xl sm:text-4xl font-serif font-semibold mb-6">Ready to unlock your archive?</h2>
           <p className="text-muted-foreground text-lg mb-10 max-w-xl mx-auto">
             Begin the careful process of bringing your historical collection into the light — preserving them for future generations of scholars.
