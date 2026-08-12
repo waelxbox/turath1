@@ -23,7 +23,7 @@ export function ThemeProvider({
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(() => {
     if (switchable) {
-      const stored = localStorage.getItem("theme");
+      const stored = localStorage.getItem("turath-theme-v2");
       return (stored as Theme) || defaultTheme;
     }
     return defaultTheme;
@@ -38,7 +38,7 @@ export function ThemeProvider({
     }
 
     if (switchable) {
-      localStorage.setItem("theme", theme);
+      localStorage.setItem("turath-theme-v2", theme);
     }
   }, [theme, switchable]);
 
