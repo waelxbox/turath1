@@ -5,6 +5,7 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
 import Dashboard from "./pages/Dashboard";
 import Onboarding from "./pages/Onboarding";
 import ProjectWorkspace from "./pages/ProjectWorkspace";
@@ -14,6 +15,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/privacy" component={PrivacyPolicy} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/projects/:id/onboarding" component={Onboarding} />
       {/* Sandboxed Review Portal — no auth, no nav */}

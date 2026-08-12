@@ -3,7 +3,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { getLoginUrl } from "@/const";
 import { useLocation } from "wouter";
-import { ArrowRight, Layers, Wand2, CheckCircle2, FileText, Download, Users } from "lucide-react";
+import { ArrowRight, Search, BookOpen, Network, Eye, Upload, Sparkles, CheckCircle2 } from "lucide-react";
 
 export default function Home() {
   const { isAuthenticated, loading } = useAuth();
@@ -23,18 +23,18 @@ export default function Home() {
     <div className="min-h-screen bg-background text-foreground overflow-x-hidden">
       {/* Nav */}
       <nav className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-md">
-        <div className="container flex items-center justify-between h-16">
-          <div className="flex items-center gap-2">
+        <div className="max-w-7xl mx-auto flex items-center justify-between h-16 px-6">
+          <a href="/" className="flex items-center gap-2">
             <div className="w-7 h-7 rounded bg-primary flex items-center justify-center">
               <span className="text-primary-foreground font-bold text-xs">ت</span>
             </div>
             <span className="font-serif font-semibold text-lg tracking-tight">TURATH</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <a href={getLoginUrl()} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-              Sign in
+          </a>
+          <div className="flex items-center gap-4">
+            <a href="#about" className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden md:block">
+              About
             </a>
-            <Button size="sm" asChild>
+            <Button size="sm" className="rounded-full px-6" asChild>
               <a href={getLoginUrl()}>Get started</a>
             </Button>
           </div>
@@ -42,91 +42,68 @@ export default function Home() {
       </nav>
 
       {/* Hero */}
-      <section className="pt-32 pb-24 relative">
-        {/* Background glow */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-primary/5 rounded-full blur-3xl pointer-events-none" />
-        <div className="container relative">
+      <section className="pt-36 pb-24 relative">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-primary/5 rounded-full blur-3xl pointer-events-none" />
+        <div className="max-w-7xl mx-auto px-6 relative">
           <div className="max-w-4xl mx-auto text-center">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-primary/30 bg-primary/10 text-primary text-xs font-medium mb-8">
-              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-              AI-powered archival transcription
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-primary/30 bg-primary/10 text-primary text-xs font-semibold tracking-wide uppercase mb-8">
+              <Sparkles className="w-3.5 h-3.5" />
+              Archival Intelligence
             </div>
-            <h1 className="text-5xl sm:text-6xl lg:text-7xl font-serif font-semibold leading-[1.1] tracking-tight mb-6">
-              Your archive.{" "}
-              <span className="text-primary">Your AI.</span>
-              <br />Your workflow.
+            <h1 className="text-5xl sm:text-6xl lg:text-[4.5rem] font-serif font-semibold leading-[1.08] tracking-tight mb-6">
+              Unlock the stories your{" "}
+              <span className="text-primary">archive</span> holds
             </h1>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed">
-              Show the AI a few examples of your documents, and it learns to read the rest.
-              Search, ask questions, and discover connections across your entire archive.
-              No infrastructure. No code.
+              TURATH helps researchers transcribe, search, and converse with historical
+              document collections — with systems that learn from your scholarly expertise
+              and respect the heritage of the artifacts.
             </p>
-            <div className="flex items-center justify-center gap-4 flex-wrap">
-              <Button size="lg" className="gap-2 text-base px-8" asChild>
-                <a href={getLoginUrl()}>
-                  Start transcribing <ArrowRight className="w-4 h-4" />
-                </a>
-              </Button>
-              <Button size="lg" variant="outline" className="gap-2 text-base px-8 bg-transparent" asChild>
-                <a href="#how-it-works">See how it works</a>
-              </Button>
-            </div>
+            <Button size="lg" className="gap-2 text-base px-8 rounded-full shadow-[0_0_20px_rgba(196,136,58,0.15)] hover:shadow-[0_0_30px_rgba(196,136,58,0.25)] transition-shadow" asChild>
+              <a href={getLoginUrl()}>
+                Start a project <ArrowRight className="w-4 h-4" />
+              </a>
+            </Button>
           </div>
+        </div>
+      </section>
 
-          {/* Hero visual */}
-          <div className="mt-20 max-w-5xl mx-auto">
-            <div className="rounded-xl border border-border bg-card overflow-hidden shadow-2xl shadow-black/10 dark:shadow-black/40">
-              {/* Fake browser chrome */}
-              <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-secondary/50">
-                <div className="w-3 h-3 rounded-full bg-red-500/60" />
-                <div className="w-3 h-3 rounded-full bg-yellow-500/60" />
-                <div className="w-3 h-3 rounded-full bg-green-500/60" />
-                <div className="flex-1 mx-4 h-6 rounded bg-background/60 flex items-center px-3">
-                  <span className="text-xs text-muted-foreground">turath.manus.space/projects/brovarski</span>
-                </div>
+      {/* Visual Metaphor — Manuscript → Structured Data */}
+      <section className="pb-32 px-6">
+        <div className="max-w-5xl mx-auto">
+          <div className="relative w-full rounded-xl border border-border bg-card overflow-hidden flex flex-col md:flex-row shadow-xl shadow-black/5 dark:shadow-black/30">
+            {/* Left: Manuscript Image */}
+            <div className="w-full md:w-1/2 h-72 md:h-[460px] relative border-b md:border-b-0 md:border-r border-border">
+              <div
+                className="absolute inset-0 bg-cover bg-center opacity-80 dark:opacity-60"
+                style={{ backgroundImage: "url('/manus-storage/manuscript-hero_30d26bf3.png')" }}
+              />
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-card dark:to-card" />
+              <div className="absolute top-4 left-4 bg-background/80 dark:bg-background/60 backdrop-blur-sm px-3 py-1 rounded text-[10px] font-bold text-primary tracking-widest uppercase border border-border/50">
+                Original Artifact
               </div>
-              {/* Fake UI */}
-              <div className="grid grid-cols-12 min-h-[320px]">
-                {/* Sidebar */}
-                <div className="col-span-2 border-r border-border bg-sidebar p-3 space-y-1">
-                  {["Overview", "Upload", "Review", "Export", "Settings"].map((item, i) => (
-                    <div key={item} className={`px-2 py-1.5 rounded text-xs ${i === 2 ? "bg-primary/20 text-primary" : "text-sidebar-foreground/60"}`}>
-                      {item}
-                    </div>
-                  ))}
+            </div>
+            {/* Right: Structured Output */}
+            <div className="w-full md:w-1/2 h-72 md:h-[460px] bg-card p-8 md:p-12 flex flex-col justify-center relative">
+              <div className="absolute top-4 right-4 bg-background/80 dark:bg-background/60 backdrop-blur-sm px-3 py-1 rounded text-[10px] font-bold text-primary tracking-widest uppercase border border-border/50">
+                Structured Record
+              </div>
+              <div className="w-full max-w-sm bg-background/50 dark:bg-background/30 backdrop-blur-sm p-6 rounded-lg border border-border/50 flex flex-col gap-4">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-widest">Date</span>
+                  <span className="font-mono text-sm text-foreground">14 March 1923</span>
                 </div>
-                {/* Main content */}
-                <div className="col-span-10 p-6">
-                  <div className="flex items-center justify-between mb-6">
-                    <div>
-                      <div className="h-5 w-48 bg-foreground/10 rounded mb-2" />
-                      <div className="h-3 w-32 bg-foreground/5 rounded" />
-                    </div>
-                    <div className="flex gap-2">
-                      <div className="h-8 w-24 bg-primary/20 rounded border border-primary/30" />
-                      <div className="h-8 w-20 bg-foreground/5 rounded border border-border" />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-4 gap-3 mb-6">
-                    {[["247", "Total"], ["189", "Reviewed"], ["41", "Pending"], ["17", "Flagged"]].map(([n, l]) => (
-                      <div key={l} className="bg-background rounded-lg border border-border p-3">
-                        <div className="text-xl font-semibold text-foreground">{n}</div>
-                        <div className="text-xs text-muted-foreground">{l}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="space-y-2">
-                    {[
-                      { name: "BRV_0047.jpg", status: "reviewed", color: "text-green-700 dark:text-green-400" },
-                      { name: "BRV_0048.jpg", status: "needs review", color: "text-yellow-700 dark:text-yellow-400" },
-                      { name: "BRV_0049.jpg", status: "processing", color: "text-amber-700 dark:text-amber-400" },
-                    ].map(row => (
-                      <div key={row.name} className="flex items-center justify-between py-2 px-3 rounded bg-background/50 border border-border/50 text-xs">
-                        <span className="text-foreground/70">{row.name}</span>
-                        <span className={row.color}>{row.status}</span>
-                      </div>
-                    ))}
-                  </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-widest">From</span>
+                  <span className="font-mono text-sm text-foreground">Georges Behna</span>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-widest">To</span>
+                  <span className="font-mono text-sm text-foreground">Yokohama Trading Co.</span>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-widest">Subject</span>
+                  <span className="font-mono text-sm text-primary">Shipment of textiles delayed</span>
                 </div>
               </div>
             </div>
@@ -135,43 +112,88 @@ export default function Home() {
       </section>
 
       {/* How it works */}
-      <section id="how-it-works" className="py-24 border-t border-border/50">
-        <div className="container">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-serif font-semibold mb-4">From examples to a working reader in minutes</h2>
+      <section id="how-it-works" className="py-28 border-t border-border/50 bg-secondary/30 dark:bg-secondary/10">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="text-center mb-20">
+            <h2 className="text-3xl sm:text-4xl font-serif font-semibold mb-4">A thoughtful approach to preservation</h2>
             <p className="text-muted-foreground max-w-xl mx-auto">
-              Show the AI how you want your documents read, and it builds itself. No programming required.
+              Stewardship of historical collections requires care. Our process ensures your expertise remains central.
             </p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-12 max-w-5xl mx-auto">
             {[
               {
-                icon: Layers,
-                step: "01",
-                title: "Upload 3–5 samples",
-                desc: "Upload a few document images with your ideal transcriptions. The AI learns your style from these examples.",
+                icon: Upload,
+                title: "1. Show it your archive",
+                desc: "Upload a representative sample of documents alongside your existing, meticulous transcriptions to establish a baseline.",
               },
               {
-                icon: Wand2,
-                step: "02",
-                title: "AI builds your config",
-                desc: "The AI studies your examples and builds a custom reader — it figures out the language, structure, and terminology automatically.",
+                icon: BookOpen,
+                title: "2. It learns your collection",
+                desc: "TURATH carefully builds a custom understanding tuned specifically to the unique handwriting, dialects, and terminology of your era.",
               },
               {
                 icon: CheckCircle2,
-                step: "03",
-                title: "Validate & refine",
-                desc: "The AI tests itself against one of your examples. If something's off, just tell it what to fix in plain language.",
+                title: "3. Review and discover",
+                desc: "You retain full editorial control, reviewing all output. Once validated, seamlessly search and draw connections across the entire corpus.",
               },
-            ].map(({ icon: Icon, step, title, desc }) => (
-              <div key={step} className="relative">
-                <div className="text-6xl font-serif font-bold text-border/40 absolute -top-4 -left-2 select-none">{step}</div>
-                <div className="relative bg-card border border-border rounded-xl p-6 pt-8">
-                  <div className="w-10 h-10 rounded-lg bg-primary/15 border border-primary/30 flex items-center justify-center mb-4">
-                    <Icon className="w-5 h-5 text-primary" />
-                  </div>
-                  <h3 className="font-semibold text-lg mb-2 font-sans">{title}</h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
+            ].map(({ icon: Icon, title, desc }) => (
+              <div key={title} className="flex flex-col items-center text-center group">
+                <div className="w-16 h-16 rounded-full border border-border bg-card flex items-center justify-center mb-6 text-primary group-hover:border-primary transition-colors duration-300">
+                  <Icon className="w-7 h-7" />
+                </div>
+                <h3 className="font-semibold text-lg mb-3">{title}</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* What becomes possible — Editorial layout */}
+      <section id="about" className="py-28 border-t border-border/50">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="mb-20">
+            <h2 className="text-3xl sm:text-4xl font-serif font-semibold mb-4">What becomes possible</h2>
+            <p className="text-muted-foreground max-w-2xl">
+              Transform static archives into dynamic bodies of knowledge, revealing connections that would take a lifetime to uncover manually.
+            </p>
+          </div>
+          <div className="flex flex-col gap-16 md:gap-20">
+            {[
+              {
+                icon: Search,
+                label: "Natural Query",
+                title: "Converse with history",
+                desc: "Ask complex questions like \"Who did the Behna family trade with during the embargo?\" and receive cited answers drawn directly from your primary sources.",
+              },
+              {
+                icon: BookOpen,
+                title: "Instant Corpus Search",
+                desc: "Search thousands of delicate pages instantly without risking physical handling of the artifacts.",
+              },
+              {
+                icon: Network,
+                title: "Uncover Hidden Networks",
+                desc: "Automatically identify named entities — people, locations, trade goods — and visualize their relationships across decades of documents.",
+              },
+              {
+                icon: Eye,
+                label: "Fidelity",
+                title: "Side-by-side verification",
+                desc: "The review interface keeps the original artifact intimately connected to its transcription, ensuring scholarly rigor.",
+              },
+            ].map(({ icon: Icon, label, title, desc }) => (
+              <div key={title} className="flex flex-col md:flex-row gap-6 md:gap-12 items-start">
+                <div className="text-primary mt-1 flex-shrink-0">
+                  <Icon className="w-8 h-8" />
+                </div>
+                <div className="max-w-2xl">
+                  {label && (
+                    <span className="text-xs font-semibold text-primary uppercase tracking-widest mb-2 block">{label}</span>
+                  )}
+                  <h3 className="text-xl md:text-2xl font-semibold mb-3">{title}</h3>
+                  <p className="text-muted-foreground leading-relaxed text-[17px]">{desc}</p>
                 </div>
               </div>
             ))}
@@ -179,58 +201,36 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Features */}
-      <section className="py-24 border-t border-border/50">
-        <div className="container">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-serif font-semibold mb-4">Everything a digital archive needs</h2>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
-            {[
-              { icon: FileText, title: "Smart review interface", desc: "Review AI transcriptions side-by-side with the original document. Edit fields, approve, or flag for later." },
-              { icon: Wand2, title: "Flexible reading modes", desc: "Direct extraction for simple documents. Two-step reading for complex handwriting or multi-language materials." },
-              { icon: Users, title: "Private by design", desc: "Each project is completely isolated. Your documents, AI settings, and data are never shared between projects." },
-              { icon: Layers, title: "Learns your terminology", desc: "The AI picks up specialized names, places, and terms from your examples and uses them consistently." },
-              { icon: Download, title: "Export anywhere", desc: "Download your transcriptions as CSV or JSON for use in databases, publications, or other tools." },
-              { icon: CheckCircle2, title: "Track your progress", desc: "See which documents are done, which need review, and how far along your project is at a glance." },
-            ].map(({ icon: Icon, title, desc }) => (
-              <div key={title} className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 transition-colors">
-                <Icon className="w-5 h-5 text-primary mb-3" />
-                <h3 className="font-semibold mb-1.5 font-sans text-sm">{title}</h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">{desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* CTA */}
-      <section className="py-24 border-t border-border/50">
-        <div className="container">
-          <div className="max-w-2xl mx-auto text-center">
-            <h2 className="text-3xl sm:text-4xl font-serif font-semibold mb-4">Ready to digitize your archive?</h2>
-            <p className="text-muted-foreground mb-8">
-              Join researchers, digital librarians, and archivists who are using TURATH to bring their collections online.
-            </p>
-            <Button size="lg" className="gap-2 text-base px-10" asChild>
-              <a href={getLoginUrl()}>
-                Create your first project <ArrowRight className="w-4 h-4" />
-              </a>
-            </Button>
-          </div>
+      <section className="py-28 border-t border-border/50 text-center">
+        <div className="max-w-3xl mx-auto px-6">
+          <Sparkles className="w-8 h-8 text-primary mx-auto mb-6" />
+          <h2 className="text-3xl sm:text-4xl font-serif font-semibold mb-6">Ready to unlock your archive?</h2>
+          <p className="text-muted-foreground text-lg mb-10 max-w-xl mx-auto">
+            Begin the careful process of bringing your historical collection into the light — preserving them for future generations of scholars.
+          </p>
+          <Button size="lg" className="gap-2 text-base px-10 rounded-full" asChild>
+            <a href={getLoginUrl()}>
+              Start a project <ArrowRight className="w-4 h-4" />
+            </a>
+          </Button>
         </div>
       </section>
 
       {/* Footer */}
       <footer className="border-t border-border/50 py-8">
-        <div className="container flex items-center justify-between text-xs text-muted-foreground">
+        <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <div className="w-5 h-5 rounded bg-primary/20 flex items-center justify-center">
               <span className="text-primary font-bold text-[10px]">ت</span>
             </div>
-            <span>TURATH — Archival Transcription Platform</span>
+            <span className="text-xs text-muted-foreground">TURATH — Archival Transcription Platform</span>
           </div>
-          <span>تراث</span>
+          <nav className="flex items-center gap-6">
+            <a href="/privacy" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+              Privacy Policy
+            </a>
+          </nav>
         </div>
       </footer>
     </div>

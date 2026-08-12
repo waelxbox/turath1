@@ -719,7 +719,10 @@
 - [x] Fix Home page shadow-black/40 too harsh in light mode (now /10 light, /40 dark)
 - [ ] Full UI audit of all screens in light mode (Dashboard, Workspace, Upload, Search, Entities, Settings, Export, Activity)
 - [ ] Add "Archival Intelligence" tagline to hero/landing page
-- [ ] Implement approved Stitch home/hero page redesign (warm humanistic landing, manuscript→structured data visual)
+- [x] Add "Archival Intelligence" tagline to hero/landing page
+- [x] Implement approved Stitch home/hero page redesign (warm humanistic landing, manuscript→structured data visual)
+- [x] Create Privacy Policy page (/privacy) with proper content
+- [x] Add storage proxy for webdev static assets (manuscript hero image)
 - [ ] Review page: check field editor spacing and label alignment in light mode
 - [ ] Onboarding page: verify chat bubbles have sufficient contrast in light mode
 - [ ] Upload page: verify drag-drop zone border visibility in light mode
