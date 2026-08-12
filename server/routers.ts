@@ -1129,6 +1129,106 @@ const transcriptionsRouter = router({
 
       return { success: true };
     }),
+
+  // Recursive field propagation — find all documents with oldValue and replace with newValue
+  propagateFieldCorrection: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      fieldKey: z.string(),
+      oldValue: z.string(),
+      newValue: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role) throw new TRPCError({ code: "NOT_FOUND" });
+      if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+
+      const { getDb } = await import("./db");
+      const { transcriptions: transcriptionsTable, documents: documentsTable } = await import("../drizzle/schema");
+      const { eq, and } = await import("drizzle-orm");
+      const dbConn = (await getDb())!;
+
+      // Find all transcriptions in this project
+      const allTranscriptions = await dbConn
+        .select({ id: transcriptionsTable.id, reviewedJson: transcriptionsTable.reviewedJson, rawJson: transcriptionsTable.rawJson, documentId: transcriptionsTable.documentId })
+        .from(transcriptionsTable)
+        .innerJoin(documentsTable, eq(documentsTable.id, transcriptionsTable.documentId))
+        .where(eq(documentsTable.projectId, input.projectId));
+
+      let updatedCount = 0;
+      for (const t of allTranscriptions) {
+        const json = (t.reviewedJson ?? t.rawJson) as Record<string, unknown> | null;
+        if (!json) continue;
+        const fieldValue = json[input.fieldKey];
+        if (fieldValue === undefined) continue;
+
+        let needsUpdate = false;
+        let newFieldValue: unknown = fieldValue;
+
+        if (typeof fieldValue === "string" && fieldValue.includes(input.oldValue)) {
+          newFieldValue = fieldValue.replaceAll(input.oldValue, input.newValue);
+          needsUpdate = true;
+        } else if (Array.isArray(fieldValue)) {
+          const newArr = fieldValue.map(item =>
+            typeof item === "string" && item.includes(input.oldValue)
+              ? item.replaceAll(input.oldValue, input.newValue)
+              : item
+          );
+          if (JSON.stringify(newArr) !== JSON.stringify(fieldValue)) {
+            newFieldValue = newArr;
+            needsUpdate = true;
+          }
+        }
+
+        if (needsUpdate) {
+          const updatedJson = { ...json, [input.fieldKey]: newFieldValue };
+          await dbConn
+            .update(transcriptionsTable)
+            .set({ reviewedJson: updatedJson })
+            .where(eq(transcriptionsTable.id, t.id));
+          updatedCount++;
+        }
+      }
+
+      return { success: true, updatedCount };
+    }),
+
+  // Count how many documents would be affected by a field propagation
+  countPropagationTargets: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      fieldKey: z.string(),
+      oldValue: z.string(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const { getDb } = await import("./db");
+      const { transcriptions: transcriptionsTable, documents: documentsTable } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const dbConn = (await getDb())!;
+
+      const allTranscriptions = await dbConn
+        .select({ reviewedJson: transcriptionsTable.reviewedJson, rawJson: transcriptionsTable.rawJson })
+        .from(transcriptionsTable)
+        .innerJoin(documentsTable, eq(documentsTable.id, transcriptionsTable.documentId))
+        .where(eq(documentsTable.projectId, input.projectId));
+
+      let count = 0;
+      for (const t of allTranscriptions) {
+        const json = (t.reviewedJson ?? t.rawJson) as Record<string, unknown> | null;
+        if (!json) continue;
+        const fieldValue = json[input.fieldKey];
+        if (typeof fieldValue === "string" && fieldValue.includes(input.oldValue)) {
+          count++;
+        } else if (Array.isArray(fieldValue) && fieldValue.some(item => typeof item === "string" && item.includes(input.oldValue))) {
+          count++;
+        }
+      }
+
+      return { count };
+    }),
 });
 
 // ─── RAG / Semantic Chat Router ───────────────────────────────────────────────

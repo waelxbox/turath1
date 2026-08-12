@@ -217,6 +217,50 @@ function isPerPageField(key: string): boolean {
   return PER_PAGE_FIELDS.has(base) || base.includes("transcription") || base.includes("translation");
 }
 
+/* ─── Field categorization for tabbed view ────────────────────────────── */
+const TRANSCRIPTION_FIELDS = new Set([
+  "transcription", "full_arabic_transcription", "original_transcription",
+  "full_transcription", "full_transcription_ar", "arabic_text",
+  "original_text", "raw_transcription",
+]);
+
+const TRANSLATION_FIELDS = new Set([
+  "translation", "english_translation", "full_english_translation",
+  "full_translation", "translated_text", "summary_of_entry",
+  "summary", "english_summary",
+]);
+
+const NOTES_FIELDS = new Set([
+  "notes", "notes_tips", "researcher_notes", "comments",
+  "marginalia", "annotations", "flags",
+]);
+
+function categorizeField(key: string): "transcription" | "translation" | "notes" | "details" {
+  const base = key.split(".")[0].toLowerCase();
+  if (TRANSCRIPTION_FIELDS.has(base) || base.includes("transcription") || base.includes("arabic_text")) return "transcription";
+  if (TRANSLATION_FIELDS.has(base) || base.includes("translation") || base.includes("english")) return "translation";
+  if (NOTES_FIELDS.has(base) || base.includes("notes") || base.includes("comment")) return "notes";
+  return "details";
+}
+
+const FIELD_ICONS: Record<string, string> = {
+  date: "📅", creation_date: "📅", estimated_date: "📅",
+  from: "👤", sender: "👤", author: "👤", qufti_digger_name: "👤",
+  to: "👤", recipient: "👤", addressee: "👤",
+  subject: "📋", topic: "📋", recipe_dish: "📋",
+  landmark: "📍", location: "📍", excavation_site: "📍", excavation_area_or_tomb: "📍",
+  page_number: "📄", document_id: "🏷️",
+  object_references: "🏺", egyptological_terms: "🏛️",
+  material: "🧱", dimensions: "📐",
+  method_steps: "📝", recipe_names: "🍽️",
+  keywords: "🔑", persons_mentioned: "👥",
+};
+
+function getFieldIcon(key: string): string {
+  const base = key.split(".")[0].toLowerCase();
+  return FIELD_ICONS[base] || "•";
+}
+
 /* ─── Entity helpers ───────────────────────────────────────────────────── */
 type DocEntity = { id: number; name: string; type: "person" | "location" | "organization"; contextSnippet: string | null };
 
@@ -565,6 +609,9 @@ function ReviewDocPanel({
   };
   const [checkAiResult, setCheckAiResult] = useState<CrossCheckResult | null>(null);
   const [isCheckingAi, setIsCheckingAi] = useState(false);
+  const [activeTab, setActiveTab] = useState<"details" | "transcription" | "translation" | "notes">("details");
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const checkAi = trpc.documents.crossCheck.useMutation({
     onMutate: () => setIsCheckingAi(true),
     onSuccess: (data: { success: boolean; result?: CrossCheckResult; error?: string }) => {
@@ -854,8 +901,31 @@ function ReviewDocPanel({
         </div>
 
         {/* Form / transcription panel */}
-        <div className={`overflow-auto ${fullscreen ? 'hidden' : 'w-1/2'}`}>
-          <div className="p-6 pb-32">
+        <div className={`flex flex-col ${fullscreen ? 'hidden' : 'w-1/2'}`}>
+          {/* Tab bar — sticky at top */}
+          {!transcriptionLoading && transcription && (
+            <div className="flex items-center border-b border-border/50 px-4 bg-card/30 flex-shrink-0 overflow-x-auto">
+              {(["details", "transcription", "translation", "notes"] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => {
+                    setActiveTab(tab);
+                    sectionRefs.current[tab]?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                  className={`px-4 py-2.5 text-xs font-medium capitalize border-b-2 transition-colors whitespace-nowrap ${
+                    activeTab === tab
+                      ? "border-primary text-primary"
+                      : "border-transparent text-muted-foreground/60 hover:text-foreground"
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Scrollable content area */}
+          <div ref={scrollContainerRef} className="overflow-auto flex-1 p-6 pb-32">
             {/* Not yet transcribed */}
             {!transcriptionLoading && !transcription && currentDoc?.status !== "error" && (
               <div className="flex flex-col items-center justify-center h-full gap-5 text-center py-20">
@@ -984,89 +1054,167 @@ function ReviewDocPanel({
                 )}
 
                 {/* Original text (collapsible) */}
-                {transcription.originalText && (
-                  <details className="group mb-4">
-                    <summary className="text-[11px] uppercase tracking-wider text-muted-foreground/50 font-medium cursor-pointer hover:text-muted-foreground/70 transition-colors flex items-center gap-1.5 py-1">
-                      <ChevronRight className="w-3 h-3 group-open:rotate-90 transition-transform" />
-                      Original transcription (pass 1)
-                    </summary>
-                    <div className="mt-2 bg-card/30 rounded-xl p-4 text-sm text-muted-foreground/70 max-h-40 overflow-y-auto whitespace-pre-wrap leading-relaxed border border-border/30">
-                      {transcription.originalText}
-                    </div>
-                  </details>
-                )}
+                {/* ─── TABBED SECTIONS ─────────────────────────────── */}
+                {(() => {
+                  // Categorize fields
+                  const allFields = flatFields ?? [];
+                  const detailsFields = allFields.filter(f => categorizeField(f.key) === "details");
+                  const transcriptionFields = allFields.filter(f => categorizeField(f.key) === "transcription");
+                  const translationFields = allFields.filter(f => categorizeField(f.key) === "translation");
+                  const notesFields = allFields.filter(f => categorizeField(f.key) === "notes");
 
-                {/* Dynamic fields */}
-                {flatFields && flatFields.length > 0 ? (
-                  <div className="space-y-0.5">
-                    {/* For multi-page docs, show shared metadata section header */}
-                    {isMultiPage && (
-                      <div className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider pb-2 pt-2 border-b border-border/30 mb-2">
-                        Shared Metadata
+                  // If no schema, fall back to raw data categorization
+                  const rawEntries = !flatFields && rawData
+                    ? Object.entries(rawData).filter(([k]) => !k.startsWith("_"))
+                    : [];
+                  const rawDetails = rawEntries.filter(([k]) => categorizeField(k) === "details");
+                  const rawTranscription = rawEntries.filter(([k]) => categorizeField(k) === "transcription");
+                  const rawTranslation = rawEntries.filter(([k]) => categorizeField(k) === "translation");
+                  const rawNotes = rawEntries.filter(([k]) => categorizeField(k) === "notes");
+
+                  const renderField = (key: string, label: string, def: SchemaField) => (
+                    <DynamicField
+                      key={`${effectiveDocId}-${key}`}
+                      fieldKey={key}
+                      label={label}
+                      fieldDef={def}
+                      value={getNestedValue(editedFields, key)}
+                      onChange={v => setEditedFields(prev => setNestedValue(prev, key, v))}
+                      entities={docEntities}
+                      projectId={projectId}
+                    />
+                  );
+
+                  const renderRawField = (key: string, val: unknown) => (
+                    <div key={key} className="py-2 px-1">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="text-base">{getFieldIcon(key)}</span>
+                        <FieldLabel label={key.replace(/_/g, " ")} />
                       </div>
-                    )}
-                    {flatFields.filter(f => !isMultiPage || !isPerPageField(f.key)).map(({ key, label, def }) => (
-                      <DynamicField
-                        key={key}
-                        fieldKey={key}
-                        label={label}
-                        fieldDef={def}
-                        value={getNestedValue(editedFields, key)}
-                        onChange={v => setEditedFields(prev => setNestedValue(prev, key, v))}
-                        entities={docEntities}
-                        projectId={projectId}
-                      />
-                    ))}
-                    {/* Per-page fields section */}
-                    {isMultiPage && (
-                      <div className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider pb-2 pt-4 border-b border-border/30 mb-2">
-                        Page {groupPages.findIndex((p: any) => p.id === activePageDocId) + 1} Content
-                      </div>
-                    )}
-                    {flatFields.filter(f => !isMultiPage || isPerPageField(f.key)).map(({ key, label, def }) => (
-                      <DynamicField
-                        key={`${effectiveDocId}-${key}`}
-                        fieldKey={key}
-                        label={label}
-                        fieldDef={def}
-                        value={getNestedValue(editedFields, key)}
-                        onChange={v => setEditedFields(prev => setNestedValue(prev, key, v))}
-                        entities={docEntities}
-                        projectId={projectId}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  rawData && (
-                    <div className="space-y-3">
-                      {Object.entries(rawData)
-                        .filter(([k]) => !k.startsWith("_"))
-                        .map(([key, val]) => (
-                          <div key={key} className="py-2 px-1">
-                            <FieldLabel label={key.replace(/_/g, " ")} />
-                            {typeof val === "object" && val !== null ? (
-                              <Textarea
-                                value={JSON.stringify(val, null, 2)}
-                                onChange={e => {
-                                  try {
-                                    setEditedFields(prev => ({ ...prev, [key]: JSON.parse(e.target.value) }));
-                                  } catch { /* ignore parse error while typing */ }
-                                }}
-                                className="bg-transparent border-transparent hover:border-border/50 focus:border-primary/30 focus:bg-card/50 text-xs font-mono resize-none transition-all rounded-lg"
-                                rows={4}
-                              />
-                            ) : (
-                              <Input
-                                value={String(val ?? "")}
-                                onChange={e => setEditedFields(prev => ({ ...prev, [key]: e.target.value }))}
-                                className="bg-transparent border-transparent hover:border-border/50 focus:border-primary/30 focus:bg-card/50 text-sm transition-all rounded-lg h-9"
-                              />
-                            )}
-                          </div>
-                        ))}
+                      {typeof val === "object" && val !== null ? (
+                        <Textarea
+                          value={JSON.stringify(val, null, 2)}
+                          onChange={e => {
+                            try {
+                              setEditedFields(prev => ({ ...prev, [key]: JSON.parse(e.target.value) }));
+                            } catch { /* ignore parse error while typing */ }
+                          }}
+                          className="bg-transparent border-transparent hover:border-border/50 focus:border-primary/30 focus:bg-card/50 text-xs font-mono resize-none transition-all rounded-lg"
+                          rows={4}
+                        />
+                      ) : (
+                        <Input
+                          value={String(val ?? "")}
+                          onChange={e => setEditedFields(prev => ({ ...prev, [key]: e.target.value }))}
+                          className="bg-transparent border-transparent hover:border-border/50 focus:border-primary/30 focus:bg-card/50 text-sm transition-all rounded-lg h-9"
+                        />
+                      )}
                     </div>
-                  )
-                )}
+                  );
+
+                  return (
+                    <div className="space-y-6">
+                      {/* ── DETAILS SECTION ── */}
+                      <div ref={el => { sectionRefs.current["details"] = el; }}>
+                        <h3 className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-semibold mb-3 flex items-center gap-2">
+                          <FileText className="w-3.5 h-3.5" />
+                          Details
+                        </h3>
+                        <div className="rounded-xl border border-border/40 bg-card/20 divide-y divide-border/30">
+                          {detailsFields.length > 0
+                            ? detailsFields.map(({ key, label, def }) => (
+                                <div key={key} className="px-4 py-2.5 flex items-start gap-3">
+                                  <span className="text-base mt-0.5 flex-shrink-0">{getFieldIcon(key)}</span>
+                                  <div className="flex-1 min-w-0">
+                                    {renderField(key, label, def)}
+                                  </div>
+                                </div>
+                              ))
+                            : rawDetails.map(([key, val]) => (
+                                <div key={key} className="px-4 py-2.5">
+                                  {renderRawField(key, val)}
+                                </div>
+                              ))
+                          }
+                          {detailsFields.length === 0 && rawDetails.length === 0 && (
+                            <div className="px-4 py-6 text-center text-xs text-muted-foreground/50">No metadata fields</div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* ── TRANSCRIPTION SECTION ── */}
+                      <div ref={el => { sectionRefs.current["transcription"] = el; }}>
+                        <h3 className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-semibold mb-3 flex items-center gap-2">
+                          <FileText className="w-3.5 h-3.5" />
+                          Transcription
+                        </h3>
+                        {/* Original text (pass 1) */}
+                        {transcription.originalText && (
+                          <details className="group mb-3">
+                            <summary className="text-[10px] uppercase tracking-wider text-muted-foreground/40 font-medium cursor-pointer hover:text-muted-foreground/60 transition-colors flex items-center gap-1.5 py-1">
+                              <ChevronRight className="w-3 h-3 group-open:rotate-90 transition-transform" />
+                              Original transcription (pass 1)
+                            </summary>
+                            <div className="mt-2 bg-card/30 rounded-xl p-4 text-sm text-muted-foreground/70 max-h-40 overflow-y-auto whitespace-pre-wrap leading-relaxed border border-border/30 font-serif" dir="auto">
+                              {transcription.originalText}
+                            </div>
+                          </details>
+                        )}
+                        <div className="space-y-1">
+                          {transcriptionFields.length > 0
+                            ? transcriptionFields.map(({ key, label, def }) => renderField(key, label, def))
+                            : rawTranscription.map(([key, val]) => renderRawField(key, val))
+                          }
+                          {transcriptionFields.length === 0 && rawTranscription.length === 0 && (
+                            <div className="py-4 text-center text-xs text-muted-foreground/50">No transcription fields</div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* ── TRANSLATION SECTION ── */}
+                      <div ref={el => { sectionRefs.current["translation"] = el; }}>
+                        <h3 className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-semibold mb-3 flex items-center gap-2">
+                          <FileText className="w-3.5 h-3.5" />
+                          Translation
+                        </h3>
+                        <div className="space-y-1">
+                          {translationFields.length > 0
+                            ? translationFields.map(({ key, label, def }) => renderField(key, label, def))
+                            : rawTranslation.map(([key, val]) => renderRawField(key, val))
+                          }
+                          {translationFields.length === 0 && rawTranslation.length === 0 && (
+                            <div className="py-4 text-center text-xs text-muted-foreground/50">No translation fields</div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* ── NOTES SECTION ── */}
+                      <div ref={el => { sectionRefs.current["notes"] = el; }}>
+                        <h3 className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-semibold mb-3 flex items-center gap-2">
+                          <FileText className="w-3.5 h-3.5" />
+                          Notes
+                        </h3>
+                        <div className="space-y-1">
+                          {notesFields.length > 0
+                            ? notesFields.map(({ key, label, def }) => renderField(key, label, def))
+                            : rawNotes.map(([key, val]) => renderRawField(key, val))
+                          }
+                          {notesFields.length === 0 && rawNotes.length === 0 && (
+                            <div className="py-4 text-center text-xs text-muted-foreground/50">
+                              <Textarea
+                                placeholder="Add researcher notes here..."
+                                value={String(editedFields["_researcher_notes"] ?? "")}
+                                onChange={e => setEditedFields(prev => ({ ...prev, _researcher_notes: e.target.value }))}
+                                className="bg-transparent border-border/30 hover:border-border/50 focus:border-primary/30 focus:bg-card/50 text-sm resize-none transition-all rounded-lg leading-relaxed"
+                                rows={3}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>

@@ -730,3 +730,14 @@
 - [x] Settings page: verify form inputs have visible borders in light mode
 - [x] Mobile responsive audit across all pages (especially ProjectWorkspace sidebar collapse)
 - [x] Check all modals/dialogs for proper bg-card usage in light mode
+
+## Review Page Redesign v2 (Round 69)
+- [x] Replace current ReviewPage with new tabbed design (Details | Transcription | Translation | Notes)
+- [x] Structured metadata table with icons (editable inline fields)
+- [x] Scrollable continuous layout (tabs jump to section, but also scrollable)
+- [x] Image viewer on left with zoom/pan controls
+- [x] Top bar: back to list, document ID/name, prev/next arrows, Actions dropdown
+- [x] Recursive field propagation with confirmation dialog ("Propagate to X other documents?")
+- [x] Backend: propagateFieldCorrection tRPC procedure + countPropagationTargets query
+- [x] Preserve all existing functionality: save, approve, flag, Check AI, re-read
+- [ ] Mobile responsive (stacked layout on small screens) — deferred to next round
