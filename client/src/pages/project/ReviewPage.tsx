@@ -223,9 +223,9 @@ type DocEntity = { id: number; name: string; type: "person" | "location" | "orga
 function EntityTag({ entity, projectId }: { entity: DocEntity; projectId?: number }) {
   const [showTooltip, setShowTooltip] = useState(false);
   const colors: Record<string, string> = {
-    person: "bg-orange-500/15 text-orange-300 border-orange-500/30",
-    location: "bg-green-500/15 text-green-300 border-green-500/30",
-    organization: "bg-indigo-500/15 text-indigo-300 border-indigo-500/30",
+    person: "bg-orange-500/15 text-orange-700 dark:text-orange-300 border-orange-500/30",
+    location: "bg-green-500/15 text-green-700 dark:text-green-300 border-green-500/30",
+    organization: "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30",
   };
   const typeLabels: Record<string, string> = { person: "Person", location: "Place", organization: "Organization" };
   
@@ -1078,7 +1078,7 @@ function ReviewDocPanel({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="gap-1.5 rounded-lg bg-transparent border-orange-500/20 text-orange-400/80 hover:text-orange-300 hover:bg-orange-500/10 hover:border-orange-500/30"
+                  className="gap-1.5 rounded-lg bg-transparent border-orange-500/20 text-orange-400/80 hover:text-orange-700 dark:text-orange-300 hover:bg-orange-500/10 hover:border-orange-500/30"
                   onClick={() => handleSave("flagged")}
                   disabled={isSaving}
                 >

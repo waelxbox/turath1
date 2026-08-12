@@ -211,7 +211,7 @@ export default function EntityMergePage({ projectId }: { projectId: number }) {
         {isGenerating && (
           <div className="mt-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
             <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2 text-sm text-amber-300">
+              <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 <span>
                   {ALL_STEPS[currentStepIdx]?.label || "Starting..."}
