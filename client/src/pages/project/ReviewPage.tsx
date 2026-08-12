@@ -1116,23 +1116,62 @@ function ReviewDocPanel({
                     <div className="space-y-6">
                       {/* ── DETAILS SECTION ── */}
                       <div ref={el => { sectionRefs.current["details"] = el; }}>
-                        <h3 className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-semibold mb-3 flex items-center gap-2">
+                        <h3 className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-semibold mb-2 flex items-center gap-2">
                           <FileText className="w-3.5 h-3.5" />
                           Details
                         </h3>
-                        <div className="rounded-xl border border-border/40 bg-card/20 divide-y divide-border/30">
+                        <div className="rounded-xl border border-border/40 bg-card/20 divide-y divide-border/20">
                           {detailsFields.length > 0
                             ? detailsFields.map(({ key, label, def }) => (
-                                <div key={key} className="px-4 py-2.5 flex items-start gap-3">
-                                  <span className="text-base mt-0.5 flex-shrink-0">{getFieldIcon(key)}</span>
-                                  <div className="flex-1 min-w-0">
-                                    {renderField(key, label, def)}
+                                <div key={key} className="px-3 py-1.5 flex items-center gap-2 group hover:bg-card/40 transition-colors">
+                                  <span className="text-sm flex-shrink-0">{getFieldIcon(key)}</span>
+                                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground/50 font-medium w-24 flex-shrink-0 truncate" title={label}>{label}</span>
+                                  <div className="flex-1 min-w-0 [&_input]:h-7 [&_input]:text-sm [&_input]:py-0 [&_textarea]:text-sm [&_.py-2]:py-0 [&_.px-1]:px-0 [&_.mb-1\.5]:mb-0 [&_.mb-2]:mb-0">
+                                    <DynamicField
+                                      key={key}
+                                      fieldKey={key}
+                                      label=""
+                                      fieldDef={{ ...def, description: undefined }}
+                                      value={getNestedValue(editedFields, key)}
+                                      onChange={v => setEditedFields(prev => setNestedValue(prev, key, v))}
+                                      entities={docEntities}
+                                      projectId={projectId}
+                                    />
                                   </div>
+                                  {def.description && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Info className="w-3 h-3 text-muted-foreground/30 flex-shrink-0" />
+                                      </TooltipTrigger>
+                                      <TooltipContent side="left" className="max-w-[200px] text-xs">
+                                        {def.description}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  )}
                                 </div>
                               ))
                             : rawDetails.map(([key, val]) => (
-                                <div key={key} className="px-4 py-2.5">
-                                  {renderRawField(key, val)}
+                                <div key={key} className="px-3 py-1.5 flex items-center gap-2 hover:bg-card/40 transition-colors">
+                                  <span className="text-sm flex-shrink-0">{getFieldIcon(key)}</span>
+                                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground/50 font-medium w-24 flex-shrink-0 truncate">{key.replace(/_/g, " ")}</span>
+                                  <div className="flex-1 min-w-0">
+                                    {typeof val === "object" && val !== null ? (
+                                      <Textarea
+                                        value={JSON.stringify(val, null, 2)}
+                                        onChange={e => {
+                                          try { setEditedFields(prev => ({ ...prev, [key]: JSON.parse(e.target.value) })); } catch {}
+                                        }}
+                                        className="bg-transparent border-transparent hover:border-border/50 focus:border-primary/30 text-xs font-mono resize-none rounded-lg h-7"
+                                        rows={1}
+                                      />
+                                    ) : (
+                                      <Input
+                                        value={String(val ?? "")}
+                                        onChange={e => setEditedFields(prev => ({ ...prev, [key]: e.target.value }))}
+                                        className="bg-transparent border-transparent hover:border-border/50 focus:border-primary/30 text-sm rounded-lg h-7"
+                                      />
+                                    )}
+                                  </div>
                                 </div>
                               ))
                           }
