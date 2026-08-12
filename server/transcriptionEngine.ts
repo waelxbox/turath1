@@ -33,6 +33,100 @@ export interface TranscriptionResult {
 }
 
 /**
+ * Normalize AI output keys to match the project's schema keys.
+ * Uses fuzzy matching to handle common LLM deviations:
+ * - "full_transcription_ar" → "transcription"
+ * - "full_translation_en" → "english_translation"
+ * - "Original_Transcription" → "transcription"
+ * 
+ * Rules:
+ * 1. Exact match → keep as-is
+ * 2. Schema key is a substring of the AI key (or vice versa) → rename to schema key
+ * 3. Normalized versions match (strip full_, _ar, _en, original_, etc.) → rename
+ * 4. No match → keep the AI key as-is (bonus data)
+ */
+function normalizeKeysToSchema(
+  rawJson: Record<string, unknown>,
+  schema: Record<string, unknown> | null
+): Record<string, unknown> {
+  if (!schema) return rawJson;
+
+  const schemaKeys = Object.keys(schema);
+  if (schemaKeys.length === 0) return rawJson;
+
+  // Build a lookup of normalized schema keys
+  const normalizeKey = (k: string): string =>
+    k.toLowerCase()
+      .replace(/^(full_|original_)/, "")
+      .replace(/_(ar|en|arabic|english|french)$/, "")
+      .replace(/^(full|original)/, "")
+      .replace(/_/g, "")
+      .trim();
+
+  const schemaLookup = new Map<string, string>(); // normalizedKey → schemaKey
+  for (const sk of schemaKeys) {
+    schemaLookup.set(sk.toLowerCase(), sk); // exact lowercase
+    schemaLookup.set(normalizeKey(sk), sk); // normalized
+  }
+
+  const result: Record<string, unknown> = {};
+  const usedSchemaKeys = new Set<string>();
+
+  for (const [aiKey, value] of Object.entries(rawJson)) {
+    // Skip metadata keys
+    if (aiKey.startsWith("_")) {
+      result[aiKey] = value;
+      continue;
+    }
+
+    // 1. Exact match
+    if (schemaKeys.includes(aiKey)) {
+      result[aiKey] = value;
+      usedSchemaKeys.add(aiKey);
+      continue;
+    }
+
+    // 2. Case-insensitive exact match
+    const lowerMatch = schemaLookup.get(aiKey.toLowerCase());
+    if (lowerMatch && !usedSchemaKeys.has(lowerMatch)) {
+      result[lowerMatch] = value;
+      usedSchemaKeys.add(lowerMatch);
+      continue;
+    }
+
+    // 3. Normalized match (strip prefixes/suffixes)
+    const normalizedAi = normalizeKey(aiKey);
+    const normalizedMatch = schemaLookup.get(normalizedAi);
+    if (normalizedMatch && !usedSchemaKeys.has(normalizedMatch)) {
+      result[normalizedMatch] = value;
+      usedSchemaKeys.add(normalizedMatch);
+      continue;
+    }
+
+    // 4. Substring match: schema key contained in AI key or vice versa
+    let found = false;
+    for (const sk of schemaKeys) {
+      if (usedSchemaKeys.has(sk)) continue;
+      const aiLower = aiKey.toLowerCase().replace(/_/g, "");
+      const skLower = sk.toLowerCase().replace(/_/g, "");
+      if (aiLower.includes(skLower) || skLower.includes(aiLower)) {
+        result[sk] = value;
+        usedSchemaKeys.add(sk);
+        found = true;
+        break;
+      }
+    }
+
+    // 5. No match — keep as bonus data
+    if (!found) {
+      result[aiKey] = value;
+    }
+  }
+
+  return result;
+}
+
+/**
  * Attempt to repair truncated JSON by closing open strings, arrays, and objects.
  * Returns parsed object or throws if repair fails.
  */
@@ -331,6 +425,9 @@ export async function processDocument(
     // Apply post-processing rules
     const postProcessingRules = project.postProcessing as Array<{ type: string; field: string; marker?: string }> | null;
     rawJson = applyPostProcessing(rawJson, postProcessingRules);
+
+    // Normalize keys: fuzzy-match AI output keys to schema keys
+    rawJson = normalizeKeysToSchema(rawJson, project.jsonSchema as Record<string, unknown> | null);
 
     // Attach metadata
     rawJson._source_image = filename;
