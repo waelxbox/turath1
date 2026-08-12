@@ -50,7 +50,7 @@ function ProjectCard({ project }: { project: { id: number; name: string; descrip
 
   return (
     <button
-      className="bg-card border border-border rounded-xl p-5 hover:border-primary/40 transition-all cursor-pointer group text-left w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      className="bg-card border border-border rounded-xl p-4 md:p-5 hover:border-primary/40 transition-all cursor-pointer group text-left w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       aria-label={`${project.name} — ${getRecommendedAction()}`}
       onClick={() => {
         if (project.status === "onboarding" || project.status === "validating") {
@@ -60,9 +60,9 @@ function ProjectCard({ project }: { project: { id: number; name: string; descrip
         }
       }}
     >
-      <div className="flex items-start justify-between mb-3">
-        <div className="w-9 h-9 rounded-lg bg-primary/15 border border-primary/30 flex items-center justify-center">
-          <BookOpen className="w-4 h-4 text-primary" />
+      <div className="flex items-start justify-between mb-2 md:mb-3">
+        <div className="w-8 h-8 md:w-9 md:h-9 rounded-lg bg-primary/15 border border-primary/30 flex items-center justify-center">
+          <BookOpen className="w-3.5 h-3.5 md:w-4 md:h-4 text-primary" />
         </div>
         <div className="flex items-center gap-2">
           {project._memberRole && project._memberRole !== "owner" && (
@@ -190,15 +190,15 @@ export default function Dashboard() {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="border-b border-border bg-card/50">
-        <div className="container flex items-center justify-between h-16">
+        <div className="container flex items-center justify-between h-14 md:h-16">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded bg-primary flex items-center justify-center">
               <span className="text-primary-foreground font-bold text-xs">ت</span>
             </div>
             <span className="font-serif font-semibold text-lg">TURATH</span>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground">{user?.name ?? user?.email}</span>
+          <div className="flex items-center gap-2 md:gap-3">
+            <span className="text-sm text-muted-foreground hidden md:inline">{user?.name ?? user?.email}</span>
             <DashboardThemeToggle />
             <Button variant="outline" size="sm" onClick={() => navigate("/logout")} className="bg-transparent">
               Sign out
@@ -207,12 +207,12 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <main className="container py-10">
+      <main className="container py-6 md:py-10">
         {/* Page header */}
-        <div className="flex items-start justify-between mb-10">
+        <div className="flex items-start justify-between mb-6 md:mb-10">
           <div>
-            <h1 className="text-3xl font-serif font-semibold mb-1">Your projects</h1>
-            <p className="text-muted-foreground text-sm">
+            <h1 className="text-2xl md:text-3xl font-serif font-semibold mb-1">Your projects</h1>
+            <p className="text-muted-foreground text-xs md:text-sm">
               Each project is a separate archive with its own AI reader trained on your documents.
             </p>
           </div>

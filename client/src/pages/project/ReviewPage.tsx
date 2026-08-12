@@ -628,7 +628,7 @@ function ReviewDocPanel({
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Minimal top bar — navigation + filename */}
-      <div className="flex items-center justify-between px-5 py-2.5 border-b border-border/50 flex-shrink-0 bg-card/20">
+      <div className="flex items-center justify-between px-3 md:px-5 py-2 md:py-2.5 border-b border-border/50 flex-shrink-0 bg-card/20 overflow-x-auto">
         <div className="flex items-center gap-3">
           <button
             onClick={onToggleSidebar}
@@ -658,7 +658,7 @@ function ReviewDocPanel({
 
           <div className="h-4 w-px bg-border/40" />
           
-          <span className="text-sm font-medium truncate max-w-[240px] text-foreground/90">{currentDoc?.filename}</span>
+          <span className="text-sm font-medium truncate max-w-[100px] md:max-w-[240px] text-foreground/90">{currentDoc?.filename}</span>
           {currentDoc && <StatusBadge status={currentDoc.status} />}
           {isMultiPage && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/8 text-primary text-[10px] font-medium">
@@ -680,7 +680,7 @@ function ReviewDocPanel({
               {isCheckingAi
                 ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 : <ShieldCheck className="w-3.5 h-3.5" />}
-              {isCheckingAi ? "Checking…" : "Check AI"}
+              <span className="hidden md:inline">{isCheckingAi ? "Checking…" : "Check AI"}</span>
             </Button>
           )}
           {currentDoc && (
@@ -695,14 +695,14 @@ function ReviewDocPanel({
               {isTranscribing
                 ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 : <RotateCcw className="w-3.5 h-3.5" />}
-              {isTranscribing ? "Reading…" : "Re-read"}
+              <span className="hidden md:inline">{isTranscribing ? "Reading…" : "Re-read"}</span>
             </Button>
           )}
           {currentDoc && (
             <Button
               variant="ghost"
               size="sm"
-              className="gap-1.5 text-muted-foreground/70 hover:text-foreground rounded-lg text-xs"
+              className="gap-1.5 text-muted-foreground/70 hover:text-foreground rounded-lg text-xs hidden md:flex"
               onClick={() => window.location.href = window.location.pathname.replace(/\/review\/.*/, `/review/${currentDocId}/full`)}
               title="Open full-page review viewer"
             >

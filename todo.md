@@ -174,7 +174,7 @@
 - [x] Add /directory route to ProjectWorkspace Switch block
 - [x] Add Entity Directory nav item (BookOpenText icon) to project workspace sidebar between Knowledge Graph and Export
 - [x] 21 tests passing, zero TypeScript errors
-- [ ] Push to GitHub
+- [x] Push to GitHub (auto-synced via checkpoint)
 
 ## Bug Fixes (Round 15)
 - [x] Fix Entity Directory scroll layout — parent locked to screen height with overflow-hidden, left pane search/filters pinned with flex-1 overflow-y-auto list, right detail pane independently scrollable
@@ -186,7 +186,7 @@
 - [x] Add Danger Zone section to ProjectSettings with AlertDialog confirmation
 - [x] Redirects to /dashboard after successful deletion
 - [x] 21 tests passing, zero TypeScript errors
-- [ ] Push to GitHub
+- [x] Push to GitHub (auto-synced via checkpoint)
 
 ## Features (Round 17) — Google OAuth
 - [x] Store Google OAuth Client ID and Client Secret as secrets
@@ -197,7 +197,7 @@
 - [x] Update frontend getLoginUrl() to point to /api/auth/google
 - [x] Remove Manus SDK imports from oauth.ts and context.ts
 - [x] 21 tests passing, zero TypeScript errors
-- [ ] Push to GitHub
+- [x] Push to GitHub (auto-synced via checkpoint)
 
 ## UX Overhaul (Round 18) — Comprehensive Navigation & Workflow Improvements
 
@@ -718,7 +718,7 @@
 - [x] Fix Onboarding border-white/20 on image thumbnails (invisible in light mode)
 - [x] Fix Home page shadow-black/40 too harsh in light mode (now /10 light, /40 dark)
 - [x] Full UI audit of all screens in light mode (Dashboard, Workspace, Upload, Search, Entities, Settings, Export, Activity)
-- [ ] Add "Archival Intelligence" tagline to hero/landing page
+- [x] Add "Archival Intelligence" tagline to hero/landing page
 - [x] Add "Archival Intelligence" tagline to hero/landing page
 - [x] Implement approved Stitch home/hero page redesign (warm humanistic landing, manuscript→structured data visual)
 - [x] Create Privacy Policy page (/privacy) with proper content

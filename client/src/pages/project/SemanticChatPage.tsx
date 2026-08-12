@@ -148,16 +148,16 @@ export default function SemanticChatPage({ projectId, project }: Props) {
       </div>
 
       {/* Chat area */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+      <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 space-y-4">
         {messages.length === 0 ? (
           /* Empty state */
-          <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-              <Bot className="w-8 h-8 text-primary/60" />
+          <div className="flex flex-col items-center justify-center h-full gap-4 md:gap-6 text-center">
+            <div className="w-12 h-12 md:w-16 md:h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+              <Bot className="w-6 h-6 md:w-8 md:h-8 text-primary/60" />
             </div>
             <div>
-              <h2 className="text-base font-semibold mb-1">Ask about your archive</h2>
-              <p className="text-sm text-muted-foreground max-w-sm">
+              <h2 className="text-sm md:text-base font-semibold mb-1">Ask about your archive</h2>
+              <p className="text-xs md:text-sm text-muted-foreground max-w-sm">
                 I can answer questions about the documents you have reviewed in{" "}
                 <span className="font-medium text-foreground">{project.name}</span>.
                 Answers are grounded in your actual transcriptions.
@@ -192,9 +192,9 @@ export default function SemanticChatPage({ projectId, project }: Props) {
             </div>
 
             {/* Info note */}
-            <div className="flex items-start gap-2 bg-muted/40 rounded-lg p-3 max-w-sm text-left">
+            <div className="flex items-start gap-2 bg-muted/40 rounded-lg p-2.5 md:p-3 max-w-sm text-left">
               <Info className="w-3.5 h-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[11px] md:text-xs text-muted-foreground">
                 {scope === "reviewed"
                   ? <>Only <strong>approved</strong> documents are used to answer questions. Approve documents in the Review page to include them here.</>
                   : <>Querying <strong>all</strong> transcribed documents including unreviewed AI output. Answers may reflect transcription errors.</>

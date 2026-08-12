@@ -185,9 +185,9 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
   const sortedLetters = Object.keys(groupedEntities).sort((a, b) => a.localeCompare(b));
 
   return (
-    <div className="absolute inset-0 flex overflow-hidden">
+    <div className="absolute inset-0 flex flex-col md:flex-row overflow-hidden">
       {/* ─── Left Pane: Master List ─────────────────────────────────────── */}
-      <div className="w-80 flex-shrink-0 border-r border-border flex flex-col h-full bg-muted/20">
+      <div className={`w-full md:w-80 flex-shrink-0 border-r border-border flex flex-col h-full bg-muted/20 ${selectedEntityId ? 'hidden md:flex' : 'flex'}`}>
         {/* Header */}
         <div className="p-4 border-b border-border space-y-3">
           <div className="flex items-center justify-between">
@@ -330,7 +330,7 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
       </div>
 
       {/* ─── Right Pane: Detail View ────────────────────────────────────── */}
-      <div className="flex-1 h-full overflow-y-auto bg-muted/10">
+      <div className={`flex-1 h-full overflow-y-auto bg-muted/10 ${!selectedEntityId ? 'hidden md:block' : 'block'}`}>
         {!selectedEntityId ? (
           /* Empty state */
           <div className="flex flex-col items-center justify-center h-full text-center px-8">
@@ -356,9 +356,15 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
           </div>
         ) : details ? (
           /* Entity profile */
-          <div className="p-6 space-y-8">
+          <div className="p-4 md:p-6 space-y-6 md:space-y-8">
             {/* Header */}
             <div>
+              <button
+                onClick={() => setSelectedEntityId(null)}
+                className="md:hidden flex items-center gap-1 text-sm text-muted-foreground mb-3 hover:text-foreground"
+              >
+                ← Back to list
+              </button>
               <div className="flex items-center gap-3 mb-2">
                 {(() => {
                   const Icon = TYPE_ICONS[details.entity.type] || Users;
