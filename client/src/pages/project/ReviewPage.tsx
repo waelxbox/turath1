@@ -1063,14 +1063,17 @@ function ReviewDocPanel({
                   const translationFields = allFields.filter(f => categorizeField(f.key) === "translation");
                   const notesFields = allFields.filter(f => categorizeField(f.key) === "notes");
 
-                  // If no schema, fall back to raw data categorization
-                  const rawEntries = !flatFields && rawData
+                  // Also show raw data fields that aren't covered by the schema
+                  // (handles key mismatches like full_transcription_ar vs transcription)
+                  const schemaKeys = new Set(allFields.map(f => f.key));
+                  const rawEntries = rawData
                     ? Object.entries(rawData).filter(([k]) => !k.startsWith("_"))
                     : [];
-                  const rawDetails = rawEntries.filter(([k]) => categorizeField(k) === "details");
-                  const rawTranscription = rawEntries.filter(([k]) => categorizeField(k) === "transcription");
-                  const rawTranslation = rawEntries.filter(([k]) => categorizeField(k) === "translation");
-                  const rawNotes = rawEntries.filter(([k]) => categorizeField(k) === "notes");
+                  const orphanEntries = rawEntries.filter(([k]) => !schemaKeys.has(k));
+                  const rawDetails = orphanEntries.filter(([k]) => categorizeField(k) === "details");
+                  const rawTranscription = orphanEntries.filter(([k]) => categorizeField(k) === "transcription");
+                  const rawTranslation = orphanEntries.filter(([k]) => categorizeField(k) === "translation");
+                  const rawNotes = orphanEntries.filter(([k]) => categorizeField(k) === "notes");
 
                   const renderField = (key: string, label: string, def: SchemaField) => (
                     <DynamicField
@@ -1122,7 +1125,7 @@ function ReviewDocPanel({
                         </h3>
                         <div className="rounded-xl border border-border/40 bg-card/20 divide-y divide-border/20">
                           {detailsFields.length > 0
-                            ? detailsFields.map(({ key, label, def }) => (
+                            && detailsFields.map(({ key, label, def }) => (
                                 <div key={key} className="px-3 py-1.5 flex items-center gap-2 group hover:bg-card/40 transition-colors">
                                   <span className="text-sm flex-shrink-0">{getFieldIcon(key)}</span>
                                   <span className="text-[10px] uppercase tracking-wider text-muted-foreground/50 font-medium w-24 flex-shrink-0 truncate" title={label}>{label}</span>
@@ -1149,8 +1152,8 @@ function ReviewDocPanel({
                                     </Tooltip>
                                   )}
                                 </div>
-                              ))
-                            : rawDetails.map(([key, val]) => (
+                              ))}
+                          {rawDetails.map(([key, val]) => (
                                 <div key={key} className="px-3 py-1.5 flex items-center gap-2 hover:bg-card/40 transition-colors">
                                   <span className="text-sm flex-shrink-0">{getFieldIcon(key)}</span>
                                   <span className="text-[10px] uppercase tracking-wider text-muted-foreground/50 font-medium w-24 flex-shrink-0 truncate">{key.replace(/_/g, " ")}</span>
@@ -1173,8 +1176,7 @@ function ReviewDocPanel({
                                     )}
                                   </div>
                                 </div>
-                              ))
-                          }
+                              ))}
                           {detailsFields.length === 0 && rawDetails.length === 0 && (
                             <div className="px-4 py-6 text-center text-xs text-muted-foreground/50">No metadata fields</div>
                           )}
@@ -1201,9 +1203,9 @@ function ReviewDocPanel({
                         )}
                         <div className="space-y-1">
                           {transcriptionFields.length > 0
-                            ? transcriptionFields.map(({ key, label, def }) => renderField(key, label, def))
-                            : rawTranscription.map(([key, val]) => renderRawField(key, val))
+                            && transcriptionFields.map(({ key, label, def }) => renderField(key, label, def))
                           }
+                          {rawTranscription.map(([key, val]) => renderRawField(key, val))}
                           {transcriptionFields.length === 0 && rawTranscription.length === 0 && (
                             <div className="py-4 text-center text-xs text-muted-foreground/50">No transcription fields</div>
                           )}
@@ -1218,9 +1220,9 @@ function ReviewDocPanel({
                         </h3>
                         <div className="space-y-1">
                           {translationFields.length > 0
-                            ? translationFields.map(({ key, label, def }) => renderField(key, label, def))
-                            : rawTranslation.map(([key, val]) => renderRawField(key, val))
+                            && translationFields.map(({ key, label, def }) => renderField(key, label, def))
                           }
+                          {rawTranslation.map(([key, val]) => renderRawField(key, val))}
                           {translationFields.length === 0 && rawTranslation.length === 0 && (
                             <div className="py-4 text-center text-xs text-muted-foreground/50">No translation fields</div>
                           )}

@@ -139,9 +139,9 @@ describe("SimpleReviewPage", () => {
   });
 
   describe("Data integration", () => {
-    it("fetches document list with needs_review filter", () => {
+    it("fetches full document list for navigation", () => {
       expect(componentSource).toContain("trpc.documents.listPaginated.useQuery");
-      expect(componentSource).toContain("status: \"needs_review\"");
+      expect(componentSource).toContain("limit: 100");
     });
 
     it("fetches transcription by document", () => {
