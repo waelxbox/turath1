@@ -4,7 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Send, Upload, Loader2, Sparkles, Image as ImageIcon,
+  ArrowLeft, Send, Upload, Loader2, Image as ImageIcon,
   CheckCircle2, ChevronDown, ChevronUp, Settings2
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -214,10 +214,10 @@ export default function Onboarding() {
           </button>
           <div>
             <h1 className="text-lg font-semibold text-foreground">
-              Set up: {project?.name || "Project"}
+              {project?.name || "New Project"}
             </h1>
             <p className="text-xs text-muted-foreground">
-              Describe your collection and I'll configure the transcription engine
+              Tell me about your collection and I'll build a custom reader for it
             </p>
           </div>
         </div>
@@ -234,27 +234,26 @@ export default function Onboarding() {
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
           {/* Welcome message */}
           {messages.length === 0 && (
-            <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1">
-                <Sparkles className="w-4 h-4 text-primary" />
+            <div className="flex gap-3 items-start">
+              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1 border border-primary/20">
+                <span className="text-primary font-bold text-xs">ت</span>
               </div>
               <div className="flex-1 bg-muted/50 rounded-2xl rounded-tl-sm px-4 py-3 max-w-[85%]">
                 <div className="text-sm text-foreground leading-relaxed">
-                  <p className="font-medium mb-2">Welcome! I'll help you set up your transcription pipeline.</p>
+                  <p className="font-medium mb-2">Welcome. Let's set up your project.</p>
                   <p className="text-muted-foreground mb-3">
-                    Tell me about your document collection — what type of documents are they, what language/script,
-                    what era, and what information you want to extract. Upload a few sample images so I can see the handwriting style.
+                    I'll need to understand your collection to build an accurate reader. Tell me about the documents — language, era, type of content — and upload a few sample images so I can study the handwriting.
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {[
-                      "I have handwritten Arabic recipes from my grandmother",
-                      "I'm digitizing 19th century French correspondence",
-                      "I have a collection of Ottoman-era invoices",
+                      "Handwritten Arabic correspondence, 1920s",
+                      "19th century French administrative records",
+                      "Ottoman-era trade invoices in mixed script",
                     ].map((suggestion) => (
                       <button
                         key={suggestion}
                         onClick={() => { setInput(suggestion); textareaRef.current?.focus(); }}
-                        className="text-xs px-3 py-1.5 rounded-full border border-border hover:bg-accent hover:text-accent-foreground transition-colors text-muted-foreground"
+                        className="text-xs px-3 py-1.5 rounded-full border border-primary/20 hover:bg-primary/5 hover:border-primary/40 transition-colors text-foreground/70"
                       >
                         {suggestion}
                       </button>
@@ -269,8 +268,8 @@ export default function Onboarding() {
           {messages.map((msg, i) => (
             <div key={i} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""}`}>
               {msg.role === "assistant" && (
-                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1">
-                  <Sparkles className="w-4 h-4 text-primary" />
+                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1 border border-primary/20">
+                  <span className="text-primary font-bold text-xs">ت</span>
                 </div>
               )}
               <div className={`max-w-[85%] ${
@@ -292,7 +291,7 @@ export default function Onboarding() {
                   </div>
                 )}
                 {msg.role === "assistant" ? (
-                  <div className="text-sm text-foreground leading-relaxed prose prose-sm max-w-none prose-invert">
+                  <div className="text-sm text-foreground leading-relaxed prose prose-sm max-w-none dark:prose-invert">
                     <Streamdown>{msg.content}</Streamdown>
                   </div>
                 ) : (
@@ -305,8 +304,8 @@ export default function Onboarding() {
           {/* Loading indicator */}
           {isLoading && (
             <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1">
-                <Sparkles className="w-4 h-4 text-primary" />
+              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1 border border-primary/20">
+                <span className="text-primary font-bold text-xs">ت</span>
               </div>
               <div className="bg-muted/50 rounded-2xl rounded-tl-sm px-4 py-3">
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -320,25 +319,25 @@ export default function Onboarding() {
 
         {/* Config Ready Banner */}
         {configReady && !generatedConfig && (
-          <div className="mx-4 mb-3 p-3 bg-green-500/10 border border-green-500/30 rounded-xl flex items-center justify-between">
+          <div className="mx-4 mb-3 p-3 bg-primary/5 border border-primary/20 rounded-xl flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-5 h-5 text-green-500" />
-              <span className="text-sm text-green-700 dark:text-green-400 font-medium">
+              <CheckCircle2 className="w-5 h-5 text-primary" />
+              <span className="text-sm text-foreground font-medium">
                 {messages.length > 0 && generatedConfig === null && configReady
-                  ? "Ready to generate your config"
-                  : "I have enough information to generate your config"}
+                  ? "Ready to build your reader"
+                  : "I have enough to build your reader"}
               </span>
             </div>
             <Button
               onClick={handleGenerateConfig}
               disabled={isGenerating}
               size="sm"
-              className="bg-green-600 hover:bg-green-700 text-white"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground"
             >
               {isGenerating ? (
-                <><Loader2 className="w-4 h-4 animate-spin mr-1" /> Generating...</>
+                <><Loader2 className="w-4 h-4 animate-spin mr-1" /> Building...</>
               ) : (
-                <><Sparkles className="w-4 h-4 mr-1" /> Generate Config</>
+                <>Build Reader</>
               )}
             </Button>
           </div>

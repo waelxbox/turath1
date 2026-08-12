@@ -58,9 +58,9 @@ describe("Theme System", () => {
     // Should have switchable prop
     expect(themeContext).toContain("switchable?: boolean");
     // Should read from localStorage when switchable
-    expect(themeContext).toContain('localStorage.getItem("theme")');
+    expect(themeContext).toContain('localStorage.getItem("turath-theme-v2")');
     // Should save to localStorage when switchable
-    expect(themeContext).toContain('localStorage.setItem("theme", theme)');
+    expect(themeContext).toContain('localStorage.setItem("turath-theme-v2", theme)');
     // Should add/remove .dark class
     expect(themeContext).toContain('root.classList.add("dark")');
     expect(themeContext).toContain('root.classList.remove("dark")');
