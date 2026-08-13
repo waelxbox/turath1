@@ -139,8 +139,22 @@ export function registerOAuthRoutes(app: Express) {
       // Use Google ID as the openId for our system
       const openId = `google_${googleUser.id}`;
 
+      // Check if a user with this email already exists (prevents duplicate accounts
+      // when the same person logs in via different OAuth providers)
+      let effectiveOpenId = openId;
+      if (googleUser.email) {
+        const existingUser = await db.getUserByEmail(googleUser.email);
+        if (existingUser && existingUser.openId !== openId) {
+          // User exists with a different openId — link this Google login to their existing account
+          effectiveOpenId = existingUser.openId;
+          // Update their openId to the Google one so future logins work directly
+          await db.updateUserOpenId(existingUser.openId, openId);
+          effectiveOpenId = openId;
+        }
+      }
+
       await db.upsertUser({
-        openId,
+        openId: effectiveOpenId,
         name: googleUser.name || null,
         email: googleUser.email || null,
         loginMethod: "google",

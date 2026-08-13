@@ -1186,6 +1186,12 @@ export async function getUserByEmail(email: string) {
   return result[0];
 }
 
+export async function updateUserOpenId(oldOpenId: string, newOpenId: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ openId: newOpenId }).where(eq(users.openId, oldOpenId));
+}
+
 /**
  * Reset documents stuck in 'processing' for >5 min, then return all pending + error docs for retry.
  */
