@@ -601,7 +601,7 @@ export default function SimpleReviewPage({ projectId, project, docId: docIdProp 
       <header className="flex items-center justify-between px-4 md:px-6 h-12 flex-shrink-0 border-b border-white/5">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate("/review")}
+            onClick={() => navigate(currentDocId ? `/review/${currentDocId}` : "/review")}
             className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/5 transition-colors"
             title="Back to project"
           >

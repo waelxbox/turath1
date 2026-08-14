@@ -199,7 +199,13 @@ function WorkspaceInner({
             <Button variant="ghost" size="icon" className="h-7 w-7 hidden md:flex" onClick={() => { window.location.href = "/dashboard"; }}>
               <ArrowLeft className="w-3.5 h-3.5" />
             </Button>
-            <span className="text-muted-foreground hidden md:inline">Projects</span>
+            <a href="/dashboard" className="hidden md:flex items-center gap-1.5 hover:opacity-80 transition-opacity">
+              <div className="w-5 h-5 rounded bg-primary flex items-center justify-center">
+                <span className="text-primary-foreground font-bold text-[9px]">ت</span>
+              </div>
+              <span className="font-serif font-semibold text-sm">TURATH</span>
+              <span className="sr-only">Projects</span>
+            </a>
             <ChevronRight className="w-3 h-3 text-border hidden md:inline" />
             <span className="font-medium truncate">{project.name}</span>
             {activeNav !== "overview" && (

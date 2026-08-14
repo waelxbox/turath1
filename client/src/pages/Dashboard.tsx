@@ -195,7 +195,7 @@ export default function Dashboard() {
             <div className="w-7 h-7 rounded bg-primary flex items-center justify-center">
               <span className="text-primary-foreground font-bold text-xs">ت</span>
             </div>
-            <span className="font-serif font-semibold text-lg">TURATH</span>
+            <a href="/" className="font-serif font-semibold text-lg hover:opacity-80 transition-opacity">TURATH</a>
           </div>
           <div className="flex items-center gap-2 md:gap-3">
             <span className="text-sm text-muted-foreground hidden md:inline">{user?.name ?? user?.email}</span>

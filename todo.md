@@ -741,3 +741,8 @@
 - [x] Backend: propagateFieldCorrection tRPC procedure + countPropagationTargets query
 - [x] Preserve all existing functionality: save, approve, flag, Check AI, re-read
 - [ ] Mobile responsive (stacked layout on small screens) — deferred to next round
+
+## Pre-Demo Video Fixes (Round 68)
+- [x] TURATH logo visible on all pages (not just dashboard)
+- [x] Logged-in users can access the landing/home page
+- [x] Full page viewer preserves document state (returns to same doc, not #1)
