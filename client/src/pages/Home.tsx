@@ -1,23 +1,11 @@
-import { useEffect } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { getLoginUrl } from "@/const";
-import { useLocation } from "wouter";
 import { ArrowRight, Search, BookOpen, Network, Eye, Upload, CheckCircle2 } from "lucide-react";
 
 export default function Home() {
   const { isAuthenticated, loading } = useAuth();
-  const [, navigate] = useLocation();
 
-  useEffect(() => {
-    if (!loading && isAuthenticated) {
-      navigate("/dashboard");
-    }
-  }, [loading, isAuthenticated, navigate]);
-
-  if (!loading && isAuthenticated) {
-    return null;
-  }
 
   return (
     <div className="min-h-screen bg-background text-foreground overflow-x-hidden">
@@ -35,7 +23,7 @@ export default function Home() {
               About
             </a>
             <Button size="sm" className="rounded-full px-6" asChild>
-              <a href={getLoginUrl()}>Get started</a>
+              <a href={isAuthenticated ? "/dashboard" : getLoginUrl()}>{isAuthenticated ? "Dashboard" : "Get started"}</a>
             </Button>
           </div>
         </div>
@@ -59,8 +47,8 @@ export default function Home() {
               and respect the heritage of the artifacts.
             </p>
             <Button size="lg" className="gap-2 text-base px-8 rounded-full shadow-[0_0_20px_rgba(196,136,58,0.15)] hover:shadow-[0_0_30px_rgba(196,136,58,0.25)] transition-shadow" asChild>
-              <a href={getLoginUrl()}>
-                Start a project <ArrowRight className="w-4 h-4" />
+              <a href={isAuthenticated ? "/dashboard" : getLoginUrl()}>
+                {isAuthenticated ? "Go to dashboard" : "Start a project"} <ArrowRight className="w-4 h-4" />
               </a>
             </Button>
           </div>
@@ -208,8 +196,8 @@ export default function Home() {
             Begin the careful process of bringing your historical collection into the light — preserving them for future generations of scholars.
           </p>
           <Button size="lg" className="gap-2 text-base px-10 rounded-full" asChild>
-            <a href={getLoginUrl()}>
-              Start a project <ArrowRight className="w-4 h-4" />
+            <a href={isAuthenticated ? "/dashboard" : getLoginUrl()}>
+              {isAuthenticated ? "Go to dashboard" : "Start a project"} <ArrowRight className="w-4 h-4" />
             </a>
           </Button>
         </div>
