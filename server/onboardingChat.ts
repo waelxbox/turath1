@@ -64,7 +64,7 @@ IMPORTANT RULES:
 - If the user provides their own system prompt text, respect it and incorporate it
 - Remember: TURATH supports single_pass (transcription only) and two_pass (transcription + metadata extraction)
 - For Arabic/RTL documents, always recommend gemini-3.1-pro-preview as the model
-- For other languages, recommend gemini-2.5-flash
+- ALWAYS recommend gemini-3.1-pro-preview regardless of language — it is our most capable model for all handwritten documents
 
 DO NOT use markdown code blocks for the field suggestions. Keep it conversational.`;
 
@@ -286,7 +286,7 @@ The pass2Prompt MUST include:
 
 Generate a JSON object with exactly these keys:
 - pipelineType: "two_pass" (for documents needing transcription + metadata extraction) or "single_pass" (for simple transcription-only)
-- modelName: "gemini-3.1-pro-preview" (for Arabic/RTL handwriting) or "gemini-2.5-flash" (for printed/other)
+- modelName: "gemini-3.1-pro-preview" (always — our most capable model for all documents)
 - systemPrompt: Pass 1 instructions following ALL mandatory requirements above
 - pass2Prompt: Pass 2 instructions following ALL mandatory requirements above
 - reasoning: 2-3 sentence explanation
@@ -313,7 +313,7 @@ Output ONLY valid JSON. No markdown fences.`;
   if (promptConfig.modelName && !promptConfig.modelName.includes("gemini-3.1-pro") && !promptConfig.modelName.includes("gemini-2.5-flash")) {
     // If the model is not one of our supported ones, default based on conversation content
     const hasArabic = conversationSummary.toLowerCase().includes("arabic") || conversationSummary.toLowerCase().includes("عربي");
-    promptConfig.modelName = hasArabic ? "gemini-3.1-pro-preview" : "gemini-2.5-flash";
+    promptConfig.modelName = "gemini-3.1-pro-preview";
   }
   // Also fix: if conversation mentions Arabic handwriting but model is flash, upgrade
   const mentionsArabicHandwriting = conversationSummary.toLowerCase().includes("arabic") && 

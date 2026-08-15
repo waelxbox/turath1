@@ -108,7 +108,7 @@ REQUIREMENTS FOR EACH COMPONENT:
 You MUST output a single valid JSON object with this exact structure:
 {
   "pipelineType": "single_pass" | "two_pass",
-  "modelName": "gemini-2.5-flash" | "gemini-3.1-pro-preview",
+  "modelName": "gemini-3.1-pro-preview",
   "systemPrompt": "<transcription rules ONLY — no schema, no glossary>",
   "pass2Prompt": "<only if two_pass, otherwise null>",
   "jsonSchema": {
@@ -131,8 +131,7 @@ You MUST output a single valid JSON object with this exact structure:
 }
 
 Guidelines for modelName:
-- Use "gemini-3.1-pro-preview" if ANY Arabic text is present in the documents (handwritten or printed Arabic, Ottoman Turkish, or any right-to-left script). This is the ONLY model capable of processing Arabic manuscripts.
-- Use "gemini-2.5-flash" for all other languages (French, English, German, Latin, etc.)
+- ALWAYS use "gemini-3.1-pro-preview" regardless of language. This is our most capable model for all handwritten document transcription across all scripts and languages (Arabic, French, English, German, Latin, Russian, etc.).
 
 Guidelines for pipelineType:
 - Use "two_pass" if documents require BOTH transcription AND translation (e.g., Arabic/French → English metadata)
@@ -232,9 +231,8 @@ export async function generateProjectConfig(samples: SamplePair[]): Promise<Gene
   const cleaned = raw.replace(/^```(?:json)?\s*/m, "").replace(/\s*```$/m, "").trim();
   const config = JSON.parse(cleaned) as GeneratedConfig;
 
-  // Post-process: force gemini-3.1-pro-preview if Arabic content is detected
-  const hasArabic = detectArabicContent(samples, config);
-  if (hasArabic && config.modelName !== "gemini-3.1-pro-preview") {
+  // Post-process: always force gemini-3.1-pro-preview regardless of detected language
+  if (config.modelName !== "gemini-3.1-pro-preview") {
     config.modelName = "gemini-3.1-pro-preview";
   }
 
