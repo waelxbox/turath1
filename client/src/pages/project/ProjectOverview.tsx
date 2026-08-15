@@ -1,5 +1,5 @@
 import type { Project } from "../../../../drizzle/schema";
-import { Upload, Eye, Search, MessageSquare, Download, CheckCircle2, Circle, ArrowRight, Sparkles, Network } from "lucide-react";
+import { Upload, Eye, Search, MessageSquare, Download, CheckCircle2, Circle, ArrowRight, Network } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 
@@ -71,7 +71,7 @@ function getWorkflowSteps(project: Project, stats: Props["stats"]): WorkflowStep
     {
       id: "export",
       label: "Export data",
-      description: "Download your transcriptions as CSV or JSON",
+      description: "Download your transcriptions as CSV, JSON, or TEI-XML",
       done: false,
       active: hasReviewed,
       action: hasReviewed ? { label: "Export archive", path: "/export" } : undefined,
@@ -106,7 +106,7 @@ export default function ProjectOverview({ projectId, project, stats }: Props) {
       {nextAction && nextAction.action && (
         <div className="bg-primary/5 border border-primary/20 rounded-xl p-6 mb-8">
           <div className="flex items-center gap-2 mb-2">
-            <Sparkles className="w-4 h-4 text-primary" />
+            <ArrowRight className="w-4 h-4 text-primary" />
             <span className="text-xs font-medium text-primary uppercase tracking-wide">Next step</span>
           </div>
           <h3 className="text-lg font-semibold mb-1">{nextAction.label}</h3>

@@ -107,14 +107,6 @@ function buildNavGroups(stats: { total: number; reviewed: number; needsReview: n
           disabled: !hasReviewed,
           disabledReason: "Approve documents to discover entities",
         },
-        {
-          id: "research",
-          label: "Codex",
-          icon: Microscope,
-          path: "/research",
-          disabled: !hasReviewed,
-          disabledReason: "Approve documents to enable Codex",
-        },
       ],
     },
     {
