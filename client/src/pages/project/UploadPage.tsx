@@ -1,13 +1,14 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import type { Project } from "../../../../drizzle/schema";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Upload, Loader2, CheckCircle2, XCircle, FileImage, ArrowRight, Layers } from "lucide-react";
+import { Upload, Loader2, CheckCircle2, XCircle, FileImage, FileText, ArrowRight, Layers } from "lucide-react";
 import { useLocation } from "wouter";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { splitPdfToImages } from "@/lib/pdfSplitter";
 
 interface Props {
   projectId: number;
@@ -17,7 +18,7 @@ interface Props {
 interface QueuedFile {
   id: string;
   file: File;
-  status: "queued" | "uploading" | "transcribing" | "done" | "error";
+  status: "queued" | "splitting" | "uploading" | "transcribing" | "done" | "error";
   error?: string;
 }
 
@@ -59,6 +60,8 @@ export default function UploadPage({ projectId, project }: Props) {
   const [showSuccess, setShowSuccess] = useState(false);
   const [isMultiPage, setIsMultiPage] = useState(false);
   const [groupTitle, setGroupTitle] = useState("");
+  const [pdfSplitting, setPdfSplitting] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState({ current: 0, total: 0, percent: 0 });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
@@ -70,14 +73,52 @@ export default function UploadPage({ projectId, project }: Props) {
 
   const handleFiles = useCallback((files: FileList | null) => {
     if (!files) return;
-    const entries: QueuedFile[] = Array.from(files)
-      .filter(f => f.type.startsWith("image/") || f.type === "application/pdf")
-      .map(f => ({
-        id: crypto.randomUUID(),
-        file: f,
-        status: "queued" as const,
-      }));
-    setQueue(prev => [...prev, ...entries]);
+    const validFiles = Array.from(files).filter(
+      f => f.type.startsWith("image/") || f.type === "application/pdf"
+    );
+    const pdfFiles = validFiles.filter(f => f.type === "application/pdf");
+    const imageFiles = validFiles.filter(f => f.type.startsWith("image/"));
+
+    // Add image files directly
+    const imageEntries: QueuedFile[] = imageFiles.map(f => ({
+      id: crypto.randomUUID(),
+      file: f,
+      status: "queued" as const,
+    }));
+    if (imageEntries.length > 0) {
+      setQueue(prev => [...prev, ...imageEntries]);
+    }
+
+    // Split PDFs into page images
+    if (pdfFiles.length > 0) {
+      setPdfSplitting(true);
+      setPdfProgress({ current: 0, total: 0, percent: 0 });
+      (async () => {
+        const pdfEntries: QueuedFile[] = [];
+        for (const pdf of pdfFiles) {
+          try {
+            const pages = await splitPdfToImages(pdf, (percent, current, total) => {
+              setPdfProgress({ current, total, percent });
+            });
+            for (const page of pages) {
+              const file = new File([page.blob], page.filename, { type: "image/png" });
+              pdfEntries.push({ id: crypto.randomUUID(), file, status: "queued" as const });
+            }
+            toast.success(`Split "${pdf.name}" into ${pages.length} page images`);
+          } catch (err) {
+            toast.error(`Failed to split "${pdf.name}": ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        setQueue(prev => [...prev, ...pdfEntries]);
+        setPdfSplitting(false);
+        if (pdfEntries.length > 1) {
+          setIsMultiPage(true);
+          if (!groupTitle.trim()) {
+            setGroupTitle(pdfFiles[0].name.replace(/\.pdf$/i, ""));
+          }
+        }
+      })();
+    }
     setShowSuccess(false);
   }, []);
 
@@ -202,6 +243,7 @@ export default function UploadPage({ projectId, project }: Props) {
   const statusIcon = (status: QueuedFile["status"]) => {
     switch (status) {
       case "queued": return <div className="w-4 h-4 rounded-full border border-border" />;
+      case "splitting": return <Loader2 className="w-4 h-4 animate-spin text-blue-600" />;
       case "uploading": return <Loader2 className="w-4 h-4 animate-spin text-amber-700 dark:text-amber-400" />;
       case "transcribing": return <Loader2 className="w-4 h-4 animate-spin text-primary" />;
       case "done": return <CheckCircle2 className="w-4 h-4 text-green-700 dark:text-green-400" />;
@@ -212,6 +254,7 @@ export default function UploadPage({ projectId, project }: Props) {
   const statusLabel = (status: QueuedFile["status"]) => {
     switch (status) {
       case "queued": return "Ready";
+      case "splitting": return "Splitting PDF…";
       case "uploading": return "Uploading…";
       case "transcribing": return "AI reading…";
       case "done": return "Complete";
@@ -268,7 +311,7 @@ export default function UploadPage({ projectId, project }: Props) {
       >
         <Upload className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
         <p className="font-medium mb-1">Drop images here or click to browse</p>
-        <p className="text-sm text-muted-foreground">JPEG, PNG, TIFF, or PDF — select multiple files at once</p>
+        <p className="text-sm text-muted-foreground">JPEG, PNG, TIFF, or PDF — PDFs are automatically split into page images</p>
         <input
           ref={fileInputRef}
           type="file"
@@ -278,6 +321,19 @@ export default function UploadPage({ projectId, project }: Props) {
           onChange={e => handleFiles(e.target.files)}
         />
       </div>
+
+      {/* PDF splitting progress */}
+      {pdfSplitting && (
+        <div className="flex items-center gap-3 mb-6 p-4 bg-blue-500/5 border border-blue-500/20 rounded-xl">
+          <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+          <div className="flex-1">
+            <p className="text-sm font-medium">Splitting PDF into pages…</p>
+            <p className="text-xs text-muted-foreground">
+              Page {pdfProgress.current} of {pdfProgress.total} ({pdfProgress.percent}%)
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Queue */}
       {queue.length > 0 && (
