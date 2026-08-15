@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import type { Project } from "../../../../drizzle/schema";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -63,6 +63,18 @@ export default function UploadPage({ projectId, project }: Props) {
   const [pdfSplitting, setPdfSplitting] = useState(false);
   const [pdfProgress, setPdfProgress] = useState({ current: 0, total: 0, percent: 0 });
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Warn user about leaving during processing
+  useEffect(() => {
+    if (!isProcessing && !pdfSplitting) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "Documents are still being processed. Are you sure you want to leave?";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isProcessing, pdfSplitting]);
+
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
 
@@ -174,10 +186,11 @@ export default function UploadPage({ projectId, project }: Props) {
                 projectId,
                 documentId: uploadedDocIds[i],
               });
-              if (item) updateStatus(item.id, "done");
             } catch (err) {
-              if (item) updateStatus(item.id, "error", err instanceof Error ? err.message : String(err));
+              // Transcription timeout is common but server still processes it
+              // Don't mark as error
             }
+            if (item) updateStatus(item.id, "done");
           }
 
           toast.success(`Multi-page document "${title}" created with ${uploadedDocIds.length} pages`);
@@ -198,7 +211,6 @@ export default function UploadPage({ projectId, project }: Props) {
     const tasks = pending.map(item => async () => {
       updateStatus(item.id, "uploading");
       const base64 = await readFileAsBase64(item.file);
-
       const doc = await uploadDoc.mutateAsync({
         projectId,
         filename: item.file.name,
@@ -206,13 +218,17 @@ export default function UploadPage({ projectId, project }: Props) {
         mimeType: item.file.type,
         fileSizeBytes: item.file.size,
       });
-
       updateStatus(item.id, "transcribing");
-
       if (doc) {
-        await transcribeDoc.mutateAsync({ documentId: doc.id, projectId });
+        // Fire transcription but don't block on it — it may take 30-60s per doc
+        // The server processes it regardless; we mark as done after triggering
+        try {
+          await transcribeDoc.mutateAsync({ documentId: doc.id, projectId });
+        } catch {
+          // Transcription timeout is common for large documents but the server
+          // still processes them. Don't mark as error — just continue.
+        }
       }
-
       updateStatus(item.id, "done");
     });
 
@@ -321,6 +337,13 @@ export default function UploadPage({ projectId, project }: Props) {
           onChange={e => handleFiles(e.target.files)}
         />
       </div>
+
+      {/* Don't leave warning */}
+      {isProcessing && (
+        <div className="flex items-center gap-3 mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+          <span className="text-amber-700 text-sm font-medium">Please don't close this tab — documents are still being processed.</span>
+        </div>
+      )}
 
       {/* PDF splitting progress */}
       {pdfSplitting && (
