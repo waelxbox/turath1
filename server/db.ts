@@ -40,7 +40,7 @@ export async function getDb() {
     try {
       const isPgBouncer = url.includes("pgbouncer=true");
       _client = postgres(url, {
-        max: isPgBouncer ? 5 : 3,
+        max: isPgBouncer ? 15 : 10,
         prepare: !isPgBouncer,
         connect_timeout: 10,
         idle_timeout: 20,

@@ -267,7 +267,7 @@ function SessionCard({
 }) {
   const [showStats, setShowStats] = useState(false);
   const statsQuery = trpc.validation.stats.useQuery(
-    { sessionId: session.id },
+    { sessionId: session.id, projectId },
     { enabled: showStats }
   );
   const closeSession = trpc.validation.close.useMutation();
@@ -283,7 +283,7 @@ function SessionCard({
 
   const handleClose = async () => {
     if (!confirm("Close this session? Reviewers will no longer be able to submit reviews.")) return;
-    await closeSession.mutateAsync({ sessionId: session.id });
+    await closeSession.mutateAsync({ sessionId: session.id, projectId });
     utils.validation.list.invalidate({ projectId });
     toast.success("Session closed");
   };
@@ -327,7 +327,7 @@ function SessionCard({
             size="sm"
             onClick={async () => {
               if (!confirm("Delete this session permanently? All review data will be lost.")) return;
-              await deleteSession.mutateAsync({ sessionId: session.id });
+              await deleteSession.mutateAsync({ sessionId: session.id, projectId });
               utils.validation.list.invalidate({ projectId });
               toast.success("Session deleted");
             }}

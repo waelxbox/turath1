@@ -709,7 +709,7 @@ const documentsRouter = router({
     .input(z.object({
       projectId: z.number(),
       filename: z.string(),
-      fileBase64: z.string(),
+      fileBase64: z.string().max(15_000_000),
       mimeType: z.string().default("image/jpeg"),
       fileSizeBytes: z.number().optional(),
     }))
@@ -2830,23 +2830,29 @@ const validationRouter = router({
 
   // Admin: get stats for a session
   stats: protectedProcedure
-    .input(z.object({ sessionId: z.number() }))
-    .query(async ({ input }) => {
+    .input(z.object({ sessionId: z.number(), projectId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       return getValidationStats(input.sessionId);
     }),
 
   // Admin: close a session
   close: protectedProcedure
-    .input(z.object({ sessionId: z.number() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ sessionId: z.number(), projectId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       await closeValidationSession(input.sessionId);
       return { success: true };
     }),
 
   // Admin: delete a session
   delete: protectedProcedure
-    .input(z.object({ sessionId: z.number() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ sessionId: z.number(), projectId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       await deleteValidationSession(input.sessionId);
       return { success: true };
     }),

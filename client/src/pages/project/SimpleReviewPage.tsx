@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import DOMPurify from "dompurify";
 import { useLocation } from "wouter";
 import type { Project } from "../../../../drizzle/schema";
 import { trpc } from "@/lib/trpc";
@@ -802,7 +803,7 @@ export default function SimpleReviewPage({ projectId, project, docId: docIdProp 
                         const newValue = e.currentTarget.textContent || "";
                         setEditedFields(prev => setNestedValue(prev, field.key, newValue));
                       }}
-                      dangerouslySetInnerHTML={{ __html: field.value }}
+                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(field.value) }}
                     />
                   </div>
                 ))}
@@ -827,7 +828,7 @@ export default function SimpleReviewPage({ projectId, project, docId: docIdProp 
                               const newValue = e.currentTarget.textContent || "";
                               setEditedFields(prev => ({ ...prev, [key]: newValue }));
                             }}
-                            dangerouslySetInnerHTML={{ __html: String(val) }}
+                            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(String(val)) }}
                           />
                         </div>
                       ))}
