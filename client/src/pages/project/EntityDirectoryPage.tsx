@@ -242,17 +242,11 @@ export default function EntityDirectoryPage({ projectId }: { projectId: number }
 
           {/* Type filter tabs */}
           <Tabs value={typeFilter} onValueChange={setTypeFilter}>
-            <TabsList className="w-full grid grid-cols-4 h-9">
-              <TabsTrigger value="all" className="text-xs h-8 flex items-center justify-center">All</TabsTrigger>
-              <TabsTrigger value="person" className="text-xs h-8 flex items-center justify-center gap-1">
-                <Users className="h-3.5 w-3.5 shrink-0" /><span>People</span>
-              </TabsTrigger>
-              <TabsTrigger value="location" className="text-xs h-8 flex items-center justify-center gap-1">
-                <MapPin className="h-3.5 w-3.5 shrink-0" /><span>Places</span>
-              </TabsTrigger>
-              <TabsTrigger value="organization" className="text-xs h-8 flex items-center justify-center gap-1">
-                <Building2 className="h-3.5 w-3.5 shrink-0" /><span>Organizations</span>
-              </TabsTrigger>
+            <TabsList className="w-full flex h-9">
+              <TabsTrigger value="all" className="text-xs h-8 flex-1">All</TabsTrigger>
+              <TabsTrigger value="person" className="text-xs h-8 flex-1">People</TabsTrigger>
+              <TabsTrigger value="location" className="text-xs h-8 flex-1">Places</TabsTrigger>
+              <TabsTrigger value="organization" className="text-xs h-8 flex-1">Orgs</TabsTrigger>
             </TabsList>
           </Tabs>
 
