@@ -10,7 +10,7 @@ export function registerStripeWebhook(app: express.Application) {
     "/api/stripe/webhook",
     express.raw({ type: "application/json" }),
     async (req, res) => {
-      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || process.env.Stripe_Secret_Key || "", {
         apiVersion: "2024-12-18.acacia" as any,
       });
 
