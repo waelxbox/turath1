@@ -44,6 +44,8 @@ export const documentStatusEnum = pgEnum("document_status", [
 ]);
 export const jobTypeEnum = pgEnum("job_type", ["transcribe", "batch_transcribe", "validate_config", "entity_merge"]);
 export const jobStatusEnum = pgEnum("job_status", ["queued", "running", "completed", "failed"]);
+export const planEnum = pgEnum("plan", ["free", "pro", "team", "enterprise"]);
+export const subscriptionStatusEnum = pgEnum("subscription_status", ["active", "canceled", "past_due", "trialing"]);
 
 // ─── Users ────────────────────────────────────────────────────────────────────
 
@@ -54,6 +56,9 @@ export const users = pgTable("users", {
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: roleEnum("role").default("user").notNull(),
+  stripeCustomerId: varchar("stripeCustomerId", { length: 255 }),
+  plan: planEnum("plan").default("free").notNull(),
+  documentQuotaUsed: integer("documentQuotaUsed").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),

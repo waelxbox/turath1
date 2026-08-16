@@ -38,6 +38,9 @@ async function startServer() {
     crossOriginEmbedderPolicy: false, // Allow loading external images (S3, Google Maps)
   }));
 
+  // Stripe webhook (MUST be before express.json())
+  registerStripeWebhook(app);
+
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -72,3 +75,4 @@ async function startServer() {
 }
 
 startServer().catch(console.error);
+import { registerStripeWebhook } from "../billing/webhook";

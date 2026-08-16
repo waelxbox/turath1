@@ -3066,6 +3066,54 @@ const assignmentsRouter = router({
 
 // ─── App Router ───────────────────────────────────────────────────────────────
 
+// ─── Billing Router ──────────────────────────────────────────────────────────
+
+const billingRouter = router({
+  getPlans: publicProcedure.query(() => {
+    const { PLANS } = require("./billing/products");
+    return PLANS;
+  }),
+
+  getMyPlan: protectedProcedure.query(async ({ ctx }) => {
+    const { PLANS, getDocumentLimit } = require("./billing/products");
+    const plan = (ctx.user as any).plan || "free";
+    const quotaUsed = (ctx.user as any).documentQuotaUsed || 0;
+    const limit = getDocumentLimit(plan);
+    return {
+      plan,
+      planName: PLANS[plan]?.name || "Free",
+      documentLimit: limit === Infinity ? null : limit,
+      documentsUsed: quotaUsed,
+      features: PLANS[plan]?.features || [],
+    };
+  }),
+
+  createCheckout: protectedProcedure
+    .input(z.object({ planId: z.enum(["pro", "team"]), origin: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const { createCheckoutSession } = require("./billing/stripe");
+      const url = await createCheckoutSession({
+        userId: ctx.user.id,
+        userEmail: ctx.user.email || "",
+        userName: ctx.user.name || "",
+        planId: input.planId,
+        stripeCustomerId: (ctx.user as any).stripeCustomerId,
+        origin: input.origin,
+      });
+      return { url };
+    }),
+
+  createPortal: protectedProcedure
+    .input(z.object({ origin: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const customerId = (ctx.user as any).stripeCustomerId;
+      if (!customerId) throw new TRPCError({ code: "BAD_REQUEST", message: "No active subscription" });
+      const { createPortalSession } = require("./billing/stripe");
+      const url = await createPortalSession(customerId, input.origin);
+      return { url };
+    }),
+});
+
 export const appRouter = router({
   system: systemRouter,
   auth: authRouter,
@@ -3086,6 +3134,7 @@ export const appRouter = router({
   research: researchRouter,
   activity: activityRouter,
   assignments: assignmentsRouter,
+  billing: billingRouter,
 });
 
 export type AppRouter = typeof appRouter;
