@@ -842,7 +842,7 @@ const documentsRouter = router({
       });
 
       // Process in background (fire and forget with concurrency limit)
-      const CONCURRENCY = 10;
+      const CONCURRENCY = 5;
       (async () => {
         const jobs_list = await getJobsByProjectId(input.projectId);
         const job = jobs_list[0];
@@ -862,28 +862,57 @@ const documentsRouter = router({
               await updateDocumentStatus(doc.id, "processing");
               const { storageGet: storageGetBatch } = await import("./storage");
               const { url } = await storageGetBatch(doc.storagePath);
-              const resp = await fetch(url);
-              const buf = await resp.arrayBuffer();
-              const base64 = Buffer.from(buf).toString("base64");
-              const result = await processDocument(project, base64, doc.mimeType ?? "image/jpeg", doc.filename);
+              
+              // Retry up to 3 times with exponential backoff
+              let lastError: string | null = null;
+              for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                  const resp = await fetch(url);
+                  if (!resp.ok) throw new Error(`Storage fetch failed: ${resp.status}`);
+                  const buf = await resp.arrayBuffer();
+                  const base64 = Buffer.from(buf).toString("base64");
+                  const result = await processDocument(project, base64, doc.mimeType ?? "image/jpeg", doc.filename);
 
-              if (result.error) {
-                await updateDocumentStatus(doc.id, "error", result.error);
-              } else {
-                await createTranscription({
-                  documentId: doc.id,
-                  projectId: input.projectId,
-                  modelUsed: result.modelUsed,
-                  rawJson: result.rawJson,
-                  originalText: result.originalText ?? null,
-                });
-                await updateDocumentStatus(doc.id, "needs_review");
+                  if (result.error) {
+                    // If it's a rate limit or transient error, retry
+                    if (attempt < 2 && (result.error.includes("429") || result.error.includes("fetch failed") || result.error.includes("RESOURCE_EXHAUSTED"))) {
+                      lastError = result.error;
+                      await new Promise(r => setTimeout(r, (attempt + 1) * 5000));
+                      continue;
+                    }
+                    await updateDocumentStatus(doc.id, "error", result.error);
+                  } else {
+                    await createTranscription({
+                      documentId: doc.id,
+                      projectId: input.projectId,
+                      modelUsed: result.modelUsed,
+                      rawJson: result.rawJson,
+                      originalText: result.originalText ?? null,
+                    });
+                    await updateDocumentStatus(doc.id, "needs_review");
+                  }
+                  lastError = null;
+                  break; // Success, exit retry loop
+                } catch (fetchErr) {
+                  lastError = String(fetchErr);
+                  if (attempt < 2) {
+                    console.log(`[Batch] Doc ${doc.id} attempt ${attempt + 1} failed: ${lastError}, retrying in ${(attempt + 1) * 5}s...`);
+                    await new Promise(r => setTimeout(r, (attempt + 1) * 5000));
+                  }
+                }
+              }
+              if (lastError) {
+                await updateDocumentStatus(doc.id, "error", `Failed after 3 attempts: ${lastError}`);
               }
             } catch (err) {
               await updateDocumentStatus(doc.id, "error", String(err));
             }
             completed++;
           }));
+          // Small delay between chunks to avoid rate limiting
+          if (chunks.indexOf(chunk) < chunks.length - 1) {
+            await new Promise(r => setTimeout(r, 2000));
+          }
           await updateJob(job.id, {
             completedItems: completed,
             progress: Math.round((completed / pendingDocs.length) * 100),
@@ -911,7 +940,7 @@ const documentsRouter = router({
       }
 
       // Process in background with concurrency limit
-      const CONCURRENCY = 10;
+      const CONCURRENCY = 5;
       (async () => {
         const chunks: typeof retryDocs[] = [];
         for (let i = 0; i < retryDocs.length; i += CONCURRENCY) {
@@ -924,27 +953,54 @@ const documentsRouter = router({
               await updateDocumentStatus(doc.id, "processing");
               const { storageGet: storageGetRetry } = await import("./storage");
               const { url } = await storageGetRetry(doc.storagePath);
-              const resp = await fetch(url);
-              const buf = await resp.arrayBuffer();
-              const base64 = Buffer.from(buf).toString("base64");
-              const result = await processDocument(project, base64, doc.mimeType ?? "image/jpeg", doc.filename);
 
-              if (result.error) {
-                await updateDocumentStatus(doc.id, "error", result.error);
-              } else {
-                await createTranscription({
-                  documentId: doc.id,
-                  projectId: input.projectId,
-                  modelUsed: result.modelUsed,
-                  rawJson: result.rawJson,
-                  originalText: result.originalText ?? null,
-                });
-                await updateDocumentStatus(doc.id, "needs_review");
+              let lastError: string | null = null;
+              for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                  const resp = await fetch(url);
+                  if (!resp.ok) throw new Error(`Storage fetch failed: ${resp.status}`);
+                  const buf = await resp.arrayBuffer();
+                  const base64 = Buffer.from(buf).toString("base64");
+                  const result = await processDocument(project, base64, doc.mimeType ?? "image/jpeg", doc.filename);
+
+                  if (result.error) {
+                    if (attempt < 2 && (result.error.includes("429") || result.error.includes("fetch failed") || result.error.includes("RESOURCE_EXHAUSTED"))) {
+                      lastError = result.error;
+                      await new Promise(r => setTimeout(r, (attempt + 1) * 5000));
+                      continue;
+                    }
+                    await updateDocumentStatus(doc.id, "error", result.error);
+                  } else {
+                    await createTranscription({
+                      documentId: doc.id,
+                      projectId: input.projectId,
+                      modelUsed: result.modelUsed,
+                      rawJson: result.rawJson,
+                      originalText: result.originalText ?? null,
+                    });
+                    await updateDocumentStatus(doc.id, "needs_review");
+                  }
+                  lastError = null;
+                  break;
+                } catch (fetchErr) {
+                  lastError = String(fetchErr);
+                  if (attempt < 2) {
+                    console.log(`[Retry] Doc ${doc.id} attempt ${attempt + 1} failed: ${lastError}, retrying in ${(attempt + 1) * 5}s...`);
+                    await new Promise(r => setTimeout(r, (attempt + 1) * 5000));
+                  }
+                }
+              }
+              if (lastError) {
+                await updateDocumentStatus(doc.id, "error", `Failed after 3 attempts: ${lastError}`);
               }
             } catch (err) {
               await updateDocumentStatus(doc.id, "error", String(err));
             }
           }));
+          // Delay between chunks to avoid rate limiting
+          if (chunks.indexOf(chunk) < chunks.length - 1) {
+            await new Promise(r => setTimeout(r, 2000));
+          }
         }
       })().catch(console.error);
 
