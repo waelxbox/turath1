@@ -1,10 +1,12 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { getLoginUrl } from "@/const";
-import { ArrowRight, Search, BookOpen, Network, Eye, Upload, CheckCircle2 } from "lucide-react";
+import { ArrowRight, Search, BookOpen, Network, Eye, Upload, CheckCircle2, Target } from "lucide-react";
 
 export default function Home() {
   const { isAuthenticated, loading } = useAuth();
+  const { data: platformStats } = trpc.platform.documentCount.useQuery();
 
 
   return (
@@ -51,6 +53,30 @@ export default function Home() {
                 {isAuthenticated ? "Go to dashboard" : "Start a project"} <ArrowRight className="w-4 h-4" />
               </a>
             </Button>
+
+            {/* Document Counter */}
+            {platformStats && (
+              <div className="mt-16 flex flex-col items-center gap-2">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-4xl sm:text-5xl font-serif font-bold text-primary tabular-nums">
+                    {platformStats.count.toLocaleString()}
+                  </span>
+                  <span className="text-lg text-muted-foreground font-medium">
+                    / {(platformStats.goal / 1_000_000).toFixed(0)}M
+                  </span>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  documents processed toward our goal
+                </p>
+                {/* Progress bar */}
+                <div className="w-64 h-1.5 bg-border rounded-full mt-2 overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all duration-1000"
+                    style={{ width: `${Math.max(0.5, (platformStats.count / platformStats.goal) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </section>

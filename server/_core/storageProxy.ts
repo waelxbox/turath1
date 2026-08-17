@@ -32,8 +32,19 @@ export function registerStorageProxy(app: Express) {
         res.status(502).send("Empty signed URL from backend");
         return;
       }
-      res.set("Cache-Control", "public, max-age=3600");
-      res.redirect(302, url);
+      // Stream the image bytes directly instead of redirecting
+      // This avoids signed URL expiration and cross-origin redirect issues on production
+      const imageResp = await fetch(url);
+      if (!imageResp.ok) {
+        console.error(`[StorageProxy] image fetch error: ${imageResp.status}`);
+        res.status(502).send("Failed to fetch image from storage");
+        return;
+      }
+      const contentType = imageResp.headers.get("content-type") || "application/octet-stream";
+      res.set("Content-Type", contentType);
+      res.set("Cache-Control", "public, max-age=86400");
+      const buffer = Buffer.from(await imageResp.arrayBuffer());
+      res.send(buffer);
     } catch (err) {
       console.error("[StorageProxy] failed:", err);
       res.status(502).send("Storage proxy error");

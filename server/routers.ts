@@ -3114,10 +3114,20 @@ const billingRouter = router({
     }),
 });
 
+
+const platformRouter = router({
+  documentCount: publicProcedure.query(async () => {
+    const { getPlatformDocumentCount } = await import("./db");
+    const count = await getPlatformDocumentCount();
+    return { count, goal: 1_000_000 };
+  }),
+});
+
 export const appRouter = router({
   system: systemRouter,
   auth: authRouter,
   projects: projectsRouter,
+  platform: platformRouter,
   onboarding: onboardingRouter,
   documents: documentsRouter,
   transcriptions: transcriptionsRouter,

@@ -57,6 +57,23 @@ export async function getDb() {
 
 // ─── Users ────────────────────────────────────────────────────────────────────
 
+
+/** Get total number of documents processed across the entire platform (all projects) */
+export async function getPlatformDocumentCount(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const result = await db
+    .select({ total: count() })
+    .from(documents)
+    .where(
+      or(
+        eq(documents.status, "reviewed"),
+        eq(documents.status, "needs_review"),
+      )
+    );
+  return Number(result[0]?.total ?? 0);
+}
+
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) throw new Error("User openId is required for upsert");
   const db = await getDb();

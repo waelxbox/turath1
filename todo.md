@@ -746,3 +746,7 @@
 - [x] TURATH logo visible on all pages (not just dashboard)
 - [x] Logged-in users can access the landing/home page
 - [x] Full page viewer preserves document state (returns to same doc, not #1)
+
+## Homepage Fixes (Round 69)
+- [x] Fix hero image not loading on production (stream bytes through server instead of redirect)
+- [x] Add document counter on homepage showing total processed docs / 1M goal with progress bar
