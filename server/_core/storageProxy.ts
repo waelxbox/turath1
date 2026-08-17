@@ -32,8 +32,8 @@ export function registerStorageProxy(app: Express) {
         res.status(502).send("Empty signed URL from backend");
         return;
       }
-      res.set("Cache-Control", "no-store");
-      res.redirect(307, url);
+      res.set("Cache-Control", "public, max-age=3600");
+      res.redirect(302, url);
     } catch (err) {
       console.error("[StorageProxy] failed:", err);
       res.status(502).send("Storage proxy error");
