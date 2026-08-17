@@ -2178,6 +2178,19 @@ const groupsRouter = router({
       return { success: true };
     }),
 
+  removePages: protectedProcedure
+    .input(z.object({ documentIds: z.array(z.number()), projectId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      for (const docId of input.documentIds) {
+        await removeDocumentFromGroup(docId);
+      }
+      return { success: true, count: input.documentIds.length };
+    }),
+
   reorderPages: protectedProcedure
     .input(z.object({
       groupId: z.number(),

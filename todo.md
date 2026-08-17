@@ -751,3 +751,4 @@
 - [x] Fix hero image not loading on production (stream bytes through server instead of redirect)
 - [x] Add document counter on homepage showing total processed docs / 1M goal with progress bar
 - [x] Fix PDF upload: don't auto-enable multi-page mode, let pages process in parallel (10 at a time)
+- [x] Bulk ungroup: select multiple documents and remove them from groups at once

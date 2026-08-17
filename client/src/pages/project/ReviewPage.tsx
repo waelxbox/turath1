@@ -1442,6 +1442,16 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
     },
     onError: (err) => toast.error(err.message),
   });
+  const bulkUngroupMutation = trpc.groups.removePages.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Removed ${data.count} documents from their groups`);
+      utils.documents.listPaginated.invalidate();
+      utils.documents.list.invalidate({ projectId });
+      setSelectedDocIds(new Set());
+      setSelectMode(false);
+    },
+    onError: (err) => toast.error(err.message),
+  });
 
   const toggleDocSelection = (docId: number) => {
     setSelectedDocIds(prev => {
@@ -1520,6 +1530,22 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
               >
                 <FolderPlus className="w-3 h-3" />
                 Group ({selectedDocIds.size})
+              </Button>
+            )}
+            {selectMode && selectedDocIds.size > 0 && documents?.some(d => selectedDocIds.has(d.id) && (d as any).groupId) && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-[11px] gap-1 rounded-lg"
+                onClick={() => {
+                  const grouped = documents!.filter(d => selectedDocIds.has(d.id) && (d as any).groupId);
+                  if (grouped.length === 0) return;
+                  bulkUngroupMutation.mutate({ documentIds: grouped.map(d => d.id), projectId });
+                }}
+                disabled={bulkUngroupMutation.isPending}
+              >
+                <Unlink className="w-3 h-3" />
+                Ungroup ({documents?.filter(d => selectedDocIds.has(d.id) && (d as any).groupId).length})
               </Button>
             )}
             {selectMode && (
