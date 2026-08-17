@@ -88,7 +88,7 @@ export default function Home() {
             {/* Left: Manuscript Image */}
             <div className="w-full md:w-1/2 h-72 md:h-[460px] relative border-b md:border-b-0 md:border-r border-border">
               <img
-                src="/manus-storage/manuscript-hero_a377d6f4.jpg"
+                src="/api/hero-image"
                 alt="Historical Arabic manuscript from the Behna Family Collection"
                 className="absolute inset-0 w-full h-full object-cover opacity-80 dark:opacity-60"
               />
