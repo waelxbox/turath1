@@ -88,18 +88,18 @@ function StatusBadge({ status }: { status: string }) {
 function RetryAllButton({ projectId }: { projectId: number }) {
   const utils = trpc.useUtils();
   const [isRunning, setIsRunning] = useState(false);
-  const [totalQueued, setTotalQueued] = useState(0);
+  const [initialPending, setInitialPending] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { data: stats } = trpc.projects.stats.useQuery(
     { id: projectId },
-    { refetchInterval: isRunning ? 4000 : false }
+    { refetchInterval: isRunning ? 3000 : false }
   );
 
   useEffect(() => {
     if (isRunning && stats && stats.pending === 0 && stats.processing === 0) {
       setIsRunning(false);
-      setTotalQueued(0);
+      setInitialPending(0);
       toast.success("All documents transcribed!");
       utils.documents.listPaginated.invalidate();
     }
@@ -114,12 +114,12 @@ function RetryAllButton({ projectId }: { projectId: number }) {
       if (data.queued === 0) {
         toast.info("No pending documents to retry.");
       } else {
-        setTotalQueued(data.queued);
+        setInitialPending(data.queued);
         setIsRunning(true);
         toast.success(`Started transcribing ${data.queued} document(s)`);
         intervalRef.current = setInterval(() => {
           utils.documents.listPaginated.invalidate();
-        }, 6000);
+        }, 4000);
         setTimeout(() => {
           if (intervalRef.current) clearInterval(intervalRef.current);
         }, 300000);
@@ -133,13 +133,14 @@ function RetryAllButton({ projectId }: { projectId: number }) {
   const remainingCount = pendingCount + processingCount;
 
   if (isRunning) {
-    const completed = totalQueued - remainingCount;
-    const pct = totalQueued > 0 ? Math.round((completed / totalQueued) * 100) : 0;
+    const total = Math.max(initialPending, remainingCount);
+    const completed = Math.max(0, total - remainingCount);
+    const pct = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
     return (
       <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/5 border border-primary/10 text-xs">
         <Loader2 className="w-3 h-3 animate-spin text-primary" />
         <span className="text-muted-foreground whitespace-nowrap">
-          {completed}/{totalQueued} done
+          {remainingCount} remaining{processingCount > 0 ? ` (${processingCount} active)` : ""}
         </span>
         <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
           <div className="h-full bg-primary/60 rounded-full transition-all" style={{ width: `${pct}%` }} />
