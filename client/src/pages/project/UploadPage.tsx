@@ -123,12 +123,6 @@ export default function UploadPage({ projectId, project }: Props) {
         }
         setQueue(prev => [...prev, ...pdfEntries]);
         setPdfSplitting(false);
-        if (pdfEntries.length > 1) {
-          setIsMultiPage(true);
-          if (!groupTitle.trim()) {
-            setGroupTitle(pdfFiles[0].name.replace(/\.pdf$/i, ""));
-          }
-        }
       })();
     }
     setShowSuccess(false);
