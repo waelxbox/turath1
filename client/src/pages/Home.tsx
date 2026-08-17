@@ -61,9 +61,10 @@ export default function Home() {
           <div className="relative w-full rounded-2xl border border-border bg-card overflow-hidden flex flex-col md:flex-row shadow-2xl shadow-black/8 dark:shadow-black/40 ring-1 ring-black/5 dark:ring-white/5">
             {/* Left: Manuscript Image */}
             <div className="w-full md:w-1/2 h-72 md:h-[460px] relative border-b md:border-b-0 md:border-r border-border">
-              <div
-                className="absolute inset-0 bg-cover bg-center opacity-80 dark:opacity-60"
-                style={{ backgroundImage: "url('/manus-storage/manuscript-hero_a377d6f4.jpg')" }}
+              <img
+                src="/manus-storage/manuscript-hero_a377d6f4.jpg"
+                alt="Historical Arabic manuscript from the Behna Family Collection"
+                className="absolute inset-0 w-full h-full object-cover opacity-80 dark:opacity-60"
               />
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-card dark:to-card" />
               <div className="absolute top-4 left-4 bg-background/80 dark:bg-background/60 backdrop-blur-sm px-3 py-1 rounded text-[10px] font-bold text-primary tracking-widest uppercase border border-border/50">
