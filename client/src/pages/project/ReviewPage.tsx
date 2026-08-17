@@ -1452,6 +1452,28 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
     },
     onError: (err) => toast.error(err.message),
   });
+  const bulkDeleteMutation = trpc.documents.bulkDelete.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Deleted ${data.count} documents`);
+      utils.documents.listPaginated.invalidate();
+      utils.documents.list.invalidate({ projectId });
+      utils.projects.stats.invalidate({ id: projectId });
+      setSelectedDocIds(new Set());
+      setSelectMode(false);
+    },
+    onError: (err) => toast.error(err.message),
+  });
+  const bulkStatusMutation = trpc.documents.bulkChangeStatus.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Updated ${data.count} documents`);
+      utils.documents.listPaginated.invalidate();
+      utils.documents.list.invalidate({ projectId });
+      utils.projects.stats.invalidate({ id: projectId });
+      setSelectedDocIds(new Set());
+      setSelectMode(false);
+    },
+    onError: (err) => toast.error(err.message),
+  });
 
   const toggleDocSelection = (docId: number) => {
     setSelectedDocIds(prev => {
@@ -1546,6 +1568,39 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
               >
                 <Unlink className="w-3 h-3" />
                 Ungroup ({documents?.filter(d => selectedDocIds.has(d.id) && (d as any).groupId).length})
+              </Button>
+            )}
+            {selectMode && selectedDocIds.size > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-7 text-[11px] gap-1 rounded-lg">
+                    <Filter className="w-3 h-3" />
+                    Status
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  {(["pending", "needs_review", "reviewed", "flagged", "error"] as const).map(s => (
+                    <DropdownMenuItem key={s} onClick={() => bulkStatusMutation.mutate({ documentIds: Array.from(selectedDocIds), projectId, status: s })}>
+                      {s === "pending" ? "Pending" : s === "needs_review" ? "Needs review" : s === "reviewed" ? "Approved" : s === "flagged" ? "Flagged" : "Error"}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            {selectMode && selectedDocIds.size > 0 && (
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-7 text-[11px] gap-1 rounded-lg"
+                onClick={() => {
+                  if (confirm(`Delete ${selectedDocIds.size} documents? This cannot be undone.`)) {
+                    bulkDeleteMutation.mutate({ documentIds: Array.from(selectedDocIds), projectId });
+                  }
+                }}
+                disabled={bulkDeleteMutation.isPending}
+              >
+                <Trash2 className="w-3 h-3" />
+                Delete ({selectedDocIds.size})
               </Button>
             )}
             {selectMode && (

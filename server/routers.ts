@@ -990,6 +990,35 @@ const documentsRouter = router({
       await updateDocumentStatus(input.documentId, input.status);
       return { success: true, status: input.status };
     }),
+  bulkChangeStatus: protectedProcedure
+    .input(z.object({
+      documentIds: z.array(z.number()),
+      projectId: z.number(),
+      status: z.enum(["pending", "processing", "needs_review", "reviewed", "flagged", "error"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role) throw new TRPCError({ code: "NOT_FOUND" });
+      if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN", message: "Viewers cannot change document status" });
+      for (const docId of input.documentIds) {
+        await updateDocumentStatus(docId, input.status);
+      }
+      return { success: true, count: input.documentIds.length };
+    }),
+  bulkDelete: protectedProcedure
+    .input(z.object({
+      documentIds: z.array(z.number()),
+      projectId: z.number(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role) throw new TRPCError({ code: "NOT_FOUND" });
+      if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN", message: "Viewers cannot delete documents" });
+      for (const docId of input.documentIds) {
+        await deleteDocument(docId, input.projectId);
+      }
+      return { success: true, count: input.documentIds.length };
+    }),
 });
 
 // ─── Transcriptions Router ────────────────────────────────────────────────────
