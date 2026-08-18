@@ -61,20 +61,10 @@ export default function Home() {
                   <span className="text-4xl sm:text-5xl font-serif font-bold text-primary tabular-nums">
                     {platformStats.count.toLocaleString()}
                   </span>
-                  <span className="text-lg text-muted-foreground font-medium">
-                    / {(platformStats.goal / 1_000_000).toFixed(0)}M
-                  </span>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  documents processed toward our goal
+                  documents processed
                 </p>
-                {/* Progress bar */}
-                <div className="w-64 h-1.5 bg-border rounded-full mt-2 overflow-hidden">
-                  <div
-                    className="h-full bg-primary rounded-full transition-all duration-1000"
-                    style={{ width: `${Math.max(0.5, (platformStats.count / platformStats.goal) * 100)}%` }}
-                  />
-                </div>
               </div>
             )}
           </div>
