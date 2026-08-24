@@ -2,7 +2,7 @@ import postgres from 'postgres';
 import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-const client = postgres(process.env.SUPABASE_DATABASE_URL, { ssl: 'require', max: 1 });
+const client = postgres(process.env.DATABASE_URL, { ssl: 'require', max: 1 });
 const db = drizzle(client);
 
 // Raw query to find the user

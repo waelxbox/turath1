@@ -48,7 +48,8 @@ export function validateRuntimeConfig(
 ): RuntimeConfigIssue[] {
   const issues: RuntimeConfigIssue[] = [];
 
-  requireValue(env, "SUPABASE_DATABASE_URL", issues);
+  requireValue(env, "DATABASE_URL", issues);
+  requireUrl(env, "APP_ORIGIN", issues);
   requireValue(env, "GOOGLE_CLIENT_ID", issues);
   requireValue(env, "GOOGLE_CLIENT_SECRET", issues);
   requireUrl(env, "BUILT_IN_FORGE_API_URL", issues);

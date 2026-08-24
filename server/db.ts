@@ -192,9 +192,11 @@ export async function createProject(data: InsertProject) {
 export async function updateProject(id: number, userId: number, data: Partial<InsertProject>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const role = await getProjectRole(id, userId);
+  if (role !== "owner" && role !== "editor") throw new Error("Project editor access is required");
   await db.update(projects)
     .set({ ...data, updatedAt: new Date() })
-    .where(and(eq(projects.id, id), eq(projects.userId, userId)));
+    .where(eq(projects.id, id));
 }
 
 export async function deleteProject(id: number, userId: number) {

@@ -31,7 +31,7 @@ critical values are absent:
 
 | Setting                                             | Requirement                                                                                             |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `SUPABASE_DATABASE_URL`                             | Staging-only PostgreSQL connection with TLS; use the pooled application URL.                            |
+| `DATABASE_URL`                                      | Staging-only PostgreSQL connection with TLS; use the pooled application URL.                            |
 | `JWT_SECRET`                                        | Independently generated random value of at least 32 bytes. Never reuse production or developer secrets. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`         | Dedicated staging OAuth web client with only the staging callback URL.                                  |
 | `BUILT_IN_FORGE_API_URL` / `BUILT_IN_FORGE_API_KEY` | Dedicated staging storage/Forge credentials and namespace.                                              |
@@ -45,7 +45,7 @@ Apply least privilege and rotate every secret after suspected disclosure.
 1. Confirm the commit SHA, image digest, CI result, and prior image digest.
 2. Confirm `/health/ready` on the current release is HTTP 200.
 3. Take a provider snapshot and a logical backup using `pg_dump --format=custom
---no-owner --no-acl "$SUPABASE_DATABASE_URL" --file turath-before-<sha>.dump`.
+--no-owner --no-acl "$DATABASE_URL" --file turath-before-<sha>.dump`.
    Store it encrypted outside the application host and record its checksum.
 4. Run `pnpm db:check` against the release source.
 5. Apply migrations once from a controlled release job with a direct migration

@@ -12,7 +12,8 @@ import {
 } from "./health";
 
 const validEnvironment = {
-  SUPABASE_DATABASE_URL: "postgresql://user:password@database.example/turath",
+  DATABASE_URL: "postgresql://user:password@database.example/turath",
+  APP_ORIGIN: "https://staging.turath.example",
   JWT_SECRET: "a-secure-secret-with-more-than-32-bytes",
   GOOGLE_CLIENT_ID: "client.apps.googleusercontent.com",
   GOOGLE_CLIENT_SECRET: "google-secret",

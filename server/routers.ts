@@ -1421,6 +1421,7 @@ const ragRouter = router({
       })).default([]),
     }))
     .mutation(async ({ ctx, input }) => {
+      await requireProjectEditor(input.projectId, ctx.user.id);
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -1925,6 +1926,7 @@ const entitiesRouter = router({
   reindexAll: protectedProcedure
     .input(z.object({ projectId: z.number() }))
     .mutation(async ({ ctx, input }) => {
+      await requireProjectEditor(input.projectId, ctx.user.id);
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -3105,6 +3107,7 @@ const researchRouter = router({
       })).default([]),
     }))
     .mutation(async ({ ctx, input }) => {
+      await requireProjectEditor(input.projectId, ctx.user.id);
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 

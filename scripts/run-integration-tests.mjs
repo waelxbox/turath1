@@ -26,7 +26,7 @@ const result = spawnSync(
   {
     env: {
       ...process.env,
-      SUPABASE_DATABASE_URL: databaseUrl,
+      DATABASE_URL: databaseUrl,
       GOOGLE_CLIENT_ID:
         process.env.GOOGLE_CLIENT_ID ??
         "640280511703-rt61ei88l0vavp8g7t6a6ltro75b7kjt.apps.googleusercontent.com",
