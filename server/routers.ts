@@ -26,9 +26,7 @@ import {
   getTranscriptionsByStatus,
   getReviewedDocsWithoutEmbeddings,
   getAllDocsWithoutEmbeddings,
-  createJob,
   getJobsByProjectId,
-  updateJob,
   deleteProject,
   deleteDocument,
   renameDocument,
@@ -88,6 +86,7 @@ import { seedDemoProject } from "./demoSeed";
 import { awardXp, getUserStats, getLeaderboard, maybeAwardStreakBonus, XP_VALUES, xpProgressInLevel } from "./gamification";
 import { getReviewSession, saveReviewSession, createValidationSession, getValidationSessionByToken, getValidationSessionsByProject, closeValidationSession, deleteValidationSession, getNextAssignment, getAssignmentById, submitLineVerdict, completeAssignment, getReviewerProgress, getValidationStats, getReviewsForAssignment, getResearchConversations, getResearchConversation, createResearchConversation, updateResearchConversation, deleteResearchConversation } from "./db";
 import { runResearchAgent } from "./researchAgent";
+import { enqueueTranscriptionBatch } from "./transcriptionQueueDb";
 
 type ProjectRole = "owner" | "editor" | "viewer";
 
@@ -882,98 +881,23 @@ const documentsRouter = router({
         return { queued: 0, message: "No pending documents." };
       }
 
-      // Create a batch job record
-      await createJob({
+      const queued = await enqueueTranscriptionBatch({
         projectId: input.projectId,
-        type: "batch_transcribe",
-        status: "queued",
-        totalItems: pendingDocs.length,
-        completedItems: 0,
-        metadata: { documentIds: pendingDocs.map(d => d.id) },
+        documentIds: pendingDocs.map((document) => document.id),
       });
-
-      // Process in background (fire and forget with concurrency limit)
-      const CONCURRENCY = 5;
-      (async () => {
-        const jobs_list = await getJobsByProjectId(input.projectId);
-        const job = jobs_list[0];
-        if (!job) return;
-
-        await updateJob(job.id, { status: "running" });
-
-        let completed = 0;
-        const chunks: typeof pendingDocs[] = [];
-        for (let i = 0; i < pendingDocs.length; i += CONCURRENCY) {
-          chunks.push(pendingDocs.slice(i, i + CONCURRENCY));
-        }
-
-        for (const chunk of chunks) {
-          await Promise.all(chunk.map(async (doc) => {
-            try {
-              await updateDocumentStatus(doc.id, input.projectId, "processing");
-              const { storageGet: storageGetBatch } = await import("./storage");
-              const { url } = await storageGetBatch(doc.storagePath);
-              
-              // Retry up to 3 times with exponential backoff
-              let lastError: string | null = null;
-              for (let attempt = 0; attempt < 3; attempt++) {
-                try {
-                  const resp = await fetch(url);
-                  if (!resp.ok) throw new Error(`Storage fetch failed: ${resp.status}`);
-                  const buf = await resp.arrayBuffer();
-                  const base64 = Buffer.from(buf).toString("base64");
-                  const result = await processDocument(project, base64, doc.mimeType ?? "image/jpeg", doc.filename);
-
-                  if (result.error) {
-                    // If it's a rate limit or transient error, retry
-                    if (attempt < 2 && (result.error.includes("429") || result.error.includes("fetch failed") || result.error.includes("RESOURCE_EXHAUSTED"))) {
-                      lastError = result.error;
-                      await new Promise(r => setTimeout(r, (attempt + 1) * 5000));
-                      continue;
-                    }
-                    await updateDocumentStatus(doc.id, input.projectId, "error", result.error);
-                  } else {
-                    await createTranscription({
-                      documentId: doc.id,
-                      projectId: input.projectId,
-                      modelUsed: result.modelUsed,
-                      rawJson: result.rawJson,
-                      originalText: result.originalText ?? null,
-                    });
-                    await updateDocumentStatus(doc.id, input.projectId, "needs_review");
-                  }
-                  lastError = null;
-                  break; // Success, exit retry loop
-                } catch (fetchErr) {
-                  lastError = String(fetchErr);
-                  if (attempt < 2) {
-                    console.log(`[Batch] Doc ${doc.id} attempt ${attempt + 1} failed: ${lastError}, retrying in ${(attempt + 1) * 5}s...`);
-                    await new Promise(r => setTimeout(r, (attempt + 1) * 5000));
-                  }
-                }
-              }
-              if (lastError) {
-                await updateDocumentStatus(doc.id, input.projectId, "error", `Failed after 3 attempts: ${lastError}`);
-              }
-            } catch (err) {
-              await updateDocumentStatus(doc.id, input.projectId, "error", String(err));
-            }
-            completed++;
-          }));
-          // Small delay between chunks to avoid rate limiting
-          if (chunks.indexOf(chunk) < chunks.length - 1) {
-            await new Promise(r => setTimeout(r, 2000));
-          }
-          await updateJob(job.id, {
-            completedItems: completed,
-            progress: Math.round((completed / pendingDocs.length) * 100),
-          });
-        }
-
-        await updateJob(job.id, { status: "completed", progress: 100, completedItems: pendingDocs.length });
-      })().catch(console.error);
-
-      return { queued: pendingDocs.length, message: `Queued ${pendingDocs.length} documents for transcription.` };
+      if (queued.queued === 0) {
+        return {
+          queued: 0,
+          alreadyQueued: queued.alreadyQueued,
+          message: "All pending documents are already queued or processing.",
+        };
+      }
+      return {
+        jobId: queued.job?.id,
+        queued: queued.queued,
+        alreadyQueued: queued.alreadyQueued,
+        message: `Queued ${queued.queued} document(s) for transcription.`,
+      };
     }),
 
   retryAllPending: protectedProcedure
@@ -983,80 +907,30 @@ const documentsRouter = router({
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
-      // Reset stuck 'processing' docs and get all retryable docs via db helper
-      const { resetStuckAndGetRetryable } = await import("./db");
-      const retryDocs = await resetStuckAndGetRetryable(input.projectId);
+      // Expired processing leases are recovered by the worker. Retry requests
+      // enqueue pending/error documents idempotently and never steal live work.
+      const [pendingDocs, failedDocs] = await Promise.all([
+        getDocumentsByProjectId(input.projectId, "pending"),
+        getDocumentsByProjectId(input.projectId, "error"),
+      ]);
+      const retryDocs = [...pendingDocs, ...failedDocs];
 
       if (retryDocs.length === 0) {
         return { queued: 0, message: "No documents to retry." };
       }
 
-      // Process in background with concurrency limit
-      const CONCURRENCY = 5;
-      (async () => {
-        const chunks: typeof retryDocs[] = [];
-        for (let i = 0; i < retryDocs.length; i += CONCURRENCY) {
-          chunks.push(retryDocs.slice(i, i + CONCURRENCY));
-        }
-
-        for (const chunk of chunks) {
-          await Promise.all(chunk.map(async (doc) => {
-            try {
-              await updateDocumentStatus(doc.id, input.projectId, "processing");
-              const { storageGet: storageGetRetry } = await import("./storage");
-              const { url } = await storageGetRetry(doc.storagePath);
-
-              let lastError: string | null = null;
-              for (let attempt = 0; attempt < 3; attempt++) {
-                try {
-                  const resp = await fetch(url);
-                  if (!resp.ok) throw new Error(`Storage fetch failed: ${resp.status}`);
-                  const buf = await resp.arrayBuffer();
-                  const base64 = Buffer.from(buf).toString("base64");
-                  const result = await processDocument(project, base64, doc.mimeType ?? "image/jpeg", doc.filename);
-
-                  if (result.error) {
-                    if (attempt < 2 && (result.error.includes("429") || result.error.includes("fetch failed") || result.error.includes("RESOURCE_EXHAUSTED"))) {
-                      lastError = result.error;
-                      await new Promise(r => setTimeout(r, (attempt + 1) * 5000));
-                      continue;
-                    }
-                    await updateDocumentStatus(doc.id, input.projectId, "error", result.error);
-                  } else {
-                    await createTranscription({
-                      documentId: doc.id,
-                      projectId: input.projectId,
-                      modelUsed: result.modelUsed,
-                      rawJson: result.rawJson,
-                      originalText: result.originalText ?? null,
-                    });
-                    await updateDocumentStatus(doc.id, input.projectId, "needs_review");
-                  }
-                  lastError = null;
-                  break;
-                } catch (fetchErr) {
-                  lastError = String(fetchErr);
-                  if (attempt < 2) {
-                    console.log(`[Retry] Doc ${doc.id} attempt ${attempt + 1} failed: ${lastError}, retrying in ${(attempt + 1) * 5}s...`);
-                    await new Promise(r => setTimeout(r, (attempt + 1) * 5000));
-                  }
-                }
-              }
-              if (lastError) {
-                await updateDocumentStatus(doc.id, input.projectId, "error", `Failed after 3 attempts: ${lastError}`);
-              }
-            } catch (err) {
-              await updateDocumentStatus(doc.id, input.projectId, "error", String(err));
-            }
-          }));
-          // Delay between chunks to avoid rate limiting
-          if (chunks.indexOf(chunk) < chunks.length - 1) {
-            await new Promise(r => setTimeout(r, 2000));
-          }
-        }
-      })().catch(console.error);
-
-      return { queued: retryDocs.length, message: `Retrying ${retryDocs.length} document(s).` };
+      const queued = await enqueueTranscriptionBatch({
+        projectId: input.projectId,
+        documentIds: retryDocs.map((document) => document.id),
+      });
+      return {
+        jobId: queued.job?.id,
+        queued: queued.queued,
+        alreadyQueued: queued.alreadyQueued,
+        message: queued.queued > 0
+          ? `Queued ${queued.queued} document(s) for retry.`
+          : "All retryable documents are already queued or processing.",
+      };
     }),
 
   delete: protectedProcedure

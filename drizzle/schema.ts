@@ -158,6 +158,9 @@ export const documents = pgTable("documents", {
   groupId: integer("groupId").references(() => documentGroups.id, { onDelete: "set null" }),
   pageNumber: integer("pageNumber"),  // 1-based page order within group
   uploadedAt: timestamp("uploadedAt").defaultNow().notNull(),
+  // Set only while a durable queue task owns this document. Do not infer
+  // processing age from uploadedAt: old documents can be retried at any time.
+  processingStartedAt: timestamp("processingStartedAt"),
   processedAt: timestamp("processedAt"),
 }, (t) => [
   index("documents_projectId_idx").on(t.projectId),
@@ -212,6 +215,41 @@ export const jobs = pgTable("jobs", {
 
 export type Job = typeof jobs.$inferSelect;
 export type InsertJob = typeof jobs.$inferInsert;
+
+/**
+ * Durable, per-document queue entries for transcription work.
+ *
+ * A job is the user-facing batch/aggregate; a queue task is the unit workers
+ * claim. The project/document unique key makes enqueue idempotent while still
+ * allowing a completed or failed task to be re-queued by updating the same row.
+ */
+export const transcriptionQueueTasks = pgTable("transcription_queue_tasks", {
+  id: serial("id").primaryKey(),
+  jobId: integer("jobId").notNull().references(() => jobs.id, { onDelete: "cascade" }),
+  projectId: integer("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  documentId: integer("documentId").notNull().references(() => documents.id, { onDelete: "cascade" }),
+  status: jobStatusEnum("status").default("queued").notNull(),
+  attempts: integer("attempts").default(0).notNull(),
+  maxAttempts: integer("maxAttempts").default(3).notNull(),
+  availableAt: timestamp("availableAt").defaultNow().notNull(),
+  leaseOwner: varchar("leaseOwner", { length: 160 }),
+  leaseExpiresAt: timestamp("leaseExpiresAt"),
+  heartbeatAt: timestamp("heartbeatAt"),
+  startedAt: timestamp("startedAt"),
+  completedAt: timestamp("completedAt"),
+  lastError: text("lastError"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("transcription_queue_project_document_uq").on(t.projectId, t.documentId),
+  index("transcription_queue_claim_idx").on(t.status, t.availableAt, t.createdAt),
+  index("transcription_queue_project_status_idx").on(t.projectId, t.status),
+  index("transcription_queue_lease_idx").on(t.status, t.leaseExpiresAt),
+  index("transcription_queue_job_idx").on(t.jobId),
+]);
+
+export type TranscriptionQueueTask = typeof transcriptionQueueTasks.$inferSelect;
+export type InsertTranscriptionQueueTask = typeof transcriptionQueueTasks.$inferInsert;
 
 // ─── Document Embeddings (pgvector) ──────────────────────────────────────────
 // Stores vector embeddings for semantic search. Strictly isolated by project_id.

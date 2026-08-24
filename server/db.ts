@@ -370,9 +370,14 @@ export async function getDocumentById(id: number, projectId: number) {
 export async function updateDocumentStatus(id: number, projectId: number, status: Document["status"], errorMessage?: string) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const update: Partial<InsertDocument> = { status };
+  const update: Partial<InsertDocument> = {
+    status,
+    processingStartedAt: status === "processing" ? new Date() : null,
+  };
+  if (status === "processing") update.processedAt = null;
   if (["needs_review", "reviewed", "error"].includes(status)) update.processedAt = new Date();
   if (errorMessage !== undefined) update.errorMessage = errorMessage;
+  else if (status !== "error") update.errorMessage = null;
   await db.update(documents)
     .set(update)
     .where(and(eq(documents.id, id), eq(documents.projectId, projectId)));
@@ -1362,34 +1367,6 @@ export async function updateUserOpenId(oldOpenId: string, newOpenId: string) {
   const db = await getDb();
   if (!db) return;
   await db.update(users).set({ openId: newOpenId }).where(eq(users.openId, oldOpenId));
-}
-
-/**
- * Reset documents stuck in 'processing' for >5 min, then return all pending + error docs for retry.
- */
-export async function resetStuckAndGetRetryable(projectId: number): Promise<Document[]> {
-  const db = await getDb();
-  if (!db) return [];
-
-  // Reset stuck 'processing' docs (>5 min old) to 'pending'
-  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
-  await db.update(documents)
-    .set({ status: "pending" })
-    .where(
-      and(
-        eq(documents.projectId, projectId),
-        eq(documents.status, "processing"),
-        lt(documents.uploadedAt, fiveMinAgo)
-      )
-    );
-
-  // Get all pending + error docs
-  return db.select().from(documents).where(
-    and(
-      eq(documents.projectId, projectId),
-      inArray(documents.status, ["pending", "error"])
-    )
-  ).orderBy(asc(documents.uploadedAt));
 }
 
 // ─── Review Sessions ─────────────────────────────────────────────────────────

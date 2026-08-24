@@ -29,8 +29,9 @@ import { closeDb } from "../db";
 import { beginShutdown, getReadiness, registerHealthRoutes } from "./health";
 import { logEvent } from "./logger";
 import { assertRuntimeConfig } from "./runtimeConfig";
+import { createProductionTranscriptionWorker } from "../transcriptionWorker";
 
-const SHUTDOWN_TIMEOUT_MS = 10_000;
+const SHUTDOWN_TIMEOUT_MS = 35_000;
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -75,7 +76,10 @@ function listen(server: Server, port: number): Promise<void> {
   });
 }
 
-function installShutdownHandlers(server: Server): void {
+function installShutdownHandlers(
+  server: Server,
+  transcriptionWorker: ReturnType<typeof createProductionTranscriptionWorker>
+): void {
   let shutdownStarted = false;
 
   const shutdown = async (signal: NodeJS.Signals) => {
@@ -95,9 +99,11 @@ function installShutdownHandlers(server: Server): void {
     forceShutdown.unref();
 
     try {
-      await new Promise<void>((resolve, reject) => {
+      const serverClosed = new Promise<void>((resolve, reject) => {
         server.close(error => (error ? reject(error) : resolve()));
       });
+      await transcriptionWorker.stop(25_000);
+      await serverClosed;
       await closeDb();
       clearTimeout(forceShutdown);
       logEvent("info", "server.shutdown.completed", { signal });
@@ -202,8 +208,10 @@ export async function startServer() {
     logEvent("warn", "server.port.fallback", { preferredPort, port });
   }
 
+  const transcriptionWorker = createProductionTranscriptionWorker();
   await listen(server, port);
-  installShutdownHandlers(server);
+  await transcriptionWorker.start();
+  installShutdownHandlers(server, transcriptionWorker);
   logEvent("info", "server.started", {
     port,
     environment: process.env.NODE_ENV || "development",
