@@ -9,6 +9,7 @@ import {
   real,
   boolean,
   index,
+  check,
   uniqueIndex,
   serial,
   uuid,
@@ -270,6 +271,12 @@ export const transcriptionQueueTasks = pgTable("transcription_queue_tasks", {
   index("transcription_queue_project_status_idx").on(t.projectId, t.status),
   index("transcription_queue_lease_idx").on(t.status, t.leaseExpiresAt),
   index("transcription_queue_job_idx").on(t.jobId),
+  check("transcription_queue_attempts_check", sql`${t.attempts} >= 0`),
+  check("transcription_queue_max_attempts_check", sql`${t.maxAttempts} > 0`),
+  check(
+    "transcription_queue_attempt_limit_check",
+    sql`${t.attempts} <= ${t.maxAttempts}`
+  ),
 ]);
 
 export type TranscriptionQueueTask = typeof transcriptionQueueTasks.$inferSelect;

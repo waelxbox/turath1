@@ -79,13 +79,34 @@ export function getSubscriptionPlan(subscription: Stripe.Subscription): PaidPlan
   return requirePaidPlan(Array.from(planIds)[0]);
 }
 
-function getSubscriptionPeriodStart(subscription: Stripe.Subscription): number {
-  const starts = subscription.items.data.map(item => item.current_period_start);
-  const periodStart = starts.length > 0 ? Math.min(...starts) : 0;
-  if (!Number.isSafeInteger(periodStart) || periodStart < 1) {
+export function getSubscriptionPeriodStart(subscription: Stripe.Subscription): number {
+  const itemStarts = subscription.items.data
+    .map(item => item.current_period_start)
+    .filter((start): start is number => Number.isSafeInteger(start) && start > 0);
+  // Stripe moved these fields from the subscription to its items in Basil.
+  // Accept the legacy shape while old-version webhook endpoints are migrated.
+  const legacyStart = (subscription as Stripe.Subscription & { current_period_start?: number })
+    .current_period_start;
+  const periodStart = itemStarts.length > 0 ? Math.min(...itemStarts) : legacyStart;
+  if (typeof periodStart !== "number" || !Number.isSafeInteger(periodStart) || periodStart < 1) {
     throw new InvalidStripeEventError("Subscription is missing a valid billing period");
   }
   return periodStart;
+}
+
+export function getInvoiceSubscriptionId(invoice: Stripe.Invoice): string {
+  // Stripe moved `invoice.subscription` under `invoice.parent` in Basil.
+  const legacySubscription = (invoice as Stripe.Invoice & {
+    subscription?: string | { id: string } | null;
+  }).subscription;
+  return requireStripeId(
+    invoice.parent?.subscription_details?.subscription ?? legacySubscription ?? null,
+    "invoice subscription ID",
+  );
+}
+
+export function isSubscriptionCycleInvoice(invoice: Stripe.Invoice): boolean {
+  return invoice.billing_reason === "subscription_cycle";
 }
 
 async function applyCheckoutEvent(
@@ -110,17 +131,21 @@ async function applyCheckoutEvent(
   const account = await tx.select().from(users).where(eq(users.id, checkout.userId)).limit(1).for("update");
   if (!account[0]) throw new Error(`Checkout references unknown user ${checkout.userId}`);
   const checkoutLockId = session.metadata?.checkout_lock_id;
-  if (account[0].pendingStripeCheckoutSessionId && account[0].pendingStripeCheckoutSessionId !== session.id) {
+  if (!checkoutLockId || account[0].pendingStripeCheckoutSessionId !== session.id) {
     throw new InvalidStripeEventError("Checkout session does not match the pending billing session");
   }
-  if (account[0].pendingStripeCheckoutLockId && account[0].pendingStripeCheckoutLockId !== checkoutLockId) {
+  if (account[0].pendingStripeCheckoutLockId !== checkoutLockId) {
     throw new InvalidStripeEventError("Checkout lock does not match the pending billing session");
   }
   if (account[0].stripeCustomerId && account[0].stripeCustomerId !== checkout.customerId) {
     throw new InvalidStripeEventError("Checkout customer does not match the user's billing account");
   }
   if (account[0].lastStripeEventCreatedAt > event.created) return;
-  if (account[0].lastStripeEventCreatedAt === event.created && account[0].stripeSubscriptionStatus === "canceled") return;
+  if (
+    account[0].lastStripeEventCreatedAt === event.created &&
+    account[0].stripeSubscriptionStatus === "canceled" &&
+    account[0].stripeSubscriptionId === checkout.subscriptionId
+  ) return;
   // Checkout is an upgrade-only path. Downgrades are reconciled from the
   // subscription object delivered by Stripe's customer portal workflow.
   if (PLAN_RANK[checkout.plan] < PLAN_RANK[account[0].plan]) return;
@@ -160,21 +185,29 @@ async function applyExpiredCheckoutEvent(
 async function applyPaidInvoiceEvent(
   tx: DatabaseTransaction,
   invoice: Stripe.Invoice,
+  subscription?: Stripe.Subscription,
 ): Promise<void> {
-  if (invoice.status !== "paid" || !Number.isSafeInteger(invoice.period_start) || invoice.period_start < 1) {
-    throw new InvalidStripeEventError("Paid invoice event is missing a valid billing period");
+  // Creation, upgrade/proration and threshold invoices are not billing-cycle
+  // boundaries and must never grant another full quota allocation.
+  if (!isSubscriptionCycleInvoice(invoice)) return;
+  if (invoice.status !== "paid" || !subscription) {
+    throw new InvalidStripeEventError("Subscription-cycle invoice is missing authoritative billing data");
   }
-  const subscriptionId = requireStripeId(
-    invoice.parent?.subscription_details?.subscription ?? null,
-    "invoice subscription ID",
-  );
+  const subscriptionId = getInvoiceSubscriptionId(invoice);
   const customerId = requireStripeId(invoice.customer, "invoice customer ID");
+  const subscriptionCustomerId = requireStripeId(subscription.customer, "subscription customer ID");
+  if (subscription.id !== subscriptionId || subscriptionCustomerId !== customerId) {
+    throw new InvalidStripeEventError("Paid invoice does not match its Stripe subscription");
+  }
+  const subscriptionStatus = normalizeSubscriptionStatus(subscription.status);
+  if (subscriptionStatus !== "active" && subscriptionStatus !== "trialing") return;
+  const periodStart = getSubscriptionPeriodStart(subscription);
   const accounts = await tx.select().from(users).where(eq(users.stripeCustomerId, customerId)).limit(2).for("update");
   if (accounts.length !== 1) throw new Error(`Stripe customer ${customerId} is not mapped to exactly one user`);
   if (accounts[0].stripeSubscriptionId && accounts[0].stripeSubscriptionId !== subscriptionId) return;
-  if (invoice.period_start <= accounts[0].quotaPeriodStartedAt) return;
+  if (periodStart <= accounts[0].quotaPeriodStartedAt) return;
   await tx.update(users).set({
-    quotaPeriodStartedAt: invoice.period_start,
+    quotaPeriodStartedAt: periodStart,
     documentQuotaUsed: 0,
     transcriptionQuotaUsed: 0,
     updatedAt: new Date(),
@@ -250,7 +283,7 @@ async function processEventTransactionally(
         await applySubscriptionEvent(tx, event, event.data.object as Stripe.Subscription, true);
         break;
       case "invoice.paid":
-        await applyPaidInvoiceEvent(tx, event.data.object as Stripe.Invoice);
+        await applyPaidInvoiceEvent(tx, event.data.object as Stripe.Invoice, authoritativeSubscription);
         break;
       default:
         // Recording ignored, verified events is intentional: repeated deliveries
@@ -268,7 +301,7 @@ export function registerStripeWebhook(app: express.Application) {
     express.raw({ type: "application/json", limit: "256kb" }),
     async (req, res) => {
       const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-      const secretKey = process.env.STRIPE_SECRET_KEY || process.env.Stripe_Secret_Key;
+      const secretKey = process.env.STRIPE_SECRET_KEY;
       if (!webhookSecret || !secretKey) {
         console.error("[Stripe Webhook] Stripe signing configuration is missing");
         return res.status(503).json({ error: "Stripe webhook unavailable" });
@@ -295,6 +328,11 @@ export function registerStripeWebhook(app: express.Application) {
         } else if (event.type === "customer.subscription.updated") {
           const subscription = event.data.object as Stripe.Subscription;
           authoritativeSubscription = await getStripe().subscriptions.retrieve(subscription.id);
+        } else if (event.type === "invoice.paid") {
+          const invoice = event.data.object as Stripe.Invoice;
+          if (isSubscriptionCycleInvoice(invoice)) {
+            authoritativeSubscription = await getStripe().subscriptions.retrieve(getInvoiceSubscriptionId(invoice));
+          }
         }
 
         const result = await processEventTransactionally(event, authoritativeSubscription);

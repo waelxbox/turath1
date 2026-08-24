@@ -1683,7 +1683,7 @@ export default function ReviewPage({ projectId, project, docId: docIdProp }: Pro
                           <Filter className="w-3.5 h-3.5 mr-2" /> Change status
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent>
-                          {(["pending", "processing", "needs_review", "reviewed", "flagged", "error"] as const).map((s) => (
+                          {(["pending", "needs_review", "reviewed", "flagged", "error"] as const).map((s) => (
                             <DropdownMenuItem
                               key={s}
                               disabled={doc.status === s}

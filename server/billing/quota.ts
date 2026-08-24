@@ -18,9 +18,11 @@ export class QuotaExceededError extends Error {
 /** Pricing is fail-closed by default. Local development may explicitly disable it. */
 export function isPricingEnabled(
   value = process.env.TURATH_PRICING_ENABLED,
-  nodeEnv = process.env.NODE_ENV,
+  _nodeEnv = process.env.NODE_ENV,
 ): boolean {
-  if (nodeEnv === "production") return true;
+  // Pricing is enabled by default, including in production. A controlled
+  // staging deployment may explicitly disable it until Stripe test-mode
+  // products and the signed webhook have passed their smoke tests.
   return value !== "false";
 }
 

@@ -10,6 +10,7 @@ const validEnvironment = {
   GOOGLE_CLIENT_SECRET: "google-secret",
   BUILT_IN_FORGE_API_URL: "https://forge.example/v1",
   BUILT_IN_FORGE_API_KEY: "forge-secret",
+  TURATH_PRICING_ENABLED: "false",
 };
 
 describe("runtime configuration", () => {
@@ -46,7 +47,13 @@ describe("runtime configuration", () => {
     });
 
     expect(issues.map(issue => issue.key)).toEqual(
-      expect.arrayContaining(["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"])
+      expect.arrayContaining([
+        "STRIPE_SECRET_KEY",
+        "STRIPE_WEBHOOK_SECRET",
+        "STRIPE_PRO_PRICE_ID",
+        "STRIPE_TEAM_PRICE_ID",
+        "PUBLIC_APP_URL",
+      ])
     );
   });
 

@@ -1,0 +1,3 @@
+ALTER TABLE "transcription_queue_tasks" ADD CONSTRAINT "transcription_queue_attempts_check" CHECK ("transcription_queue_tasks"."attempts" >= 0);--> statement-breakpoint
+ALTER TABLE "transcription_queue_tasks" ADD CONSTRAINT "transcription_queue_max_attempts_check" CHECK ("transcription_queue_tasks"."maxAttempts" > 0);--> statement-breakpoint
+ALTER TABLE "transcription_queue_tasks" ADD CONSTRAINT "transcription_queue_attempt_limit_check" CHECK ("transcription_queue_tasks"."attempts" <= "transcription_queue_tasks"."maxAttempts");

@@ -135,6 +135,10 @@ The following environment variables are required. In the Manus hosting environme
 | `GOOGLE_CLIENT_ID` | Google OAuth web application client ID |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth web application client secret |
 | `TRUST_PROXY_HOPS` | Number of known reverse-proxy hops; defaults to `0` and should normally be `1` behind one platform proxy |
+| `TURATH_PRICING_ENABLED` | Pricing/quota enforcement; enabled unless explicitly set to `false` for a controlled staging smoke-test phase |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | Stripe test/live secrets; required when pricing is enabled |
+| `STRIPE_PRO_PRICE_ID` / `STRIPE_TEAM_PRICE_ID` | Explicit configured monthly prices; runtime discovery is intentionally disabled |
+| `PUBLIC_APP_URL` | HTTPS origin used for Stripe Checkout and Portal redirects |
 | `GOOGLE_AI_API_KEY` | Google AI API key for direct Gemini model access |
 | `VITE_APP_ID` | Manus OAuth application ID |
 | `OAUTH_SERVER_URL` | Manus OAuth backend base URL |

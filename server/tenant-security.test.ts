@@ -440,8 +440,7 @@ describe("validation tenant and capability boundaries", () => {
   it("does not accept a forged public verdict without a session capability", async () => {
     await expectDenied(caller().validation.submitVerdict({
       assignmentId: ids.victimValidationAssignment,
-      sessionId: ids.victimSession,
-      documentId: ids.victimDocument,
+      shareToken: "missing-capability",
       reviewerUsername: "attacker",
       lineIndex: 0,
       lineText: "forged",
@@ -453,6 +452,8 @@ describe("validation tenant and capability boundaries", () => {
   it("does not complete an assignment without a session capability", async () => {
     await expectDenied(caller().validation.completeAssignment({
       assignmentId: ids.victimValidationAssignment,
+      shareToken: "missing-capability",
+      reviewerUsername: "attacker",
       totalLines: 1,
     }));
     expect(db.completeAssignment).not.toHaveBeenCalled();

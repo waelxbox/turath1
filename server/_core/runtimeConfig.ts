@@ -42,6 +42,53 @@ function requireUrl(
   }
 }
 
+function requireBillingOrigin(
+  env: RuntimeEnvironment,
+  issues: RuntimeConfigIssue[]
+): void {
+  const key = "PUBLIC_APP_URL";
+  const value = requireValue(env, key, issues);
+  if (!value) return;
+
+  try {
+    const parsed = new URL(value);
+    const isLocal =
+      parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+    if (
+      parsed.protocol !== "https:" &&
+      !(env.NODE_ENV !== "production" && isLocal)
+    ) {
+      throw new Error("HTTPS is required");
+    }
+    if (
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      throw new Error("must be an origin");
+    }
+  } catch {
+    issues.push({
+      key,
+      message:
+        "must be a valid HTTPS origin without a path, query, or fragment",
+    });
+  }
+}
+
+function requireStripePrice(
+  env: RuntimeEnvironment,
+  key: "STRIPE_PRO_PRICE_ID" | "STRIPE_TEAM_PRICE_ID",
+  issues: RuntimeConfigIssue[]
+): void {
+  const value = requireValue(env, key, issues);
+  if (value && !/^price_[A-Za-z0-9_]+$/.test(value)) {
+    issues.push({ key, message: "must be a valid Stripe price ID" });
+  }
+}
+
 /** Validate only configuration needed for the server to operate safely. */
 export function validateRuntimeConfig(
   env: RuntimeEnvironment = process.env
@@ -63,9 +110,12 @@ export function validateRuntimeConfig(
     });
   }
 
-  if (env.TURATH_PRICING_ENABLED === "true") {
+  if (env.TURATH_PRICING_ENABLED !== "false") {
     requireValue(env, "STRIPE_SECRET_KEY", issues);
     requireValue(env, "STRIPE_WEBHOOK_SECRET", issues);
+    requireStripePrice(env, "STRIPE_PRO_PRICE_ID", issues);
+    requireStripePrice(env, "STRIPE_TEAM_PRICE_ID", issues);
+    requireBillingOrigin(env, issues);
   }
 
   return issues;

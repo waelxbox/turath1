@@ -6,9 +6,12 @@ let _stripe: Stripe | null = null;
 
 export function getStripe(): Stripe {
   if (!_stripe) {
-    const key = process.env.STRIPE_SECRET_KEY || process.env.Stripe_Secret_Key;
+    const key = process.env.STRIPE_SECRET_KEY;
     if (!key) throw new Error("STRIPE_SECRET_KEY not configured");
-    _stripe = new Stripe(key, { apiVersion: "2024-12-18.acacia" as any });
+    // Keep runtime responses aligned with the object shapes shipped by the
+    // installed Stripe SDK. Webhook parsing remains backwards-compatible with
+    // Acacia payloads while the staging endpoint is upgraded to this version.
+    _stripe = new Stripe(key, { apiVersion: "2026-07-29.dahlia" });
   }
   return _stripe;
 }

@@ -124,8 +124,7 @@ describe("Validation Portal - Round Robin Assignment", () => {
 
     await submitLineVerdict({
       assignmentId: 10,
-      sessionId: 1,
-      documentId: 1,
+      shareToken: "validation-test-share-token-000001",
       reviewerUsername: "reviewer1",
       lineIndex: 0,
       lineText: "سطر أول",

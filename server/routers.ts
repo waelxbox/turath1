@@ -1117,7 +1117,7 @@ const documentsRouter = router({
     .input(z.object({
       documentId: z.number(),
       projectId: z.number(),
-      status: z.enum(["pending", "processing", "needs_review", "reviewed", "flagged", "error"]),
+      status: z.enum(["pending", "needs_review", "reviewed", "flagged", "error"]),
     }))
     .mutation(async ({ ctx, input }) => {
       const role = await getProjectRole(input.projectId, ctx.user.id);
@@ -1125,6 +1125,9 @@ const documentsRouter = router({
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN", message: "Viewers cannot change document status" });
       const doc = await getDocumentById(input.documentId, input.projectId);
       if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "Document not found" });
+      if (doc.status === "processing") {
+        throw new TRPCError({ code: "CONFLICT", message: "An active transcription claim cannot be changed manually" });
+      }
       await updateDocumentStatus(input.documentId, input.projectId, input.status);
       return { success: true, status: input.status };
     }),
@@ -1132,17 +1135,23 @@ const documentsRouter = router({
     .input(z.object({
       documentIds: z.array(z.number()),
       projectId: z.number(),
-      status: z.enum(["pending", "processing", "needs_review", "reviewed", "flagged", "error"]),
+      status: z.enum(["pending", "needs_review", "reviewed", "flagged", "error"]),
     }))
     .mutation(async ({ ctx, input }) => {
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (!role) throw new TRPCError({ code: "NOT_FOUND" });
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN", message: "Viewers cannot change document status" });
-      await requireProjectDocuments(input.projectId, input.documentIds);
-      for (const docId of input.documentIds) {
-        await updateDocumentStatus(docId, input.projectId, input.status);
+      const projectDocuments = await requireProjectDocuments(
+        input.projectId,
+        input.documentIds
+      );
+      if (projectDocuments.some(document => document.status === "processing")) {
+        throw new TRPCError({ code: "CONFLICT", message: "An active transcription claim cannot be changed manually" });
       }
-      return { success: true, count: input.documentIds.length };
+      for (const document of projectDocuments) {
+        await updateDocumentStatus(document.id, input.projectId, input.status);
+      }
+      return { success: true, count: projectDocuments.length };
     }),
   bulkDelete: protectedProcedure
     .input(z.object({
@@ -3401,20 +3410,22 @@ const billingRouter = router({
       if (ctx.user.stripeSubscriptionId && ctx.user.stripeSubscriptionStatus !== "canceled") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Resolve the existing subscription in the billing portal first" });
       }
-      if (!ctx.user.stripeCustomerId && !ctx.user.email) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "An email address is required for checkout" });
+      const checkoutClaim = await claimCheckoutLock(ctx.user.id, input.planId);
+      if (!checkoutClaim) {
+        throw new TRPCError({ code: "CONFLICT", message: "Checkout cannot be started for the current billing state" });
       }
-      const checkoutLockId = await claimCheckoutLock(ctx.user.id);
-      if (!checkoutLockId) {
-        throw new TRPCError({ code: "CONFLICT", message: "A checkout session is already pending" });
+      const checkoutLockId = checkoutClaim.lockId;
+      if (!checkoutClaim.stripeCustomerId && !checkoutClaim.email) {
+        await releaseCheckoutLock(ctx.user.id, checkoutLockId);
+        throw new TRPCError({ code: "BAD_REQUEST", message: "An email address is required for checkout" });
       }
       try {
         const checkout = await createCheckoutSession({
           userId: ctx.user.id,
-          userEmail: ctx.user.email || "",
-          userName: ctx.user.name || "",
+          userEmail: checkoutClaim.email || "",
+          userName: checkoutClaim.name || "",
           planId: input.planId,
-          stripeCustomerId: ctx.user.stripeCustomerId,
+          stripeCustomerId: checkoutClaim.stripeCustomerId,
           checkoutLockId,
         });
         if (!await recordCheckoutSession(ctx.user.id, checkoutLockId, checkout.sessionId, checkout.expiresAt)) {

@@ -4,8 +4,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { getBillingOrigin, getCheckoutIdempotencyKey, getConfiguredPriceIds } from "./stripe";
 import { getQuotaLimit, isPricingEnabled } from "./quota";
 import {
+  getInvoiceSubscriptionId,
+  getSubscriptionPeriodStart,
   getSubscriptionPlan,
   InvalidStripeEventError,
+  isSubscriptionCycleInvoice,
   normalizeSubscriptionStatus,
   registerStripeWebhook,
   validateCheckoutSession,
@@ -32,7 +35,7 @@ function subscription(plan = "team"): Stripe.Subscription {
     customer: "cus_valid123",
     status: "active",
     items: {
-      data: [{ price: { metadata: { turath_plan: plan } } }],
+      data: [{ current_period_start: 1787529600, price: { metadata: { turath_plan: plan } } }],
     },
   } as unknown as Stripe.Subscription;
 }
@@ -67,7 +70,7 @@ describe("quota policy", () => {
     expect(isPricingEnabled(undefined)).toBe(true);
     expect(isPricingEnabled("true")).toBe(true);
     expect(isPricingEnabled("false", "development")).toBe(false);
-    expect(isPricingEnabled("false", "production")).toBe(true);
+    expect(isPricingEnabled("false", "production")).toBe(false);
   });
 
   it("uses bounded upload and transcription limits for non-enterprise plans", () => {
@@ -100,6 +103,32 @@ describe("Stripe event validation", () => {
     expect(normalizeSubscriptionStatus("unpaid")).toBe("canceled");
     expect(getSubscriptionPlan(subscription("team"))).toBe("team");
     expect(() => getSubscriptionPlan(subscription("enterprise"))).toThrow(InvalidStripeEventError);
+  });
+
+  it("accepts both current and legacy Stripe billing-period shapes", () => {
+    expect(getSubscriptionPeriodStart(subscription())).toBe(1787529600);
+    const legacy = {
+      ...subscription(),
+      current_period_start: 1787443200,
+      items: { data: [{ price: { metadata: { turath_plan: "team" } } }] },
+    } as unknown as Stripe.Subscription & { current_period_start: number };
+    expect(getSubscriptionPeriodStart(legacy)).toBe(1787443200);
+  });
+
+  it("accepts both current and legacy invoice subscription references", () => {
+    expect(getInvoiceSubscriptionId({
+      parent: { subscription_details: { subscription: "sub_current123" } },
+    } as unknown as Stripe.Invoice)).toBe("sub_current123");
+    expect(getInvoiceSubscriptionId({
+      parent: null,
+      subscription: "sub_legacy123",
+    } as unknown as Stripe.Invoice)).toBe("sub_legacy123");
+  });
+
+  it("only treats a recurring subscription cycle as a quota boundary", () => {
+    expect(isSubscriptionCycleInvoice({ billing_reason: "subscription_cycle" } as Stripe.Invoice)).toBe(true);
+    expect(isSubscriptionCycleInvoice({ billing_reason: "subscription_update" } as Stripe.Invoice)).toBe(false);
+    expect(isSubscriptionCycleInvoice({ billing_reason: "subscription_create" } as Stripe.Invoice)).toBe(false);
   });
 });
 

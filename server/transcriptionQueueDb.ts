@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, notExists, sql } from "drizzle-orm";
 import {
   documents,
   jobs,
@@ -103,7 +103,12 @@ export async function enqueueTranscriptionBatch(input: {
         and(
           eq(documents.projectId, input.projectId),
           inArray(documents.id, uniqueDocumentIds),
-          inArray(documents.status, ["pending", "error"])
+          inArray(documents.status, ["pending", "error"]),
+          notExists(
+            tx.select({ id: transcriptions.id })
+              .from(transcriptions)
+              .where(eq(transcriptions.documentId, documents.id))
+          )
         )
       )
       .orderBy(asc(documents.uploadedAt))

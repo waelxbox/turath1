@@ -57,6 +57,8 @@ try {
     "research_conversations",
     "review_activities",
     "review_sessions",
+    "stripe_webhook_events",
+    "transcription_queue_tasks",
     "transcriptions",
     "user_xp_stats",
     "users",
@@ -92,6 +94,10 @@ try {
     "uxs_user_project_unique",
     "va_session_doc_reviewer_unique",
     "vr_assignment_line_unique",
+    "transcription_queue_project_document_uq",
+    "transcriptions_documentId_unique",
+    "users_stripeCustomerId_unique",
+    "users_stripeSubscriptionId_unique",
   ];
   const indexes = await db.query<{ indexname: string }>(`
     SELECT indexname FROM pg_indexes WHERE schemaname = 'public'
@@ -112,6 +118,29 @@ try {
   if ((foreignKeys.rows[0]?.count ?? 0) < 40) {
     throw new Error(
       `Expected at least 40 foreign keys, found ${foreignKeys.rows[0]?.count ?? 0}`
+    );
+  }
+
+  const queueChecks = await db.query<{ conname: string }>(`
+    SELECT conname
+    FROM pg_constraint
+    WHERE contype = 'c'
+      AND conrelid = 'transcription_queue_tasks'::regclass
+  `);
+  const actualQueueChecks = new Set(
+    queueChecks.rows.map(({ conname }) => conname)
+  );
+  const requiredQueueChecks = [
+    "transcription_queue_attempts_check",
+    "transcription_queue_max_attempts_check",
+    "transcription_queue_attempt_limit_check",
+  ];
+  const missingQueueChecks = requiredQueueChecks.filter(
+    name => !actualQueueChecks.has(name)
+  );
+  if (missingQueueChecks.length > 0) {
+    throw new Error(
+      `Missing queue constraints: ${missingQueueChecks.join(", ")}`
     );
   }
 

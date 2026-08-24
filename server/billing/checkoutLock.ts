@@ -1,11 +1,21 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, isNull, lt, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { users } from "../../drizzle/schema";
 import { getDb } from "../db";
 
 const PROVISIONAL_LOCK_MS = 40 * 60 * 1000;
 
-export async function claimCheckoutLock(userId: number): Promise<string | null> {
+export type CheckoutClaim = {
+  lockId: string;
+  email: string | null;
+  name: string | null;
+  stripeCustomerId: string | null;
+};
+
+export async function claimCheckoutLock(
+  userId: number,
+  targetPlan: "pro" | "team"
+): Promise<CheckoutClaim | null> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const now = new Date();
@@ -17,8 +27,14 @@ export async function claimCheckoutLock(userId: number): Promise<string | null> 
   }).where(and(
     eq(users.id, userId),
     or(isNull(users.pendingStripeCheckoutExpiresAt), lt(users.pendingStripeCheckoutExpiresAt, now)),
-  )).returning({ id: users.id });
-  return claimed[0] ? lockId : null;
+    or(isNull(users.stripeSubscriptionId), eq(users.stripeSubscriptionStatus, "canceled")),
+    targetPlan === "pro" ? eq(users.plan, "free") : inArray(users.plan, ["free", "pro"]),
+  )).returning({
+    email: users.email,
+    name: users.name,
+    stripeCustomerId: users.stripeCustomerId,
+  });
+  return claimed[0] ? { lockId, ...claimed[0] } : null;
 }
 
 export async function recordCheckoutSession(

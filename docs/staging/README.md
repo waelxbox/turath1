@@ -35,7 +35,9 @@ critical values are absent:
 | `JWT_SECRET`                                        | Independently generated random value of at least 32 bytes. Never reuse production or developer secrets. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`         | Dedicated staging OAuth web client with only the staging callback URL.                                  |
 | `BUILT_IN_FORGE_API_URL` / `BUILT_IN_FORGE_API_KEY` | Dedicated staging storage/Forge credentials and namespace.                                              |
-| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET`       | Required when `TURATH_PRICING_ENABLED=true`; use Stripe test mode only.                                 |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET`       | Required unless `TURATH_PRICING_ENABLED=false`; use Stripe test mode only.                              |
+| `STRIPE_PRO_PRICE_ID` / `STRIPE_TEAM_PRICE_ID`      | Exact test-mode monthly prices configured with the expected plan metadata.                              |
+| `PUBLIC_APP_URL`                                    | HTTPS staging origin used for server-controlled Checkout and Portal redirects.                          |
 
 Keep `TURATH_PRICING_ENABLED=false` until the signed webhook smoke test passes.
 Apply least privilege and rotate every secret after suspected disclosure.
@@ -76,8 +78,8 @@ Run these with two synthetic tenants, A and B, and retain the results:
 - An unsigned or tampered Stripe webhook returns 400. A signed Stripe test event
   is processed once, including when delivered twice.
 - Structured startup and shutdown events appear in logs without secret values.
-- Send `SIGTERM`; readiness becomes 503, in-flight requests drain, and the
-  process exits within 10 seconds.
+- Send `SIGTERM`; readiness becomes 503, in-flight requests and transcription
+  leases drain, and the process exits within 35 seconds.
 
 ## Monitoring during the controlled pilot
 

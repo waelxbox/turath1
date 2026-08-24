@@ -1,4 +1,4 @@
-import { and, eq, desc, sql, count, or, inArray, isNull, ilike, gt, lt, asc } from "drizzle-orm";
+import { and, eq, desc, sql, count, or, inArray, isNull, ilike, gt, lt, asc, notExists } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
@@ -424,15 +424,27 @@ export async function updateDocumentStatus(id: number, projectId: number, status
     .where(and(eq(documents.id, id), eq(documents.projectId, projectId)));
 }
 
-/** Atomically claim a project-scoped pending/error document for AI work. */
+/** Atomically claim a project-scoped, never-transcribed document for AI work. */
 export async function claimDocumentForTranscription(id: number, projectId: number): Promise<boolean> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const claimed = await db.update(documents).set({ status: "processing", errorMessage: null })
+  const claimed = await db.update(documents).set({
+    status: "processing",
+    processingStartedAt: new Date(),
+    processedAt: null,
+    errorMessage: null,
+  })
     .where(and(
       eq(documents.id, id),
       eq(documents.projectId, projectId),
       inArray(documents.status, ["pending", "error"]),
+      notExists(
+        db.select({ id: transcriptions.id }).from(transcriptions)
+          .where(and(
+            eq(transcriptions.documentId, id),
+            eq(transcriptions.projectId, projectId),
+          )),
+      ),
     ))
     .returning({ id: documents.id });
   return Boolean(claimed[0]);
@@ -604,7 +616,10 @@ export async function createTranscription(data: InsertTranscription) {
     eq(documents.projectId, data.projectId),
   )).limit(1);
   if (!document) throw new Error("Transcription document does not belong to the project");
-  const result = await db.insert(transcriptions).values(data).returning();
+  const result = await db.insert(transcriptions).values(data)
+    .onConflictDoNothing({ target: transcriptions.documentId })
+    .returning();
+  if (!result[0]) throw new Error(`Document ${data.documentId} already has a transcription`);
   return result[0];
 }
 
