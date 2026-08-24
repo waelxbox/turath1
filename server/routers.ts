@@ -110,6 +110,17 @@ import { createCheckoutSession, createPortalSession } from "./billing/stripe";
 import { claimCheckoutLock, recordCheckoutSession, releaseCheckoutLock } from "./billing/checkoutLock";
 
 type ProjectRole = "owner" | "editor" | "viewer";
+const STORAGE_OBJECT_FETCH_TIMEOUT_MS = 60_000;
+
+async function fetchStorageObject(url: string): Promise<Buffer> {
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(STORAGE_OBJECT_FETCH_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error(`Storage download failed with HTTP ${response.status}`);
+  }
+  return Buffer.from(await response.arrayBuffer());
+}
 
 async function requireProjectAccess(projectId: number, userId: number): Promise<ProjectRole> {
   const role = await getProjectRole(projectId, userId);
@@ -442,9 +453,7 @@ const projectsRouter = router({
           samplePairs = await Promise.all(
             samples.filter(s => !s.isHeldOut).slice(0, 3).map(async (s) => {
               const { url } = await storageGetRefine(s.imagePath);
-              const resp = await fetch(url);
-              const buf = await resp.arrayBuffer();
-              const base64 = Buffer.from(buf).toString("base64");
+              const base64 = (await fetchStorageObject(url)).toString("base64");
               return {
                 imageBase64: base64,
                 mimeType: "image/jpeg",
@@ -571,9 +580,7 @@ const onboardingRouter = router({
           const { storageGet } = await import("./storage");
           const { url } = await storageGet(s.imagePath);
           // Fetch the image bytes and re-encode
-          const resp = await fetch(url);
-          const buf = await resp.arrayBuffer();
-          const base64 = Buffer.from(buf).toString("base64");
+          const base64 = (await fetchStorageObject(url)).toString("base64");
           return {
             imageBase64: base64,
             mimeType: "image/jpeg",
@@ -617,9 +624,7 @@ const onboardingRouter = router({
       // Fetch held-out image
       const { storageGet: storageGetValidate } = await import("./storage");
       const { url } = await storageGetValidate(heldOut.imagePath);
-      const resp = await fetch(url);
-      const buf = await resp.arrayBuffer();
-      const base64 = Buffer.from(buf).toString("base64");
+      const base64 = (await fetchStorageObject(url)).toString("base64");
 
       const config = {
         pipelineType: project.pipelineType as "single_pass" | "two_pass",
@@ -661,9 +666,7 @@ const onboardingRouter = router({
         samples.filter(s => !s.isHeldOut).map(async (s) => {
           const { storageGet: storageGetRefine } = await import("./storage");
           const { url } = await storageGetRefine(s.imagePath);
-          const resp = await fetch(url);
-          const buf = await resp.arrayBuffer();
-          const base64 = Buffer.from(buf).toString("base64");
+          const base64 = (await fetchStorageObject(url)).toString("base64");
           return {
             imageBase64: base64,
             mimeType: "image/jpeg",
@@ -957,9 +960,7 @@ const documentsRouter = router({
         // Fetch image from storage
         const { storageGet: storageGetDoc } = await import("./storage");
         const { url } = await storageGetDoc(doc.storagePath);
-        const resp = await fetch(url);
-        const buf = await resp.arrayBuffer();
-        const base64 = Buffer.from(buf).toString("base64");
+        const base64 = (await fetchStorageObject(url)).toString("base64");
 
         await reserveTranscriptionQuota(project.userId);
         const result = await processDocument(project, base64, doc.mimeType ?? "image/jpeg", doc.filename);
@@ -1006,9 +1007,7 @@ const documentsRouter = router({
       try {
         const { storageGet: storageGetDoc } = await import("./storage");
         const { url } = await storageGetDoc(doc.storagePath);
-        const resp = await fetch(url);
-        const buf = await resp.arrayBuffer();
-        const base64 = Buffer.from(buf).toString("base64");
+        const base64 = (await fetchStorageObject(url)).toString("base64");
         const existingJson = (transcription.reviewedJson ?? transcription.rawJson) as Record<string, unknown>;
         await reserveTranscriptionQuota(project.userId);
         const result = await crossCheckTranscription(project, base64, doc.mimeType ?? "image/jpeg", existingJson);
@@ -2580,8 +2579,7 @@ const groupsRouter = router({
           // Resolve a fresh backend URL from the durable object key.
           const { storageGet } = await import("./storage");
           const { url } = await storageGet(page.storagePath);
-          const response = await fetch(url);
-          const buffer = Buffer.from(await response.arrayBuffer());
+          const buffer = await fetchStorageObject(url);
           const base64 = buffer.toString("base64");
           const mimeType = page.mimeType || "image/jpeg";
 
@@ -2686,8 +2684,7 @@ const groupsRouter = router({
       // Fetch image and convert to base64
       const { storageGet } = await import("./storage");
       const { url } = await storageGet(targetDoc.storagePath);
-      const response = await fetch(url);
-      const buffer = Buffer.from(await response.arrayBuffer());
+      const buffer = await fetchStorageObject(url);
       const base64 = buffer.toString("base64");
       const mimeType = targetDoc.mimeType || "image/jpeg";
 

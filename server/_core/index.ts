@@ -153,6 +153,7 @@ export async function startServer() {
 
   app.use("/api/auth", createRateLimit({ windowMs: 15 * 60_000, max: 30 }));
   app.use("/api/trpc", createRateLimit({ windowMs: 60_000, max: 300 }));
+  app.use("/api/storage", createRateLimit({ windowMs: 60_000, max: 120 }));
   app.use("/manus-storage", createRateLimit({ windowMs: 60_000, max: 120 }));
 
   // The largest accepted upload payload is 15 MB of base64 plus JSON overhead.

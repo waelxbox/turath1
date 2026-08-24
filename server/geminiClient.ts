@@ -12,6 +12,8 @@
 import { ENV } from "./_core/env";
 import type { InvokeParams, InvokeResult } from "./_core/llm";
 
+const GEMINI_REQUEST_TIMEOUT_MS = 120_000;
+
 // Known Gemini model IDs — kept in sync with the frontend dropdown
 // Uses the OpenAI-compatible endpoint: https://generativelanguage.googleapis.com/v1beta/openai/
 // Model IDs verified against the working Selim Hassan and Brovarski apps.
@@ -79,6 +81,7 @@ export async function invokeGemini(
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(GEMINI_REQUEST_TIMEOUT_MS),
     }
   );
 
