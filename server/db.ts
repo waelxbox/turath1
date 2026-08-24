@@ -55,6 +55,21 @@ export async function getDb() {
   return _db;
 }
 
+/**
+ * Stop accepting database work and release this process' connection pool.
+ * This is intentionally idempotent so both signal handling and startup-error
+ * cleanup can call it safely.
+ */
+export async function closeDb(): Promise<void> {
+  const client = _client;
+  _client = null;
+  _db = null;
+
+  if (client) {
+    await client.end({ timeout: 5 });
+  }
+}
+
 // ─── Users ────────────────────────────────────────────────────────────────────
 
 

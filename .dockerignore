@@ -1,0 +1,11 @@
+.git
+.github
+.manus
+.manus-logs
+node_modules
+dist
+coverage
+.env*
+*.log
+docs
+work

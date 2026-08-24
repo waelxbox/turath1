@@ -8,9 +8,17 @@
     "build": "vite build && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc --noEmit",
+    "check:tests": "tsc --project tsconfig.tests.json",
+    "check:all": "pnpm check && pnpm check:tests",
+    "lint": "prettier --check --ignore-unknown package.json tsconfig.json tsconfig.tests.json vitest.config.ts drizzle.config.ts server/_core/index.ts server/_core/health.ts server/_core/health.test.ts server/_core/logger.ts server/_core/runtimeConfig.ts server/_core/runtimeConfig.test.ts server/_core/systemRouter.ts scripts/verify-migrations.mjs scripts/run-integration-tests.mjs .github/workflows .github/dependabot.yml docs/staging Dockerfile docker-compose.staging.yml .dockerignore .env.staging.example",
     "format": "prettier --write .",
     "test": "vitest run",
-    "db:push": "drizzle-kit generate && drizzle-kit migrate"
+    "test:unit": "GOOGLE_CLIENT_ID=640280511703-rt61ei88l0vavp8g7t6a6ltro75b7kjt.apps.googleusercontent.com GOOGLE_CLIENT_SECRET=unit-test-only vitest run --exclude server/members.test.ts",
+    "test:integration": "node scripts/run-integration-tests.mjs",
+    "db:check": "node scripts/verify-migrations.mjs && drizzle-kit check",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit generate && drizzle-kit migrate",
+    "security:audit": "pnpm audit --prod --audit-level=critical"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",

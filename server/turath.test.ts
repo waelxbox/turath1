@@ -17,6 +17,9 @@ function createAuthContext(role: "user" | "admin" = "user"): { ctx: TrpcContext;
     name: "Dr. Test Researcher",
     loginMethod: "manus",
     role,
+    plan: "free",
+    stripeCustomerId: null,
+    documentQuotaUsed: 0,
     createdAt: new Date(),
     updatedAt: new Date(),
     lastSignedIn: new Date(),
@@ -40,9 +43,9 @@ function createAuthContext(role: "user" | "admin" = "user"): { ctx: TrpcContext;
 
 function createUnauthContext(): TrpcContext {
   return {
-    user: undefined,
+    user: null,
     req: { protocol: "https", headers: {} } as TrpcContext["req"],
-    res: { clearCookie: () => {} } as TrpcContext["res"],
+    res: { clearCookie: () => {} } as unknown as TrpcContext["res"],
   };
 }
 
@@ -53,7 +56,7 @@ describe("auth", () => {
     const ctx = createUnauthContext();
     const caller = appRouter.createCaller(ctx);
     const user = await caller.auth.me();
-    expect(user).toBeUndefined();
+    expect(user).toBeNull();
   });
 
   it("returns user when authenticated", async () => {
