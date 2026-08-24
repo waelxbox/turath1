@@ -227,10 +227,12 @@ export async function getSamplesByProjectId(projectId: number) {
     .orderBy(onboardingSamples.createdAt);
 }
 
-export async function updateSampleAiOutput(id: number, aiOutput: unknown, validationScore: number) {
+export async function updateSampleAiOutput(id: number, projectId: number, aiOutput: unknown, validationScore: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(onboardingSamples).set({ aiOutput, validationScore }).where(eq(onboardingSamples.id, id));
+  await db.update(onboardingSamples)
+    .set({ aiOutput, validationScore })
+    .where(and(eq(onboardingSamples.id, id), eq(onboardingSamples.projectId, projectId)));
 }
 
 // ─── Documents ────────────────────────────────────────────────────────────────
@@ -347,24 +349,43 @@ export async function getDocumentById(id: number, projectId: number) {
   return result[0];
 }
 
-export async function updateDocumentStatus(id: number, status: Document["status"], errorMessage?: string) {
+export async function updateDocumentStatus(id: number, projectId: number, status: Document["status"], errorMessage?: string) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const update: Partial<InsertDocument> = { status };
   if (["needs_review", "reviewed", "error"].includes(status)) update.processedAt = new Date();
   if (errorMessage !== undefined) update.errorMessage = errorMessage;
-  await db.update(documents).set(update).where(eq(documents.id, id));
+  await db.update(documents)
+    .set(update)
+    .where(and(eq(documents.id, id), eq(documents.projectId, projectId)));
 }
 
 /** Delete a document and all related records (transcriptions, embeddings, entity links) */
 export async function deleteDocument(id: number, projectId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  // Delete related records first (in case ON DELETE CASCADE isn't set for all)
-  await db.delete(documentEmbeddings).where(eq(documentEmbeddings.documentId, id));
-  await db.delete(documentEntities).where(eq(documentEntities.documentId, id));
-  await db.delete(transcriptions).where(eq(transcriptions.documentId, id));
-  await db.delete(documents).where(and(eq(documents.id, id), eq(documents.projectId, projectId)));
+  await db.transaction(async (tx) => {
+    const [ownedDocument] = await tx.select({ id: documents.id }).from(documents)
+      .where(and(eq(documents.id, id), eq(documents.projectId, projectId)))
+      .limit(1);
+    if (!ownedDocument) return;
+
+    // Keep every dependent delete tenant-scoped even if a deployment is missing
+    // one of the expected ON DELETE CASCADE constraints.
+    await tx.delete(documentEmbeddings).where(and(
+      eq(documentEmbeddings.documentId, id),
+      eq(documentEmbeddings.projectId, projectId),
+    ));
+    await tx.delete(documentEntities).where(and(
+      eq(documentEntities.documentId, id),
+      eq(documentEntities.projectId, projectId),
+    ));
+    await tx.delete(transcriptions).where(and(
+      eq(transcriptions.documentId, id),
+      eq(transcriptions.projectId, projectId),
+    ));
+    await tx.delete(documents).where(and(eq(documents.id, id), eq(documents.projectId, projectId)));
+  });
 }
 
 /** Rename a document */
@@ -388,66 +409,111 @@ export async function getDocumentGroupsByProject(projectId: number) {
   return db.select().from(documentGroups).where(eq(documentGroups.projectId, projectId)).orderBy(desc(documentGroups.createdAt));
 }
 
-export async function getDocumentGroupById(groupId: number) {
+export async function getDocumentGroupById(groupId: number, projectId: number) {
   const db = await getDb();
   if (!db) return null;
-  const [group] = await db.select().from(documentGroups).where(eq(documentGroups.id, groupId)).limit(1);
+  const [group] = await db.select().from(documentGroups)
+    .where(and(eq(documentGroups.id, groupId), eq(documentGroups.projectId, projectId)))
+    .limit(1);
   return group || null;
 }
 
-export async function getDocumentGroupPages(groupId: number) {
+export async function getDocumentGroupPages(groupId: number, projectId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(documents).where(eq(documents.groupId, groupId)).orderBy(asc(documents.pageNumber));
+  return db.select().from(documents)
+    .where(and(eq(documents.groupId, groupId), eq(documents.projectId, projectId)))
+    .orderBy(asc(documents.pageNumber));
 }
 
-export async function addDocumentToGroup(documentId: number, groupId: number, pageNumber: number) {
+export async function addDocumentToGroup(documentId: number, groupId: number, projectId: number, pageNumber: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(documents).set({ groupId, pageNumber }).where(eq(documents.id, documentId));
-  // Update page count
-  const pages = await db.select({ id: documents.id }).from(documents).where(eq(documents.groupId, groupId));
-  await db.update(documentGroups).set({ pageCount: pages.length, updatedAt: new Date() }).where(eq(documentGroups.id, groupId));
+  await db.transaction(async (tx) => {
+    const [group] = await tx.select({ id: documentGroups.id }).from(documentGroups)
+      .where(and(eq(documentGroups.id, groupId), eq(documentGroups.projectId, projectId)))
+      .limit(1);
+    if (!group) throw new Error("Document group not found");
+    const updated = await tx.update(documents).set({ groupId, pageNumber })
+      .where(and(eq(documents.id, documentId), eq(documents.projectId, projectId)))
+      .returning({ id: documents.id });
+    if (updated.length !== 1) throw new Error("Document not found");
+    const pages = await tx.select({ id: documents.id }).from(documents)
+      .where(and(eq(documents.groupId, groupId), eq(documents.projectId, projectId)));
+    await tx.update(documentGroups).set({ pageCount: pages.length, updatedAt: new Date() })
+      .where(and(eq(documentGroups.id, groupId), eq(documentGroups.projectId, projectId)));
+  });
 }
 
-export async function removeDocumentFromGroup(documentId: number) {
+export async function removeDocumentFromGroup(documentId: number, projectId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [doc] = await db.select({ groupId: documents.groupId }).from(documents).where(eq(documents.id, documentId));
-  await db.update(documents).set({ groupId: null, pageNumber: null }).where(eq(documents.id, documentId));
-  // Update page count if doc was in a group
-  if (doc?.groupId) {
-    const pages = await db.select({ id: documents.id }).from(documents).where(eq(documents.groupId, doc.groupId));
-    await db.update(documentGroups).set({ pageCount: pages.length, updatedAt: new Date() }).where(eq(documentGroups.id, doc.groupId));
-  }
+  await db.transaction(async (tx) => {
+    const [doc] = await tx.select({ groupId: documents.groupId }).from(documents)
+      .where(and(eq(documents.id, documentId), eq(documents.projectId, projectId)))
+      .limit(1);
+    if (!doc) throw new Error("Document not found");
+    await tx.update(documents).set({ groupId: null, pageNumber: null })
+      .where(and(eq(documents.id, documentId), eq(documents.projectId, projectId)));
+    if (doc.groupId) {
+      const pages = await tx.select({ id: documents.id }).from(documents)
+        .where(and(eq(documents.groupId, doc.groupId), eq(documents.projectId, projectId)));
+      await tx.update(documentGroups).set({ pageCount: pages.length, updatedAt: new Date() })
+        .where(and(eq(documentGroups.id, doc.groupId), eq(documentGroups.projectId, projectId)));
+    }
+  });
 }
 
-export async function updateDocumentGroupMetadata(groupId: number, sharedMetadata: Record<string, unknown>) {
+export async function updateDocumentGroupMetadata(groupId: number, projectId: number, sharedMetadata: Record<string, unknown>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(documentGroups).set({ sharedMetadata, updatedAt: new Date() }).where(eq(documentGroups.id, groupId));
+  await db.update(documentGroups).set({ sharedMetadata, updatedAt: new Date() })
+    .where(and(eq(documentGroups.id, groupId), eq(documentGroups.projectId, projectId)));
 }
 
-export async function updateDocumentGroupTitle(groupId: number, title: string) {
+export async function updateDocumentGroupTitle(groupId: number, projectId: number, title: string) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(documentGroups).set({ title, updatedAt: new Date() }).where(eq(documentGroups.id, groupId));
+  await db.update(documentGroups).set({ title, updatedAt: new Date() })
+    .where(and(eq(documentGroups.id, groupId), eq(documentGroups.projectId, projectId)));
 }
 
-export async function deleteDocumentGroup(groupId: number) {
+export async function deleteDocumentGroup(groupId: number, projectId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  // Unlink all documents from this group first
-  await db.update(documents).set({ groupId: null, pageNumber: null }).where(eq(documents.groupId, groupId));
-  await db.delete(documentGroups).where(eq(documentGroups.id, groupId));
+  await db.transaction(async (tx) => {
+    const [group] = await tx.select({ id: documentGroups.id }).from(documentGroups)
+      .where(and(eq(documentGroups.id, groupId), eq(documentGroups.projectId, projectId)))
+      .limit(1);
+    if (!group) return;
+    await tx.update(documents).set({ groupId: null, pageNumber: null })
+      .where(and(eq(documents.groupId, groupId), eq(documents.projectId, projectId)));
+    await tx.delete(documentGroups)
+      .where(and(eq(documentGroups.id, groupId), eq(documentGroups.projectId, projectId)));
+  });
 }
 
-export async function reorderGroupPages(groupId: number, orderedDocIds: number[]) {
+export async function reorderGroupPages(groupId: number, projectId: number, orderedDocIds: number[]) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  for (let i = 0; i < orderedDocIds.length; i++) {
-    await db.update(documents).set({ pageNumber: i + 1 }).where(and(eq(documents.id, orderedDocIds[i]), eq(documents.groupId, groupId)));
-  }
+  await db.transaction(async (tx) => {
+    const existing = await tx.select({ id: documents.id }).from(documents).where(and(
+      eq(documents.groupId, groupId),
+      eq(documents.projectId, projectId),
+    ));
+    const existingIds = existing.map((row) => row.id).sort((a, b) => a - b);
+    const requestedIds = Array.from(new Set(orderedDocIds)).sort((a, b) => a - b);
+    if (existingIds.length !== requestedIds.length || existingIds.some((id, i) => id !== requestedIds[i])) {
+      throw new Error("Page order must contain every document in the project group exactly once");
+    }
+    for (let i = 0; i < orderedDocIds.length; i++) {
+      await tx.update(documents).set({ pageNumber: i + 1 }).where(and(
+        eq(documents.id, orderedDocIds[i]),
+        eq(documents.groupId, groupId),
+        eq(documents.projectId, projectId),
+      ));
+    }
+  });
 }
 
 // ─── Transcriptions ───────────────────────────────────────────────────────────────
@@ -455,26 +521,35 @@ export async function reorderGroupPages(groupId: number, orderedDocIds: number[]
 export async function createTranscription(data: InsertTranscription) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const [document] = await db.select({ id: documents.id }).from(documents).where(and(
+    eq(documents.id, data.documentId),
+    eq(documents.projectId, data.projectId),
+  )).limit(1);
+  if (!document) throw new Error("Transcription document does not belong to the project");
   const result = await db.insert(transcriptions).values(data).returning();
   return result[0];
 }
 
-export async function getTranscriptionByDocumentId(documentId: number) {
+export async function getTranscriptionByDocumentId(documentId: number, projectId: number) {
   const db = await getDb();
   if (!db) return undefined;
   const result = await db.select().from(transcriptions)
-    .where(eq(transcriptions.documentId, documentId))
+    .where(and(eq(transcriptions.documentId, documentId), eq(transcriptions.projectId, projectId)))
     .orderBy(desc(transcriptions.createdAt))
     .limit(1);
   return result[0];
 }
 
-export async function updateReviewedJson(id: number, reviewedJson: unknown) {
+export async function updateReviewedJson(id: number, documentId: number, projectId: number, reviewedJson: unknown) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.update(transcriptions)
     .set({ reviewedJson, reviewedAt: new Date(), updatedAt: new Date() })
-    .where(eq(transcriptions.id, id));
+    .where(and(
+      eq(transcriptions.id, id),
+      eq(transcriptions.documentId, documentId),
+      eq(transcriptions.projectId, projectId),
+    ));
 }
 
 export async function getReviewedTranscriptions(projectId: number) {
@@ -594,6 +669,19 @@ export async function updateJob(id: number, data: Partial<InsertJob>) {
 export async function createEmbedding(data: InsertDocumentEmbedding) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const [document] = await db.select({ id: documents.id }).from(documents).where(and(
+    eq(documents.id, data.documentId),
+    eq(documents.projectId, data.projectId),
+  )).limit(1);
+  if (!document) throw new Error("Embedding document does not belong to the project");
+  if (data.transcriptionId !== null && data.transcriptionId !== undefined) {
+    const [transcription] = await db.select({ id: transcriptions.id }).from(transcriptions).where(and(
+      eq(transcriptions.id, data.transcriptionId),
+      eq(transcriptions.documentId, data.documentId),
+      eq(transcriptions.projectId, data.projectId),
+    )).limit(1);
+    if (!transcription) throw new Error("Embedding transcription does not belong to the project document");
+  }
   const result = await db.insert(documentEmbeddings).values(data).returning();
   // Populate tsvector for full-text search
   if (result[0]?.id) {
@@ -604,10 +692,13 @@ export async function createEmbedding(data: InsertDocumentEmbedding) {
   return result[0];
 }
 
-export async function deleteEmbeddingsByDocumentId(documentId: number) {
+export async function deleteEmbeddingsByDocumentId(projectId: number, documentId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.delete(documentEmbeddings).where(eq(documentEmbeddings.documentId, documentId));
+  await db.delete(documentEmbeddings).where(and(
+    eq(documentEmbeddings.documentId, documentId),
+    eq(documentEmbeddings.projectId, projectId),
+  ));
 }
 
 /**
@@ -820,7 +911,7 @@ export async function getEntitiesByProject(
 }
 
 /** Get entities linked to a specific document */
-export async function getEntitiesByDocument(documentId: number) {
+export async function getEntitiesByDocument(projectId: number, documentId: number) {
   const db = (await getDb())!;
   return db
     .select({
@@ -831,7 +922,11 @@ export async function getEntitiesByDocument(documentId: number) {
     })
     .from(documentEntities)
     .innerJoin(entities, eq(entities.id, documentEntities.entityId))
-    .where(eq(documentEntities.documentId, documentId))
+    .where(and(
+      eq(documentEntities.documentId, documentId),
+      eq(documentEntities.projectId, projectId),
+      eq(entities.projectId, projectId),
+    ))
     .orderBy(entities.type, entities.name);
 }
 
@@ -989,12 +1084,20 @@ export async function getEntityDetails(projectId: number, entityId: number) {
 }
 
 /** Get all aliases for a given entity */
-export async function getEntityAliases(entityId: number) {
+export async function getEntityAliases(projectId: number, entityId: number) {
   const db = (await getDb())!;
   return db
-    .select()
+    .select({
+      id: entityAliases.id,
+      entityId: entityAliases.entityId,
+      alias: entityAliases.alias,
+      normalizedAlias: entityAliases.normalizedAlias,
+      language: entityAliases.language,
+      createdAt: entityAliases.createdAt,
+    })
     .from(entityAliases)
-    .where(eq(entityAliases.entityId, entityId))
+    .innerJoin(entities, eq(entities.id, entityAliases.entityId))
+    .where(and(eq(entityAliases.entityId, entityId), eq(entities.projectId, projectId)))
     .orderBy(entityAliases.alias);
 }
 
@@ -1141,7 +1244,16 @@ export async function createProjectInvite(data: InsertProjectInvite) {
 export async function getProjectInvites(projectId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(projectInvites)
+  return db.select({
+    id: projectInvites.id,
+    projectId: projectInvites.projectId,
+    invitedByUserId: projectInvites.invitedByUserId,
+    email: projectInvites.email,
+    role: projectInvites.role,
+    status: projectInvites.status,
+    createdAt: projectInvites.createdAt,
+    expiresAt: projectInvites.expiresAt,
+  }).from(projectInvites)
     .where(and(eq(projectInvites.projectId, projectId), eq(projectInvites.status, "pending")))
     .orderBy(desc(projectInvites.createdAt));
 }
@@ -1168,21 +1280,46 @@ export async function getPendingInvitesByEmail(email: string) {
 }
 
 /** Accept an invite: mark as accepted and add user as member */
-export async function acceptInvite(inviteId: number, userId: number) {
+export async function acceptInvite(inviteId: number, userId: number, userEmail: string) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const invite = await db.select().from(projectInvites).where(eq(projectInvites.id, inviteId)).limit(1);
-  if (!invite[0]) throw new Error("Invite not found");
-  if (invite[0].status !== "pending") throw new Error("Invite already used or expired");
-  if (new Date() > invite[0].expiresAt) {
-    await db.update(projectInvites).set({ status: "expired" }).where(eq(projectInvites.id, inviteId));
-    throw new Error("Invite has expired");
-  }
-  // Mark invite as accepted
-  await db.update(projectInvites).set({ status: "accepted" }).where(eq(projectInvites.id, inviteId));
-  // Add as member
-  await addProjectMember({ projectId: invite[0].projectId, userId, role: invite[0].role });
-  return invite[0];
+  return db.transaction(async (tx) => {
+    const [invite] = await tx.select().from(projectInvites)
+      .where(eq(projectInvites.id, inviteId))
+      .for("update")
+      .limit(1);
+    if (!invite) throw new Error("Invite not found");
+    if (invite.status !== "pending") throw new Error("Invite already used or expired");
+    if (invite.email.toLowerCase() !== userEmail.trim().toLowerCase()) {
+      throw new Error("Invite was issued to a different email address");
+    }
+    if (new Date() > invite.expiresAt) {
+      await tx.update(projectInvites).set({ status: "expired" }).where(and(
+        eq(projectInvites.id, inviteId),
+        eq(projectInvites.status, "pending"),
+      ));
+      throw new Error("Invite has expired");
+    }
+
+    const accepted = await tx.update(projectInvites).set({ status: "accepted" }).where(and(
+      eq(projectInvites.id, inviteId),
+      eq(projectInvites.status, "pending"),
+    )).returning({ id: projectInvites.id });
+    if (accepted.length !== 1) throw new Error("Invite already used or expired");
+
+    const [existingMember] = await tx.select({ id: projectMembers.id }).from(projectMembers).where(and(
+      eq(projectMembers.projectId, invite.projectId),
+      eq(projectMembers.userId, userId),
+    )).limit(1);
+    if (!existingMember) {
+      await tx.insert(projectMembers).values({
+        projectId: invite.projectId,
+        userId,
+        role: invite.role,
+      });
+    }
+    return invite;
+  });
 }
 
 /** Cancel/delete a pending invite */
@@ -1288,6 +1425,39 @@ export async function saveReviewSession(userId: number, projectId: number, data:
 
 // ─── Validation Portal Helpers ──────────────────────────────────────────────
 
+function extractValidationLines(
+  transcription: { reviewedJson: unknown; rawJson: unknown },
+  arabicOnly: boolean,
+): Array<{ index: number; text: string }> {
+  const json = (transcription.reviewedJson || transcription.rawJson) as Record<string, unknown> | null;
+  if (!json) return [];
+  let rawText = "";
+  for (const field of ["full_transcription_ar", "transcription", "Original_Transcription", "original_transcription"]) {
+    const value = json[field];
+    if (typeof value === "string" && value.length > 50) {
+      rawText = value;
+      break;
+    }
+  }
+  if (!rawText) {
+    const arabicTest = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+    for (const value of Object.values(json)) {
+      if (typeof value === "string" && value.length > rawText.length && arabicTest.test(value)) rawText = value;
+    }
+  }
+  if (!rawText) {
+    for (const value of Object.values(json)) {
+      if (typeof value === "string" && value.length > rawText.length) rawText = value;
+    }
+  }
+  const lines = rawText.split("\n").map((line) => line.trim()).filter(Boolean)
+    .map((text, index) => ({ index, text }));
+  if (!arabicOnly) return lines;
+  const arabicRegex = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+  const englishOnlyRegex = /^[a-zA-Z0-9\s\[\]\(\)\-_:;.,!?'\"]+$/;
+  return lines.filter((line) => arabicRegex.test(line.text) && !englishOnlyRegex.test(line.text));
+}
+
 export async function createValidationSession(data: {
   projectId: number;
   title: string;
@@ -1298,13 +1468,21 @@ export async function createValidationSession(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const uniqueDocumentIds = Array.from(new Set(data.documentIds));
+  const projectDocuments = await db.select({ id: documents.id }).from(documents).where(and(
+    eq(documents.projectId, data.projectId),
+    inArray(documents.id, uniqueDocumentIds),
+  ));
+  if (projectDocuments.length !== uniqueDocumentIds.length) {
+    throw new Error("One or more validation documents do not belong to this project");
+  }
   const [row] = await db.insert(validationSessions).values({
     projectId: data.projectId,
     title: data.title,
     shareToken: data.shareToken,
-    totalDocs: data.documentIds.length,
+    totalDocs: uniqueDocumentIds.length,
     reviewsPerDoc: data.reviewsPerDoc ?? 5,
-    documentIds: data.documentIds,
+    documentIds: uniqueDocumentIds,
     arabicOnly: data.arabicOnly ?? true,
   }).returning();
   return row;
@@ -1323,17 +1501,19 @@ export async function getValidationSessionsByProject(projectId: number) {
   return db.select().from(validationSessions).where(eq(validationSessions.projectId, projectId)).orderBy(validationSessions.createdAt);
 }
 
-export async function closeValidationSession(sessionId: number) {
+export async function closeValidationSession(sessionId: number, projectId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.update(validationSessions).set({ status: "closed", closedAt: new Date() }).where(eq(validationSessions.id, sessionId));
+  await db.update(validationSessions).set({ status: "closed", closedAt: new Date() })
+    .where(and(eq(validationSessions.id, sessionId), eq(validationSessions.projectId, projectId)));
 }
 
-export async function deleteValidationSession(sessionId: number) {
+export async function deleteValidationSession(sessionId: number, projectId: number) {
   const db = await getDb();
   if (!db) return;
   // Cascade: delete reviews -> assignments -> session (FK cascade handles it)
-  await db.delete(validationSessions).where(eq(validationSessions.id, sessionId));
+  await db.delete(validationSessions)
+    .where(and(eq(validationSessions.id, sessionId), eq(validationSessions.projectId, projectId)));
 }
 
 export async function getNextAssignment(sessionId: number, reviewerUsername: string) {
@@ -1407,8 +1587,7 @@ export async function getAssignmentById(assignmentId: number) {
 
 export async function submitLineVerdict(data: {
   assignmentId: number;
-  sessionId: number;
-  documentId: number;
+  shareToken: string;
   reviewerUsername: string;
   lineIndex: number;
   lineText: string;
@@ -1418,42 +1597,117 @@ export async function submitLineVerdict(data: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  // Insert the review
-  await db.insert(validationReviews).values({
-    assignmentId: data.assignmentId,
-    sessionId: data.sessionId,
-    documentId: data.documentId,
-    reviewerUsername: data.reviewerUsername,
-    lineIndex: data.lineIndex,
-    lineText: data.lineText,
-    verdict: data.verdict,
-    incorrectWords: data.incorrectWords ?? null,
-  });
+  await db.transaction(async (tx) => {
+    const [session] = await tx.select().from(validationSessions).where(and(
+      eq(validationSessions.shareToken, data.shareToken),
+      eq(validationSessions.status, "active"),
+    )).limit(1);
+    if (!session) throw new Error("Validation session not found or closed");
 
-  // Update assignment counters
-  const [assignment] = await db.select().from(validationAssignments).where(eq(validationAssignments.id, data.assignmentId)).limit(1);
-  if (assignment) {
-    const updates: Record<string, unknown> = {
-      linesReviewed: (assignment.linesReviewed ?? 0) + 1,
-    };
-    if (data.verdict === "correct") {
-      updates.correctCount = (assignment.correctCount ?? 0) + 1;
-    } else if (data.verdict === "incorrect") {
-      updates.incorrectCount = (assignment.incorrectCount ?? 0) + 1;
+    const [assignment] = await tx.select().from(validationAssignments).where(and(
+      eq(validationAssignments.id, data.assignmentId),
+      eq(validationAssignments.sessionId, session.id),
+      eq(validationAssignments.reviewerUsername, data.reviewerUsername),
+      eq(validationAssignments.status, "in_progress"),
+    )).limit(1);
+    if (!assignment) throw new Error("Validation assignment not found");
+
+    const sessionDocumentIds = session.documentIds as number[];
+    if (!sessionDocumentIds.includes(assignment.documentId)) {
+      throw new Error("Assignment document is outside the validation session");
     }
-    // 'skipped' does not increment correct or incorrect counts
-    await db.update(validationAssignments).set(updates).where(eq(validationAssignments.id, data.assignmentId));
-  }
+    const [projectDocument] = await tx.select({ id: documents.id }).from(documents).where(and(
+      eq(documents.id, assignment.documentId),
+      eq(documents.projectId, session.projectId),
+    )).limit(1);
+    if (!projectDocument) throw new Error("Validation document is outside the project");
+
+    const [transcription] = await tx.select({
+      reviewedJson: transcriptions.reviewedJson,
+      rawJson: transcriptions.rawJson,
+    }).from(transcriptions).where(and(
+      eq(transcriptions.documentId, assignment.documentId),
+      eq(transcriptions.projectId, session.projectId),
+    )).orderBy(desc(transcriptions.createdAt)).limit(1);
+    if (!transcription) throw new Error("Validation transcription not found");
+    const canonicalLine = extractValidationLines(transcription, session.arabicOnly)
+      .find((line) => line.index === data.lineIndex);
+    if (!canonicalLine) throw new Error("Validation line not found");
+
+    const [existingReview] = await tx.select({ id: validationReviews.id }).from(validationReviews).where(and(
+      eq(validationReviews.assignmentId, assignment.id),
+      eq(validationReviews.lineIndex, data.lineIndex),
+    )).limit(1);
+    if (existingReview) return;
+
+    await tx.insert(validationReviews).values({
+      assignmentId: assignment.id,
+      sessionId: session.id,
+      documentId: assignment.documentId,
+      reviewerUsername: assignment.reviewerUsername,
+      lineIndex: data.lineIndex,
+      lineText: canonicalLine.text,
+      verdict: data.verdict,
+      incorrectWords: data.incorrectWords ?? null,
+    });
+
+    await tx.update(validationAssignments).set({
+      linesReviewed: sql`${validationAssignments.linesReviewed} + 1`,
+      correctCount: data.verdict === "correct"
+        ? sql`${validationAssignments.correctCount} + 1`
+        : validationAssignments.correctCount,
+      incorrectCount: data.verdict === "incorrect"
+        ? sql`${validationAssignments.incorrectCount} + 1`
+        : validationAssignments.incorrectCount,
+    }).where(and(
+      eq(validationAssignments.id, assignment.id),
+      eq(validationAssignments.sessionId, session.id),
+    ));
+  });
 }
 
-export async function completeAssignment(assignmentId: number, totalLines: number) {
+export async function completeAssignment(data: {
+  assignmentId: number;
+  shareToken: string;
+  reviewerUsername: string;
+  totalLines: number;
+}) {
   const db = await getDb();
   if (!db) return;
+  const [session] = await db.select().from(validationSessions).where(and(
+    eq(validationSessions.shareToken, data.shareToken),
+    eq(validationSessions.status, "active"),
+  )).limit(1);
+  if (!session) throw new Error("Validation session not found or closed");
+  const [assignment] = await db.select().from(validationAssignments).where(and(
+    eq(validationAssignments.id, data.assignmentId),
+    eq(validationAssignments.sessionId, session.id),
+    eq(validationAssignments.reviewerUsername, data.reviewerUsername),
+    eq(validationAssignments.status, "in_progress"),
+  )).limit(1);
+  if (!assignment) throw new Error("Validation assignment not found");
+  const [transcription] = await db.select({
+    reviewedJson: transcriptions.reviewedJson,
+    rawJson: transcriptions.rawJson,
+  }).from(transcriptions).where(and(
+    eq(transcriptions.documentId, assignment.documentId),
+    eq(transcriptions.projectId, session.projectId),
+  )).orderBy(desc(transcriptions.createdAt)).limit(1);
+  if (!transcription) throw new Error("Validation transcription not found");
+  const canonicalTotalLines = extractValidationLines(transcription, session.arabicOnly).length;
+  if (assignment.linesReviewed < canonicalTotalLines) {
+    throw new Error("Assignment still has unreviewed lines");
+  }
   await db.update(validationAssignments).set({
     status: "completed",
-    totalLines,
+    totalLines: canonicalTotalLines,
     completedAt: new Date(),
-  }).where(eq(validationAssignments.id, assignmentId));
+  }).where(and(
+    eq(validationAssignments.id, data.assignmentId),
+    eq(validationAssignments.sessionId, session.id),
+    eq(validationAssignments.reviewerUsername, data.reviewerUsername),
+    eq(validationAssignments.status, "in_progress"),
+  ));
 }
 
 export async function getReviewerProgress(sessionId: number, reviewerUsername: string) {
@@ -1477,11 +1731,13 @@ export async function getReviewerProgress(sessionId: number, reviewerUsername: s
   return { completed, inProgress, totalAvailable };
 }
 
-export async function getValidationStats(sessionId: number) {
+export async function getValidationStats(sessionId: number, projectId: number) {
   const db = await getDb();
   if (!db) return null;
 
-  const [session] = await db.select().from(validationSessions).where(eq(validationSessions.id, sessionId)).limit(1);
+  const [session] = await db.select().from(validationSessions)
+    .where(and(eq(validationSessions.id, sessionId), eq(validationSessions.projectId, projectId)))
+    .limit(1);
   if (!session) return null;
 
   const assignments = await db.select().from(validationAssignments).where(eq(validationAssignments.sessionId, sessionId));
@@ -1695,7 +1951,27 @@ export async function assignDocuments(data: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const values = data.documentIds.map(docId => ({
+  const uniqueDocumentIds = Array.from(new Set(data.documentIds));
+  const ownedDocuments = await db.select({ id: documents.id }).from(documents).where(and(
+    eq(documents.projectId, data.projectId),
+    inArray(documents.id, uniqueDocumentIds),
+  ));
+  if (ownedDocuments.length !== uniqueDocumentIds.length) {
+    throw new Error("One or more documents do not belong to this project");
+  }
+
+  const [project] = await db.select({ ownerId: projects.userId }).from(projects)
+    .where(eq(projects.id, data.projectId))
+    .limit(1);
+  const [membership] = await db.select({ id: projectMembers.id }).from(projectMembers).where(and(
+    eq(projectMembers.projectId, data.projectId),
+    eq(projectMembers.userId, data.assigneeId),
+  )).limit(1);
+  if (!project || (project.ownerId !== data.assigneeId && !membership)) {
+    throw new Error("Assignee is not a project member");
+  }
+
+  const values = uniqueDocumentIds.map(docId => ({
     projectId: data.projectId,
     documentId: docId,
     assigneeId: data.assigneeId,
@@ -1703,7 +1979,7 @@ export async function assignDocuments(data: {
   }));
 
   await db.insert(documentAssignments).values(values);
-  return { assigned: data.documentIds.length };
+  return { assigned: uniqueDocumentIds.length };
 }
 
 export async function getMyQueue(projectId: number, userId: number) {
@@ -1752,18 +2028,26 @@ export async function getProjectAssignments(projectId: number) {
     .orderBy(desc(documentAssignments.createdAt));
 }
 
-export async function updateAssignmentStatus(assignmentId: number, status: "pending" | "in_progress" | "completed") {
+export async function updateAssignmentStatus(
+  assignmentId: number,
+  projectId: number,
+  status: "pending" | "in_progress" | "completed",
+  assigneeId?: number,
+) {
   const db = await getDb();
   if (!db) return;
   const updates: Record<string, unknown> = { status };
   if (status === "completed") updates.completedAt = new Date();
-  await db.update(documentAssignments).set(updates).where(eq(documentAssignments.id, assignmentId));
+  const conditions = [eq(documentAssignments.id, assignmentId), eq(documentAssignments.projectId, projectId)];
+  if (assigneeId !== undefined) conditions.push(eq(documentAssignments.assigneeId, assigneeId));
+  await db.update(documentAssignments).set(updates).where(and(...conditions));
 }
 
-export async function deleteAssignment(assignmentId: number) {
+export async function deleteAssignment(assignmentId: number, projectId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.delete(documentAssignments).where(eq(documentAssignments.id, assignmentId));
+  await db.delete(documentAssignments)
+    .where(and(eq(documentAssignments.id, assignmentId), eq(documentAssignments.projectId, projectId)));
 }
 
 export async function getAssignmentStats(projectId: number) {

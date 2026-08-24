@@ -13,6 +13,8 @@ import { ENV } from "./_core/env";
 import {
   createEmbedding,
   deleteEmbeddingsByDocumentId,
+  getDocumentById,
+  getTranscriptionByDocumentId,
   searchEmbeddings,
 } from "./db";
 
@@ -128,6 +130,14 @@ export async function embedTranscription(params: {
 }): Promise<void> {
   const { projectId, documentId, transcriptionId, reviewedJson, filename } = params;
 
+  const [document, transcription] = await Promise.all([
+    getDocumentById(documentId, projectId),
+    getTranscriptionByDocumentId(documentId, projectId),
+  ]);
+  if (!document || !transcription || transcription.id !== transcriptionId) {
+    throw new Error("Embedding source does not belong to the project document");
+  }
+
   // Build the text to embed
   const content = buildEmbeddingContent(reviewedJson, filename);
   if (!content.trim()) return;
@@ -136,7 +146,7 @@ export async function embedTranscription(params: {
   const embedding = await getEmbedding(content);
 
   // Delete any existing embedding for this document (re-review scenario)
-  await deleteEmbeddingsByDocumentId(documentId);
+  await deleteEmbeddingsByDocumentId(projectId, documentId);
 
   // Store the new embedding
   await createEmbedding({

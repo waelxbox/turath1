@@ -84,6 +84,31 @@ import { awardXp, getUserStats, getLeaderboard, maybeAwardStreakBonus, XP_VALUES
 import { getReviewSession, saveReviewSession, createValidationSession, getValidationSessionByToken, getValidationSessionsByProject, closeValidationSession, deleteValidationSession, getNextAssignment, getAssignmentById, submitLineVerdict, completeAssignment, getReviewerProgress, getValidationStats, getReviewsForAssignment, getResearchConversations, getResearchConversation, createResearchConversation, updateResearchConversation, deleteResearchConversation } from "./db";
 import { runResearchAgent } from "./researchAgent";
 
+type ProjectRole = "owner" | "editor" | "viewer";
+
+async function requireProjectAccess(projectId: number, userId: number): Promise<ProjectRole> {
+  const role = await getProjectRole(projectId, userId);
+  if (!role) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+  return role;
+}
+
+async function requireProjectEditor(projectId: number, userId: number): Promise<"owner" | "editor"> {
+  const role = await requireProjectAccess(projectId, userId);
+  if (role === "viewer") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Editor access is required" });
+  }
+  return role;
+}
+
+async function requireProjectDocuments(projectId: number, documentIds: number[]) {
+  const uniqueIds = Array.from(new Set(documentIds));
+  const projectDocuments = await Promise.all(uniqueIds.map((id) => getDocumentById(id, projectId)));
+  if (projectDocuments.some((document) => !document)) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "One or more documents were not found in this project" });
+  }
+  return projectDocuments.filter((document): document is NonNullable<typeof document> => Boolean(document));
+}
+
 // ─── Auth Router ──────────────────────────────────────────────────────────────
 
 const authRouter = router({
@@ -180,6 +205,7 @@ const projectsRouter = router({
       systemPrompt: z.string().min(10).max(8000),
     }))
     .mutation(async ({ ctx, input }) => {
+      await requireProjectEditor(input.id, ctx.user.id);
       const project = await getProjectById(input.id, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -218,6 +244,7 @@ const projectsRouter = router({
       systemPrompt: z.string().min(10).max(8000),
     }))
     .mutation(async ({ ctx, input }) => {
+      await requireProjectEditor(input.id, ctx.user.id);
       const project = await getProjectById(input.id, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -254,6 +281,7 @@ const projectsRouter = router({
   reindexAll: protectedProcedure
     .input(z.object({ id: z.number(), scope: z.enum(["reviewed", "all"]).default("reviewed") }))
     .mutation(async ({ ctx, input }) => {
+      await requireProjectEditor(input.id, ctx.user.id);
       const project = await getProjectById(input.id, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -302,6 +330,7 @@ const projectsRouter = router({
       feedback: z.string().min(1).max(4000),
     }))
     .mutation(async ({ ctx, input }) => {
+      await requireProjectEditor(input.id, ctx.user.id);
       const project = await getProjectById(input.id, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -394,6 +423,7 @@ const onboardingRouter = router({
       isHeldOut: z.boolean().default(false),
     }))
     .mutation(async ({ ctx, input }) => {
+      await requireProjectEditor(input.projectId, ctx.user.id);
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -417,6 +447,7 @@ const onboardingRouter = router({
   generateConfig: protectedProcedure
     .input(z.object({ projectId: z.number() }))
     .mutation(async ({ ctx, input }) => {
+      await requireProjectEditor(input.projectId, ctx.user.id);
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -466,6 +497,7 @@ const onboardingRouter = router({
   validate: protectedProcedure
     .input(z.object({ projectId: z.number() }))
     .mutation(async ({ ctx, input }) => {
+      await requireProjectEditor(input.projectId, ctx.user.id);
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       if (!project.systemPrompt) throw new TRPCError({ code: "BAD_REQUEST", message: "Generate config first." });
@@ -501,7 +533,7 @@ const onboardingRouter = router({
       });
 
       // Save validation results
-      await updateSampleAiOutput(heldOut.id, result.aiOutput, result.score);
+      await updateSampleAiOutput(heldOut.id, input.projectId, result.aiOutput, result.score);
 
       return result;
     }),
@@ -512,6 +544,7 @@ const onboardingRouter = router({
       feedback: z.string().min(1),
     }))
     .mutation(async ({ ctx, input }) => {
+      await requireProjectEditor(input.projectId, ctx.user.id);
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -564,6 +597,7 @@ const onboardingRouter = router({
   activate: protectedProcedure
     .input(z.object({ projectId: z.number() }))
     .mutation(async ({ ctx, input }) => {
+      await requireProjectEditor(input.projectId, ctx.user.id);
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       await updateProject(input.projectId, ctx.user.id, { status: "active" });
@@ -582,6 +616,7 @@ const onboardingRouter = router({
       })),
     }))
     .mutation(async ({ ctx, input }) => {
+      await requireProjectEditor(input.projectId, ctx.user.id);
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -604,6 +639,7 @@ const onboardingRouter = router({
       mimeType: z.string().default("image/jpeg"),
     }))
     .mutation(async ({ ctx, input }) => {
+      await requireProjectEditor(input.projectId, ctx.user.id);
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -624,6 +660,7 @@ const onboardingRouter = router({
       })),
     }))
     .mutation(async ({ ctx, input }) => {
+      await requireProjectEditor(input.projectId, ctx.user.id);
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -749,6 +786,7 @@ const documentsRouter = router({
       projectId: z.number(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await requireProjectEditor(input.projectId, ctx.user.id);
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -756,7 +794,7 @@ const documentsRouter = router({
       if (!doc) throw new TRPCError({ code: "NOT_FOUND" });
 
       // Mark as processing
-      await updateDocumentStatus(input.documentId, "processing");
+      await updateDocumentStatus(input.documentId, input.projectId, "processing");
 
       try {
         // Fetch image from storage
@@ -769,7 +807,7 @@ const documentsRouter = router({
         const result = await processDocument(project, base64, doc.mimeType ?? "image/jpeg", doc.filename);
 
         if (result.error) {
-          await updateDocumentStatus(input.documentId, "error", result.error);
+          await updateDocumentStatus(input.documentId, input.projectId, "error", result.error);
           return { success: false, error: result.error };
         }
 
@@ -781,13 +819,13 @@ const documentsRouter = router({
           originalText: result.originalText ?? null,
         });
 
-        await updateDocumentStatus(input.documentId, "needs_review");
+        await updateDocumentStatus(input.documentId, input.projectId, "needs_review");
         // Log activity
         logActivity({ projectId: input.projectId, userId: ctx.user.id, action: "document_transcribed", metadata: { documentId: input.documentId } }).catch(() => {});
         return { success: true };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        await updateDocumentStatus(input.documentId, "error", msg);
+        await updateDocumentStatus(input.documentId, input.projectId, "error", msg);
         return { success: false, error: msg };
       }
     }),
@@ -798,11 +836,12 @@ const documentsRouter = router({
       projectId: z.number(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await requireProjectEditor(input.projectId, ctx.user.id);
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       const doc = await getDocumentById(input.documentId, input.projectId);
       if (!doc) throw new TRPCError({ code: "NOT_FOUND" });
-      const transcription = await getTranscriptionByDocumentId(input.documentId);
+      const transcription = await getTranscriptionByDocumentId(input.documentId, input.projectId);
       if (!transcription) throw new TRPCError({ code: "NOT_FOUND", message: "No transcription found to verify" });
       try {
         const { storageGet: storageGetDoc } = await import("./storage");
@@ -823,6 +862,7 @@ const documentsRouter = router({
   batchTranscribe: protectedProcedure
     .input(z.object({ projectId: z.number() }))
     .mutation(async ({ ctx, input }) => {
+      await requireProjectEditor(input.projectId, ctx.user.id);
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -859,7 +899,7 @@ const documentsRouter = router({
         for (const chunk of chunks) {
           await Promise.all(chunk.map(async (doc) => {
             try {
-              await updateDocumentStatus(doc.id, "processing");
+              await updateDocumentStatus(doc.id, input.projectId, "processing");
               const { storageGet: storageGetBatch } = await import("./storage");
               const { url } = await storageGetBatch(doc.storagePath);
               
@@ -880,7 +920,7 @@ const documentsRouter = router({
                       await new Promise(r => setTimeout(r, (attempt + 1) * 5000));
                       continue;
                     }
-                    await updateDocumentStatus(doc.id, "error", result.error);
+                    await updateDocumentStatus(doc.id, input.projectId, "error", result.error);
                   } else {
                     await createTranscription({
                       documentId: doc.id,
@@ -889,7 +929,7 @@ const documentsRouter = router({
                       rawJson: result.rawJson,
                       originalText: result.originalText ?? null,
                     });
-                    await updateDocumentStatus(doc.id, "needs_review");
+                    await updateDocumentStatus(doc.id, input.projectId, "needs_review");
                   }
                   lastError = null;
                   break; // Success, exit retry loop
@@ -902,10 +942,10 @@ const documentsRouter = router({
                 }
               }
               if (lastError) {
-                await updateDocumentStatus(doc.id, "error", `Failed after 3 attempts: ${lastError}`);
+                await updateDocumentStatus(doc.id, input.projectId, "error", `Failed after 3 attempts: ${lastError}`);
               }
             } catch (err) {
-              await updateDocumentStatus(doc.id, "error", String(err));
+              await updateDocumentStatus(doc.id, input.projectId, "error", String(err));
             }
             completed++;
           }));
@@ -928,6 +968,7 @@ const documentsRouter = router({
   retryAllPending: protectedProcedure
     .input(z.object({ projectId: z.number() }))
     .mutation(async ({ ctx, input }) => {
+      await requireProjectEditor(input.projectId, ctx.user.id);
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -950,7 +991,7 @@ const documentsRouter = router({
         for (const chunk of chunks) {
           await Promise.all(chunk.map(async (doc) => {
             try {
-              await updateDocumentStatus(doc.id, "processing");
+              await updateDocumentStatus(doc.id, input.projectId, "processing");
               const { storageGet: storageGetRetry } = await import("./storage");
               const { url } = await storageGetRetry(doc.storagePath);
 
@@ -969,7 +1010,7 @@ const documentsRouter = router({
                       await new Promise(r => setTimeout(r, (attempt + 1) * 5000));
                       continue;
                     }
-                    await updateDocumentStatus(doc.id, "error", result.error);
+                    await updateDocumentStatus(doc.id, input.projectId, "error", result.error);
                   } else {
                     await createTranscription({
                       documentId: doc.id,
@@ -978,7 +1019,7 @@ const documentsRouter = router({
                       rawJson: result.rawJson,
                       originalText: result.originalText ?? null,
                     });
-                    await updateDocumentStatus(doc.id, "needs_review");
+                    await updateDocumentStatus(doc.id, input.projectId, "needs_review");
                   }
                   lastError = null;
                   break;
@@ -991,10 +1032,10 @@ const documentsRouter = router({
                 }
               }
               if (lastError) {
-                await updateDocumentStatus(doc.id, "error", `Failed after 3 attempts: ${lastError}`);
+                await updateDocumentStatus(doc.id, input.projectId, "error", `Failed after 3 attempts: ${lastError}`);
               }
             } catch (err) {
-              await updateDocumentStatus(doc.id, "error", String(err));
+              await updateDocumentStatus(doc.id, input.projectId, "error", String(err));
             }
           }));
           // Delay between chunks to avoid rate limiting
@@ -1043,7 +1084,7 @@ const documentsRouter = router({
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN", message: "Viewers cannot change document status" });
       const doc = await getDocumentById(input.documentId, input.projectId);
       if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "Document not found" });
-      await updateDocumentStatus(input.documentId, input.status);
+      await updateDocumentStatus(input.documentId, input.projectId, input.status);
       return { success: true, status: input.status };
     }),
   bulkChangeStatus: protectedProcedure
@@ -1056,8 +1097,9 @@ const documentsRouter = router({
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (!role) throw new TRPCError({ code: "NOT_FOUND" });
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN", message: "Viewers cannot change document status" });
+      await requireProjectDocuments(input.projectId, input.documentIds);
       for (const docId of input.documentIds) {
-        await updateDocumentStatus(docId, input.status);
+        await updateDocumentStatus(docId, input.projectId, input.status);
       }
       return { success: true, count: input.documentIds.length };
     }),
@@ -1070,6 +1112,7 @@ const documentsRouter = router({
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (!role) throw new TRPCError({ code: "NOT_FOUND" });
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN", message: "Viewers cannot delete documents" });
+      await requireProjectDocuments(input.projectId, input.documentIds);
       for (const docId of input.documentIds) {
         await deleteDocument(docId, input.projectId);
       }
@@ -1085,7 +1128,7 @@ const transcriptionsRouter = router({
     .query(async ({ ctx, input }) => {
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-      return getTranscriptionByDocumentId(input.documentId);
+      return getTranscriptionByDocumentId(input.documentId, input.projectId);
     }),
 
   saveReview: protectedProcedure
@@ -1103,8 +1146,12 @@ const transcriptionsRouter = router({
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
-      await updateReviewedJson(input.transcriptionId, input.reviewedJson);
-      await updateDocumentStatus(input.documentId, input.status);
+      const transcription = await getTranscriptionByDocumentId(input.documentId, input.projectId);
+      if (!transcription || transcription.id !== input.transcriptionId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Transcription not found" });
+      }
+      await updateReviewedJson(input.transcriptionId, input.documentId, input.projectId, input.reviewedJson);
+      await updateDocumentStatus(input.documentId, input.projectId, input.status);
 
       // Log activity
       const actAction = input.status === "flagged" ? "document_flagged" as const : "document_reviewed" as const;
@@ -1145,7 +1192,10 @@ const transcriptionsRouter = router({
           const linkedEntities = await dbConn
             .select({ entityId: docEntTable.entityId, contextSnippet: docEntTable.contextSnippet })
             .from(docEntTable)
-            .where(eq(docEntTable.documentId, input.documentId));
+            .where(and(
+              eq(docEntTable.documentId, input.documentId),
+              eq(docEntTable.projectId, input.projectId),
+            ));
 
           if (linkedEntities.length === 0) return;
 
@@ -1179,7 +1229,7 @@ const transcriptionsRouter = router({
                   await dbConn
                     .update(entTable)
                     .set({ name: newValue.trim(), normalizedName: normalizedNew })
-                    .where(eq(entTable.id, entity.id));
+                    .where(and(eq(entTable.id, entity.id), eq(entTable.projectId, input.projectId)));
                   console.log(`[EntitySync] Updated entity #${entity.id} name: "${entity.name}" → "${newValue.trim()}"`);
                 }
                 break; // Only update one entity per field
@@ -1200,7 +1250,7 @@ const transcriptionsRouter = router({
                   await dbConn
                     .update(entTable)
                     .set({ name: mention.trim(), normalizedName: normalizedMention })
-                    .where(eq(entTable.id, entity.id));
+                    .where(and(eq(entTable.id, entity.id), eq(entTable.projectId, input.projectId)));
                   console.log(`[EntitySync] Updated entity #${entity.id} from mentioned_entities: "${entity.name}" → "${mention.trim()}"`);
                   break;
                 }
@@ -1238,7 +1288,10 @@ const transcriptionsRouter = router({
         .select({ id: transcriptionsTable.id, reviewedJson: transcriptionsTable.reviewedJson, rawJson: transcriptionsTable.rawJson, documentId: transcriptionsTable.documentId })
         .from(transcriptionsTable)
         .innerJoin(documentsTable, eq(documentsTable.id, transcriptionsTable.documentId))
-        .where(eq(documentsTable.projectId, input.projectId));
+        .where(and(
+          eq(documentsTable.projectId, input.projectId),
+          eq(transcriptionsTable.projectId, input.projectId),
+        ));
 
       let updatedCount = 0;
       for (const t of allTranscriptions) {
@@ -1270,7 +1323,11 @@ const transcriptionsRouter = router({
           await dbConn
             .update(transcriptionsTable)
             .set({ reviewedJson: updatedJson })
-            .where(eq(transcriptionsTable.id, t.id));
+            .where(and(
+              eq(transcriptionsTable.id, t.id),
+              eq(transcriptionsTable.projectId, input.projectId),
+              eq(transcriptionsTable.documentId, t.documentId),
+            ));
           updatedCount++;
         }
       }
@@ -1712,7 +1769,9 @@ const entitiesRouter = router({
     .query(async ({ ctx, input }) => {
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-      return getEntitiesByDocument(input.documentId);
+      const document = await getDocumentById(input.documentId, input.projectId);
+      if (!document) throw new TRPCError({ code: "NOT_FOUND" });
+      return getEntitiesByDocument(input.projectId, input.documentId);
     }),
 
   /** Get entity count stats for a project */
@@ -1744,7 +1803,7 @@ const entitiesRouter = router({
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       const details = await getEntityDetails(input.projectId, input.entityId);
       if (!details) throw new TRPCError({ code: "NOT_FOUND", message: "Entity not found" });
-      const aliases = await getEntityAliases(input.entityId);
+      const aliases = await getEntityAliases(input.projectId, input.entityId);
       return { ...details, aliases };
     }),
 
@@ -1889,7 +1948,7 @@ const membersRouter = router({
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (!role) throw new TRPCError({ code: "NOT_FOUND" });
       const members = await getProjectMembers(input.projectId);
-      const invites = await getProjectInvites(input.projectId);
+      const invites = role === "owner" ? await getProjectInvites(input.projectId) : [];
       // Get owner info from the project
       const project = await getProjectById(input.projectId, ctx.user.id);
       return { members, invites, currentUserRole: role, ownerId: project?.userId };
@@ -1934,7 +1993,8 @@ const membersRouter = router({
 
       // If the user already exists in our system, auto-accept the invite
       if (existingUser) {
-        await acceptInvite(invite.id, existingUser.id);
+        if (!existingUser.email) throw new TRPCError({ code: "BAD_REQUEST", message: "The invited account has no verified email" });
+        await acceptInvite(invite.id, existingUser.id, existingUser.email);
         return { invite: { ...invite, status: "accepted" as const }, autoAccepted: true };
       }
 
@@ -1949,8 +2009,9 @@ const membersRouter = router({
       if (!invite) throw new TRPCError({ code: "NOT_FOUND", message: "Invite not found or expired" });
       if (invite.status !== "pending") throw new TRPCError({ code: "BAD_REQUEST", message: "This invite has already been used" });
       if (new Date() > invite.expiresAt) throw new TRPCError({ code: "BAD_REQUEST", message: "This invite has expired" });
+      if (!ctx.user.email) throw new TRPCError({ code: "FORBIDDEN", message: "A verified email address is required" });
 
-      await acceptInvite(invite.id, ctx.user.id);
+      await acceptInvite(invite.id, ctx.user.id, ctx.user.email);
       return { projectId: invite.projectId, role: invite.role };
     }),
 
@@ -2056,7 +2117,10 @@ const mergeRouter = router({
           type: entitiesTable.type,
         })
         .from(entitiesTable)
-        .where(sql`${entitiesTable.id} IN (${sql.raw(allEntityIds.join(","))})`);
+        .where(and(
+          eq(entitiesTable.projectId, input.projectId),
+          sql`${entitiesTable.id} IN (${sql.raw(allEntityIds.join(","))})`,
+        ));
 
       // Single batch query for all document mentions
       const allMentions = await dbConn
@@ -2068,7 +2132,11 @@ const mergeRouter = router({
         })
         .from(docEntTable)
         .innerJoin(documents, eq(documents.id, docEntTable.documentId))
-        .where(sql`${docEntTable.entityId} IN (${sql.raw(allEntityIds.join(","))})`);
+        .where(and(
+          eq(docEntTable.projectId, input.projectId),
+          eq(documents.projectId, input.projectId),
+          sql`${docEntTable.entityId} IN (${sql.raw(allEntityIds.join(","))})`,
+        ));
 
       // Index by entity ID for fast lookup
       const entityMap = new Map(allEntities.map(e => [e.id, e]));
@@ -2117,7 +2185,7 @@ const mergeRouter = router({
       if (!role || role === "viewer") {
         throw new TRPCError({ code: "FORBIDDEN", message: "Only owners and editors can merge entities" });
       }
-      await executeMerge(input.suggestionId, input.canonicalName, input.entityIds);
+      await executeMerge(input.projectId, input.suggestionId, input.canonicalName, input.entityIds);
       return { success: true };
     }),
 
@@ -2129,7 +2197,7 @@ const mergeRouter = router({
       if (!role || role === "viewer") {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
-      await rejectMerge(input.suggestionId);
+      await rejectMerge(input.projectId, input.suggestionId);
       return { success: true };
     }),
 
@@ -2141,7 +2209,7 @@ const mergeRouter = router({
       if (!role || role === "viewer") {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
-      await skipMerge(input.suggestionId);
+      await skipMerge(input.projectId, input.suggestionId);
       return { success: true };
     }),
 
@@ -2204,9 +2272,9 @@ const groupsRouter = router({
     .query(async ({ ctx, input }) => {
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-      const group = await getDocumentGroupById(input.groupId);
-      if (!group || group.projectId !== input.projectId) throw new TRPCError({ code: "NOT_FOUND" });
-      const pages = await getDocumentGroupPages(input.groupId);
+      const group = await getDocumentGroupById(input.groupId, input.projectId);
+      if (!group) throw new TRPCError({ code: "NOT_FOUND" });
+      const pages = await getDocumentGroupPages(input.groupId, input.projectId);
       return { ...group, pages };
     }),
 
@@ -2221,6 +2289,7 @@ const groupsRouter = router({
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      await requireProjectDocuments(input.projectId, input.documentIds);
       const group = await createDocumentGroup({
         projectId: input.projectId,
         title: input.title,
@@ -2228,7 +2297,7 @@ const groupsRouter = router({
       });
       // Add documents to group with page numbers
       for (let i = 0; i < input.documentIds.length; i++) {
-        await addDocumentToGroup(input.documentIds[i], group.id, i + 1);
+        await addDocumentToGroup(input.documentIds[i], group.id, input.projectId, i + 1);
       }
       return group;
     }),
@@ -2245,10 +2314,10 @@ const groupsRouter = router({
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
-      const group = await getDocumentGroupById(input.groupId);
+      const group = await getDocumentGroupById(input.groupId, input.projectId);
       if (!group) throw new TRPCError({ code: "NOT_FOUND" });
       const pageNum = input.pageNumber ?? group.pageCount + 1;
-      await addDocumentToGroup(input.documentId, input.groupId, pageNum);
+      await addDocumentToGroup(input.documentId, input.groupId, input.projectId, pageNum);
       return { success: true };
     }),
 
@@ -2259,7 +2328,7 @@ const groupsRouter = router({
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
-      await removeDocumentFromGroup(input.documentId);
+      await removeDocumentFromGroup(input.documentId, input.projectId);
       return { success: true };
     }),
 
@@ -2270,8 +2339,9 @@ const groupsRouter = router({
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      await requireProjectDocuments(input.projectId, input.documentIds);
       for (const docId of input.documentIds) {
-        await removeDocumentFromGroup(docId);
+        await removeDocumentFromGroup(docId, input.projectId);
       }
       return { success: true, count: input.documentIds.length };
     }),
@@ -2287,7 +2357,7 @@ const groupsRouter = router({
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
-      await reorderGroupPages(input.groupId, input.orderedDocIds);
+      await reorderGroupPages(input.groupId, input.projectId, input.orderedDocIds);
       return { success: true };
     }),
 
@@ -2298,7 +2368,7 @@ const groupsRouter = router({
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
-      await updateDocumentGroupTitle(input.groupId, input.title);
+      await updateDocumentGroupTitle(input.groupId, input.projectId, input.title);
       return { success: true };
     }),
 
@@ -2313,7 +2383,7 @@ const groupsRouter = router({
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
-      await updateDocumentGroupMetadata(input.groupId, input.sharedMetadata as Record<string, unknown>);
+      await updateDocumentGroupMetadata(input.groupId, input.projectId, input.sharedMetadata as Record<string, unknown>);
       return { success: true };
     }),
 
@@ -2324,7 +2394,7 @@ const groupsRouter = router({
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
-      await deleteDocumentGroup(input.groupId);
+      await deleteDocumentGroup(input.groupId, input.projectId);
       return { success: true };
     }),
 
@@ -2340,7 +2410,9 @@ const groupsRouter = router({
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
 
       // Get all pages in order
-      const pages = await getDocumentGroupPages(input.groupId);
+      const group = await getDocumentGroupById(input.groupId, input.projectId);
+      if (!group) throw new TRPCError({ code: "NOT_FOUND" });
+      const pages = await getDocumentGroupPages(input.groupId, input.projectId);
       if (pages.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "No pages in group" });
 
       // Find pages that need transcription (pending or error status)
@@ -2376,7 +2448,7 @@ const groupsRouter = router({
 
       // Try to get shared metadata from page 1's existing transcription
       let sharedMetadata: Record<string, unknown> | undefined;
-      const page1Transcription = await getTranscriptionByDocumentId(pages[0].id);
+      const page1Transcription = await getTranscriptionByDocumentId(pages[0].id, input.projectId);
       if (page1Transcription) {
         const page1Data = (page1Transcription.reviewedJson ?? page1Transcription.rawJson) as Record<string, unknown> | null;
         if (page1Data) {
@@ -2400,13 +2472,13 @@ const groupsRouter = router({
         if (page.status === "needs_review" || page.status === "reviewed") continue;
 
         try {
-          await updateDocumentStatus(page.id, "processing");
+          await updateDocumentStatus(page.id, input.projectId, "processing");
 
           // Build context from ALL previous pages
           const pageIdx = pages.indexOf(page);
           let pageContext = "";
           for (let i = 0; i < pageIdx; i++) {
-            const prevTranscription = await getTranscriptionByDocumentId(pages[i].id);
+            const prevTranscription = await getTranscriptionByDocumentId(pages[i].id, input.projectId);
             if (prevTranscription?.reviewedJson) {
               const reviewed = prevTranscription.reviewedJson as Record<string, unknown>;
               const text = reviewed.transcription || reviewed.full_arabic_transcription || reviewed.Original_Transcription || "";
@@ -2419,12 +2491,9 @@ const groupsRouter = router({
           }
 
           // Fetch image
-          if (!page.storageUrl) {
-            await updateDocumentStatus(page.id, "error", "No image URL");
-            errors.push(`Page ${page.pageNumber}: No image URL`);
-            continue;
-          }
-          const response = await fetch(page.storageUrl);
+          const { storageGet: storageGetGroupPage } = await import("./storage");
+          const { url: pageUrl } = await storageGetGroupPage(page.storagePath);
+          const response = await fetch(pageUrl);
           const buffer = Buffer.from(await response.arrayBuffer());
           const base64 = buffer.toString("base64");
           const mimeType = page.mimeType || "image/jpeg";
@@ -2438,12 +2507,12 @@ const groupsRouter = router({
           });
 
           if (result.error) {
-            await updateDocumentStatus(page.id, "error", result.error);
+            await updateDocumentStatus(page.id, input.projectId, "error", result.error);
             errors.push(`Page ${page.pageNumber}: ${result.error}`);
           } else {
-            const existing = await getTranscriptionByDocumentId(page.id);
+            const existing = await getTranscriptionByDocumentId(page.id, input.projectId);
             if (existing) {
-              await updateReviewedJson(existing.id, result.rawJson);
+              await updateReviewedJson(existing.id, page.id, input.projectId, result.rawJson);
             } else {
               await createTranscription({
                 documentId: page.id,
@@ -2453,7 +2522,7 @@ const groupsRouter = router({
                 modelUsed: result.modelUsed,
               });
             }
-            await updateDocumentStatus(page.id, "needs_review");
+            await updateDocumentStatus(page.id, input.projectId, "needs_review");
             processed++;
 
             // If this was page 1 and we didn't have shared metadata yet, extract it now
@@ -2468,14 +2537,14 @@ const groupsRouter = router({
             }
           }
         } catch (err) {
-          await updateDocumentStatus(page.id, "error", String(err));
+          await updateDocumentStatus(page.id, input.projectId, "error", String(err));
           errors.push(`Page ${page.pageNumber}: ${String(err)}`);
         }
       }
 
       // Save shared metadata to the group record for future reference
       if (sharedMetadata && Object.keys(sharedMetadata).length > 0) {
-        await updateDocumentGroupMetadata(input.groupId, sharedMetadata);
+        await updateDocumentGroupMetadata(input.groupId, input.projectId, sharedMetadata);
       }
 
       return {
@@ -2499,14 +2568,16 @@ const groupsRouter = router({
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
 
       // Get all pages in order
-      const pages = await getDocumentGroupPages(input.groupId);
+      const group = await getDocumentGroupById(input.groupId, input.projectId);
+      if (!group) throw new TRPCError({ code: "NOT_FOUND" });
+      const pages = await getDocumentGroupPages(input.groupId, input.projectId);
       const targetPageIdx = pages.findIndex(p => p.id === input.documentId);
       if (targetPageIdx < 0) throw new TRPCError({ code: "NOT_FOUND", message: "Document not in group" });
 
       // Build context from previous pages' transcriptions
       let pageContext = "";
       for (let i = 0; i < targetPageIdx; i++) {
-        const prevTranscription = await getTranscriptionByDocumentId(pages[i].id);
+        const prevTranscription = await getTranscriptionByDocumentId(pages[i].id, input.projectId);
         if (prevTranscription?.reviewedJson) {
           const reviewed = prevTranscription.reviewedJson as Record<string, unknown>;
           const transcriptionText = reviewed.transcription || reviewed.full_arabic_transcription || reviewed.Original_Transcription || "";
@@ -2520,10 +2591,10 @@ const groupsRouter = router({
 
       // Get the target document's image
       const targetDoc = pages[targetPageIdx];
-      if (!targetDoc.storageUrl) throw new TRPCError({ code: "BAD_REQUEST", message: "Document has no image" });
-
       // Fetch image and convert to base64
-      const response = await fetch(targetDoc.storageUrl);
+      const { storageGet: storageGetTargetPage } = await import("./storage");
+      const { url: targetPageUrl } = await storageGetTargetPage(targetDoc.storagePath);
+      const response = await fetch(targetPageUrl);
       const buffer = Buffer.from(await response.arrayBuffer());
       const base64 = buffer.toString("base64");
       const mimeType = targetDoc.mimeType || "image/jpeg";
@@ -2552,7 +2623,7 @@ const groupsRouter = router({
         const sharedFieldNames = allFieldNames.filter(f => !perPageFields!.includes(f));
 
         // Get page 1's transcription for shared metadata
-        const page1Transcription = await getTranscriptionByDocumentId(pages[0].id);
+        const page1Transcription = await getTranscriptionByDocumentId(pages[0].id, input.projectId);
         if (page1Transcription) {
           const page1Data = (page1Transcription.reviewedJson ?? page1Transcription.rawJson) as Record<string, unknown> | null;
           if (page1Data) {
@@ -2576,9 +2647,9 @@ const groupsRouter = router({
 
       // Save transcription
       if (!result.error) {
-        const existing = await getTranscriptionByDocumentId(targetDoc.id);
+        const existing = await getTranscriptionByDocumentId(targetDoc.id, input.projectId);
         if (existing) {
-          await updateReviewedJson(existing.id, result.rawJson);
+          await updateReviewedJson(existing.id, targetDoc.id, input.projectId, result.rawJson);
         } else {
           await createTranscription({
             documentId: targetDoc.id,
@@ -2588,7 +2659,7 @@ const groupsRouter = router({
             modelUsed: result.modelUsed,
           });
         }
-        await updateDocumentStatus(targetDoc.id, "needs_review");
+        await updateDocumentStatus(targetDoc.id, input.projectId, "needs_review");
       }
 
       return { success: !result.error, result: result.rawJson, error: result.error };
@@ -2631,6 +2702,14 @@ const gamificationRouter = router({
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (!role || role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
 
+      const [document, transcription] = await Promise.all([
+        getDocumentById(input.documentId, input.projectId),
+        getTranscriptionByDocumentId(input.documentId, input.projectId),
+      ]);
+      if (!document || !transcription || transcription.id !== input.transcriptionId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Review source not found" });
+      }
+
       // Check for daily login bonus
       const dailyBonus = await maybeAwardStreakBonus(ctx.user.id, input.projectId);
 
@@ -2671,6 +2750,12 @@ const gamificationRouter = router({
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (!role || role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
 
+      const document = await getDocumentById(input.documentId, input.projectId);
+      const transcription = await getTranscriptionByDocumentId(input.documentId, input.projectId);
+      if (!document || !transcription || transcription.id !== input.transcriptionId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Review source not found" });
+      }
+
       // Award page completion bonus
       const result = await awardXp({
         userId: ctx.user.id,
@@ -2681,7 +2766,6 @@ const gamificationRouter = router({
       });
 
       // Also persist the reviewed transcription (merge lines back into the transcription)
-      const transcription = await getTranscriptionByDocumentId(input.documentId);
       if (transcription) {
         const rawJson = transcription.rawJson as Record<string, unknown>;
         // Find the main text field and update it with reviewed lines
@@ -2699,8 +2783,8 @@ const gamificationRouter = router({
               reviewedJson[key] = value;
             }
           }
-          await updateReviewedJson(transcription.id, reviewedJson);
-          await updateDocumentStatus(input.documentId, "reviewed");
+          await updateReviewedJson(transcription.id, input.documentId, input.projectId, reviewedJson);
+          await updateDocumentStatus(input.documentId, input.projectId, "reviewed");
 
           // Fire-and-forget: embedding + NER
           embedTranscription({
@@ -2733,6 +2817,7 @@ const reviewSessionRouter = router({
   get: protectedProcedure
     .input(z.object({ projectId: z.number() }))
     .query(async ({ ctx, input }) => {
+      await requireProjectAccess(input.projectId, ctx.user.id);
       return getReviewSession(ctx.user.id, input.projectId);
     }),
 
@@ -2746,6 +2831,11 @@ const reviewSessionRouter = router({
       selectedLanguage: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await requireProjectEditor(input.projectId, ctx.user.id);
+      if (input.currentDocumentId !== null) {
+        const document = await getDocumentById(input.currentDocumentId, input.projectId);
+        if (!document) throw new TRPCError({ code: "NOT_FOUND", message: "Review document not found" });
+      }
       await saveReviewSession(ctx.user.id, input.projectId, {
         mode: input.mode,
         currentDocumentId: input.currentDocumentId,
@@ -2788,7 +2878,7 @@ const validationRouter = router({
 
       // Get document info and transcription lines
       const doc = await getDocumentById(assignment.documentId, session.projectId);
-      const transcription = await getTranscriptionByDocumentId(assignment.documentId);
+      const transcription = await getTranscriptionByDocumentId(assignment.documentId, session.projectId);
 
       // Extract Arabic-only lines from the transcription
       let lines: { index: number; text: string }[] = [];
@@ -2858,11 +2948,10 @@ const validationRouter = router({
   submitVerdict: publicProcedure
     .input(z.object({
       assignmentId: z.number(),
-      sessionId: z.number(),
-      documentId: z.number(),
-      reviewerUsername: z.string().min(1),
-      lineIndex: z.number(),
-      lineText: z.string(),
+      shareToken: z.string().min(32).max(128),
+      reviewerUsername: z.string().min(1).max(100),
+      lineIndex: z.number().int().min(0),
+      lineText: z.string().max(20_000),
       verdict: z.enum(["correct", "incorrect", "skipped"]),
       incorrectWords: z.array(z.object({
         wordIndex: z.number(),
@@ -2876,9 +2965,14 @@ const validationRouter = router({
 
   // Complete an assignment (public)
   completeAssignment: publicProcedure
-    .input(z.object({ assignmentId: z.number(), totalLines: z.number() }))
+    .input(z.object({
+      assignmentId: z.number(),
+      shareToken: z.string().min(32).max(128),
+      reviewerUsername: z.string().min(1).max(100),
+      totalLines: z.number().int().min(0).max(100_000),
+    }))
     .mutation(async ({ input }) => {
-      await completeAssignment(input.assignmentId, input.totalLines);
+      await completeAssignment(input);
       return { success: true };
     }),
 
@@ -2901,9 +2995,8 @@ const validationRouter = router({
       arabicOnly: z.boolean().optional(), // default true
     }))
     .mutation(async ({ ctx, input }) => {
-      // Verify ownership
-      const project = await getProjectById(input.projectId, ctx.user.id);
-      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      await requireProjectEditor(input.projectId, ctx.user.id);
+      await requireProjectDocuments(input.projectId, input.documentIds);
 
       const shareToken = crypto.randomBytes(16).toString("hex");
       const session = await createValidationSession({
@@ -2921,8 +3014,7 @@ const validationRouter = router({
   list: protectedProcedure
     .input(z.object({ projectId: z.number() }))
     .query(async ({ ctx, input }) => {
-      const project = await getProjectById(input.projectId, ctx.user.id);
-      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      await requireProjectEditor(input.projectId, ctx.user.id);
       return getValidationSessionsByProject(input.projectId);
     }),
 
@@ -2930,18 +3022,16 @@ const validationRouter = router({
   stats: protectedProcedure
     .input(z.object({ sessionId: z.number(), projectId: z.number() }))
     .query(async ({ ctx, input }) => {
-      const project = await getProjectById(input.projectId, ctx.user.id);
-      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-      return getValidationStats(input.sessionId);
+      await requireProjectEditor(input.projectId, ctx.user.id);
+      return getValidationStats(input.sessionId, input.projectId);
     }),
 
   // Admin: close a session
   close: protectedProcedure
     .input(z.object({ sessionId: z.number(), projectId: z.number() }))
     .mutation(async ({ ctx, input }) => {
-      const project = await getProjectById(input.projectId, ctx.user.id);
-      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-      await closeValidationSession(input.sessionId);
+      await requireProjectEditor(input.projectId, ctx.user.id);
+      await closeValidationSession(input.sessionId, input.projectId);
       return { success: true };
     }),
 
@@ -2949,9 +3039,8 @@ const validationRouter = router({
   delete: protectedProcedure
     .input(z.object({ sessionId: z.number(), projectId: z.number() }))
     .mutation(async ({ ctx, input }) => {
-      const project = await getProjectById(input.projectId, ctx.user.id);
-      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-      await deleteValidationSession(input.sessionId);
+      await requireProjectEditor(input.projectId, ctx.user.id);
+      await deleteValidationSession(input.sessionId, input.projectId);
       return { success: true };
     }),
 });
@@ -2985,7 +3074,7 @@ const researchRouter = router({
       // Auto-save to conversation
       if (input.conversationId) {
         const conv = await getResearchConversation(input.conversationId, ctx.user.id);
-        if (conv) {
+        if (conv && conv.projectId === input.projectId) {
           const messages = (conv.messages as unknown[]) || [];
           messages.push({ role: "user", content: input.question });
           messages.push({
@@ -2996,6 +3085,8 @@ const researchRouter = router({
             citations: result.citations,
           });
           await updateResearchConversation(input.conversationId, { messages });
+        } else if (conv) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Conversation not found in project" });
         }
       }
 
@@ -3035,6 +3126,7 @@ const researchRouter = router({
     .query(async ({ ctx, input }) => {
       const conv = await getResearchConversation(input.id, ctx.user.id);
       if (!conv) throw new TRPCError({ code: "NOT_FOUND" });
+      await requireProjectAccess(conv.projectId, ctx.user.id);
       return conv;
     }),
 
@@ -3044,6 +3136,7 @@ const researchRouter = router({
     .mutation(async ({ ctx, input }) => {
       const conv = await getResearchConversation(input.id, ctx.user.id);
       if (!conv) throw new TRPCError({ code: "NOT_FOUND" });
+      await requireProjectAccess(conv.projectId, ctx.user.id);
       await updateResearchConversation(input.id, { title: input.title });
       return { success: true };
     }),
@@ -3052,6 +3145,9 @@ const researchRouter = router({
   deleteConversation: protectedProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
+      const conv = await getResearchConversation(input.id, ctx.user.id);
+      if (!conv) throw new TRPCError({ code: "NOT_FOUND" });
+      await requireProjectAccess(conv.projectId, ctx.user.id);
       await deleteResearchConversation(input.id, ctx.user.id);
       return { success: true };
     }),
@@ -3147,7 +3243,12 @@ const assignmentsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (!role) throw new TRPCError({ code: "FORBIDDEN" });
-      await updateAssignmentStatus(input.assignmentId, input.status);
+      await updateAssignmentStatus(
+        input.assignmentId,
+        input.projectId,
+        input.status,
+        role === "viewer" ? ctx.user.id : undefined,
+      );
       return { success: true };
     }),
 
@@ -3157,7 +3258,7 @@ const assignmentsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (!role || role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
-      await deleteAssignment(input.assignmentId);
+      await deleteAssignment(input.assignmentId, input.projectId);
       return { success: true };
     }),
 });
