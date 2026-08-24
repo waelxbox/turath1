@@ -5,6 +5,7 @@ import {
   type TranscriptionResult,
 } from "./transcriptionEngine";
 import { storageGet } from "./storage";
+import { reserveTranscriptionQuota } from "./billing/quota";
 import {
   claimTranscriptionTask,
   completeTranscriptionTask,
@@ -91,6 +92,11 @@ async function defaultProcessor(
   claim: ClaimedTranscriptionTask
 ): Promise<TranscriptionResult> {
   const { document, project } = claim;
+  // Reserve once for the logical task. Queue retries increment attempts, so a
+  // transient provider failure does not repeatedly consume the owner's quota.
+  if (claim.task.attempts === 1) {
+    await reserveTranscriptionQuota(project.userId);
+  }
   const { url } = await storageGet(document.storagePath);
   const response = await fetch(url, {
     signal: AbortSignal.timeout(STORAGE_FETCH_TIMEOUT_MS),

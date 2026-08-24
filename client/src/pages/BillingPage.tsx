@@ -14,17 +14,12 @@ export default function BillingPage() {
   const portal = trpc.billing.createPortal.useMutation();
 
   const handleUpgrade = async (planId: "pro" | "team") => {
-    const { url } = await checkout.mutateAsync({
-      planId,
-      origin: window.location.origin,
-    });
+    const { url } = await checkout.mutateAsync({ planId });
     window.open(url, "_blank");
   };
 
   const handleManage = async () => {
-    const { url } = await portal.mutateAsync({
-      origin: window.location.origin,
-    });
+    const { url } = await portal.mutateAsync();
     window.open(url, "_blank");
   };
 
@@ -55,16 +50,32 @@ export default function BillingPage() {
             </button>
           )}
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex-1">
+        <div className="space-y-4">
+          <div>
             <div className="flex justify-between text-sm mb-1">
-              <span>Documents used</span>
-              <span>{myPlan?.documentsUsed || 0} / {myPlan?.documentLimit || 100}</span>
+              <span>Document uploads used</span>
+              <span>{myPlan?.documentsUsed || 0} / {myPlan?.documentLimit || "Unlimited"}</span>
             </div>
             <div className="h-2 bg-muted rounded-full overflow-hidden">
               <div
                 className="h-full bg-amber-600 rounded-full transition-all"
-                style={{ width: `${Math.min(100, ((myPlan?.documentsUsed || 0) / (myPlan?.documentLimit || 100)) * 100)}%` }}
+                style={{ width: myPlan?.documentLimit
+                  ? `${Math.min(100, ((myPlan?.documentsUsed || 0) / myPlan.documentLimit) * 100)}%`
+                  : "0%" }}
+              />
+            </div>
+          </div>
+          <div>
+            <div className="flex justify-between text-sm mb-1">
+              <span>AI processing runs used</span>
+              <span>{myPlan?.transcriptionsUsed || 0} / {myPlan?.transcriptionLimit || "Unlimited"}</span>
+            </div>
+            <div className="h-2 bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full bg-amber-600 rounded-full transition-all"
+                style={{ width: myPlan?.transcriptionLimit
+                  ? `${Math.min(100, ((myPlan?.transcriptionsUsed || 0) / myPlan.transcriptionLimit) * 100)}%`
+                  : "0%" }}
               />
             </div>
           </div>

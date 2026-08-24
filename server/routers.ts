@@ -18,6 +18,7 @@ import {
   getDocumentsByProjectId,
   getDocumentById,
   updateDocumentStatus,
+  claimDocumentForTranscription,
   createTranscription,
   getTranscriptionByDocumentId,
   updateReviewedJson,
@@ -96,6 +97,17 @@ import { awardXp, getUserStats, getLeaderboard, maybeAwardStreakBonus, XP_VALUES
 import { getReviewSession, saveReviewSession, createValidationSession, getValidationSessionByToken, getValidationSessionsByProject, closeValidationSession, deleteValidationSession, getNextAssignment, getAssignmentById, submitLineVerdict, completeAssignment, getReviewerProgress, getValidationStats, getReviewsForAssignment, getResearchConversations, getResearchConversation, createResearchConversation, updateResearchConversation, deleteResearchConversation } from "./db";
 import { runResearchAgent } from "./researchAgent";
 import { enqueueTranscriptionBatch } from "./transcriptionQueueDb";
+import {
+  QuotaExceededError,
+  claimDemoProject,
+  releaseDocumentQuota,
+  releaseDemoProjectClaim,
+  reserveDocumentQuota,
+  reserveTranscriptionQuota,
+} from "./billing/quota";
+import { PLANS, getDocumentLimit, getTranscriptionLimit } from "./billing/products";
+import { createCheckoutSession, createPortalSession } from "./billing/stripe";
+import { claimCheckoutLock, recordCheckoutSession, releaseCheckoutLock } from "./billing/checkoutLock";
 
 type ProjectRole = "owner" | "editor" | "viewer";
 
@@ -166,6 +178,13 @@ async function deleteManagedProjectStorage(
   }
 }
 
+function quotaError(error: unknown): never {
+  if (error instanceof QuotaExceededError) {
+    throw new TRPCError({ code: "FORBIDDEN", message: error.message });
+  }
+  throw error;
+}
+
 // ─── Auth Router ──────────────────────────────────────────────────────────────
 
 const authRouter = router({
@@ -191,14 +210,19 @@ const projectsRouter = router({
   }),
 
   createDemo: protectedProcedure.mutation(async ({ ctx }) => {
-    // Check if user already has a demo project
-    const existing = await getProjectsByUserId(ctx.user.id);
-    const hasDemo = existing.some(p => p.name?.includes("Demo"));
-    if (hasDemo) {
+    const claimed = await claimDemoProject(ctx.user.id);
+    if (!claimed) {
       throw new TRPCError({ code: "CONFLICT", message: "You already have a demo project" });
     }
-    const { projectId } = await seedDemoProject(ctx.user.id);
-    return { projectId };
+    try {
+      const { projectId } = await seedDemoProject(ctx.user.id);
+      return { projectId };
+    } catch (error) {
+      await releaseDemoProjectClaim(ctx.user.id).catch(releaseError => {
+        console.error("[Billing] Failed to release demo-project claim", releaseError);
+      });
+      throw error;
+    }
   }),
 
   get: protectedProcedure
@@ -855,15 +879,23 @@ const documentsRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Project must be active to upload documents." });
       }
 
-      const buffer = Buffer.from(input.fileBase64, "base64");
-      const key = `projects/${input.projectId}/documents/${Date.now()}-${input.filename}`;
-      const uploaded = await storagePut(
-        key,
-        buffer,
-        input.mimeType ?? "image/jpeg"
-      );
-
       try {
+        await reserveDocumentQuota(project.userId);
+      } catch (error) {
+        quotaError(error);
+      }
+
+      let uploadedKey: string | null = null;
+      try {
+        const buffer = Buffer.from(input.fileBase64, "base64");
+        const key = `projects/${input.projectId}/documents/${Date.now()}-${input.filename}`;
+        const uploaded = await storagePut(
+          key,
+          buffer,
+          input.mimeType ?? "image/jpeg"
+        );
+        uploadedKey = uploaded.key;
+
         const document = await createDocument({
           projectId: input.projectId,
           filename: input.filename,
@@ -884,10 +916,18 @@ const documentsRouter = router({
         }).catch(() => {});
         return withDocumentAccessUrl(document);
       } catch (error) {
-        await storageDelete(uploaded.key).catch(cleanupError => {
+        if (uploadedKey) {
+          await storageDelete(uploadedKey).catch(cleanupError => {
+            console.error(
+              "[StorageCleanup] document upload rollback failed:",
+              cleanupError
+            );
+          });
+        }
+        await releaseDocumentQuota(project.userId).catch(releaseError => {
           console.error(
-            "[StorageCleanup] document upload rollback failed:",
-            cleanupError
+            "[Billing] Failed to release document quota reservation",
+            releaseError
           );
         });
         throw error;
@@ -903,12 +943,15 @@ const documentsRouter = router({
       await requireProjectEditor(input.projectId, ctx.user.id);
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role || role === "viewer") throw new TRPCError({ code: "FORBIDDEN", message: "Viewers cannot transcribe documents" });
 
       const doc = await getDocumentById(input.documentId, input.projectId);
       if (!doc) throw new TRPCError({ code: "NOT_FOUND" });
 
-      // Mark as processing
-      await updateDocumentStatus(input.documentId, input.projectId, "processing");
+      if (!await claimDocumentForTranscription(input.documentId, input.projectId)) {
+        throw new TRPCError({ code: "CONFLICT", message: "Document is already processing or is not ready for transcription" });
+      }
 
       try {
         // Fetch image from storage
@@ -918,6 +961,7 @@ const documentsRouter = router({
         const buf = await resp.arrayBuffer();
         const base64 = Buffer.from(buf).toString("base64");
 
+        await reserveTranscriptionQuota(project.userId);
         const result = await processDocument(project, base64, doc.mimeType ?? "image/jpeg", doc.filename);
 
         if (result.error) {
@@ -953,6 +997,8 @@ const documentsRouter = router({
       await requireProjectEditor(input.projectId, ctx.user.id);
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role || role === "viewer") throw new TRPCError({ code: "FORBIDDEN", message: "Viewers cannot run AI cross-checks" });
       const doc = await getDocumentById(input.documentId, input.projectId);
       if (!doc) throw new TRPCError({ code: "NOT_FOUND" });
       const transcription = await getTranscriptionByDocumentId(input.documentId, input.projectId);
@@ -964,6 +1010,7 @@ const documentsRouter = router({
         const buf = await resp.arrayBuffer();
         const base64 = Buffer.from(buf).toString("base64");
         const existingJson = (transcription.reviewedJson ?? transcription.rawJson) as Record<string, unknown>;
+        await reserveTranscriptionQuota(project.userId);
         const result = await crossCheckTranscription(project, base64, doc.mimeType ?? "image/jpeg", existingJson);
         logActivity({ projectId: input.projectId, userId: ctx.user.id, action: "document_cross_checked", metadata: { documentId: input.documentId, assessment: result.overallAssessment } }).catch(() => {});
         return { success: true, result };
@@ -979,6 +1026,8 @@ const documentsRouter = router({
       await requireProjectEditor(input.projectId, ctx.user.id);
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role || role === "viewer") throw new TRPCError({ code: "FORBIDDEN", message: "Viewers cannot transcribe documents" });
 
       const pendingDocs = await getDocumentsByProjectId(input.projectId, "pending");
       if (pendingDocs.length === 0) {
@@ -1010,6 +1059,8 @@ const documentsRouter = router({
       await requireProjectEditor(input.projectId, ctx.user.id);
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      const role = await getProjectRole(input.projectId, ctx.user.id);
+      if (!role || role === "viewer") throw new TRPCError({ code: "FORBIDDEN", message: "Viewers cannot transcribe documents" });
 
       // Expired processing leases are recovered by the worker. Retry requests
       // enqueue pending/error documents idempotently and never steal live work.
@@ -2499,7 +2550,7 @@ const groupsRouter = router({
         if (page.status === "needs_review" || page.status === "reviewed") continue;
 
         try {
-          await updateDocumentStatus(page.id, input.projectId, "processing");
+          if (!await claimDocumentForTranscription(page.id, input.projectId)) continue;
 
           // Build context from ALL previous pages
           const pageIdx = pages.indexOf(page);
@@ -2527,6 +2578,7 @@ const groupsRouter = router({
 
           // Process with context + shared metadata (for pages after page 1)
           const isFirstPage = pageIdx === 0;
+          await reserveTranscriptionQuota(project.userId);
           const result = await processDocument(project, base64, mimeType, page.filename, {
             pageContext: pageContext || undefined,
             sharedMetadata: (!isFirstPage && sharedMetadata) ? sharedMetadata : undefined,
@@ -2618,6 +2670,10 @@ const groupsRouter = router({
 
       // Get the target document's image
       const targetDoc = pages[targetPageIdx];
+      if (!await claimDocumentForTranscription(targetDoc.id, input.projectId)) {
+        throw new TRPCError({ code: "CONFLICT", message: "Document is already processing or is not ready for transcription" });
+      }
+
       // Fetch image and convert to base64
       const { storageGet } = await import("./storage");
       const { url } = await storageGet(targetDoc.storagePath);
@@ -2666,6 +2722,11 @@ const groupsRouter = router({
       }
 
       // Process with page context + shared metadata
+      try {
+        await reserveTranscriptionQuota(project.userId);
+      } catch (error) {
+        quotaError(error);
+      }
       const result = await processDocument(project, base64, mimeType, targetDoc.filename, {
         pageContext: pageContext || undefined,
         sharedMetadata,
@@ -3313,47 +3374,67 @@ const assignmentsRouter = router({
 // ─── Billing Router ──────────────────────────────────────────────────────────
 
 const billingRouter = router({
-  getPlans: publicProcedure.query(() => {
-    const { PLANS } = require("./billing/products");
-    return PLANS;
-  }),
+  getPlans: publicProcedure.query(() => PLANS),
 
   getMyPlan: protectedProcedure.query(async ({ ctx }) => {
-    const { PLANS, getDocumentLimit } = require("./billing/products");
-    const plan = (ctx.user as any).plan || "free";
-    const quotaUsed = (ctx.user as any).documentQuotaUsed || 0;
+    const plan = ctx.user.plan;
+    const quotaUsed = ctx.user.documentQuotaUsed;
     const limit = getDocumentLimit(plan);
     return {
       plan,
       planName: PLANS[plan]?.name || "Free",
       documentLimit: limit === Infinity ? null : limit,
       documentsUsed: quotaUsed,
+      transcriptionLimit: getTranscriptionLimit(plan) === Infinity ? null : getTranscriptionLimit(plan),
+      transcriptionsUsed: ctx.user.transcriptionQuotaUsed,
       features: PLANS[plan]?.features || [],
     };
   }),
 
   createCheckout: protectedProcedure
-    .input(z.object({ planId: z.enum(["pro", "team"]), origin: z.string() }))
+    .input(z.object({ planId: z.enum(["pro", "team"]) }))
     .mutation(async ({ ctx, input }) => {
-      const { createCheckoutSession } = require("./billing/stripe");
-      const url = await createCheckoutSession({
-        userId: ctx.user.id,
-        userEmail: ctx.user.email || "",
-        userName: ctx.user.name || "",
-        planId: input.planId,
-        stripeCustomerId: (ctx.user as any).stripeCustomerId,
-        origin: input.origin,
-      });
-      return { url };
+      const rank = { free: 0, pro: 1, team: 2, enterprise: 3 } as const;
+      if (rank[input.planId] <= rank[ctx.user.plan]) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Use the billing portal to change an existing plan" });
+      }
+      if (ctx.user.stripeSubscriptionId && ctx.user.stripeSubscriptionStatus !== "canceled") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Resolve the existing subscription in the billing portal first" });
+      }
+      if (!ctx.user.stripeCustomerId && !ctx.user.email) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "An email address is required for checkout" });
+      }
+      const checkoutLockId = await claimCheckoutLock(ctx.user.id);
+      if (!checkoutLockId) {
+        throw new TRPCError({ code: "CONFLICT", message: "A checkout session is already pending" });
+      }
+      try {
+        const checkout = await createCheckoutSession({
+          userId: ctx.user.id,
+          userEmail: ctx.user.email || "",
+          userName: ctx.user.name || "",
+          planId: input.planId,
+          stripeCustomerId: ctx.user.stripeCustomerId,
+          checkoutLockId,
+        });
+        if (!await recordCheckoutSession(ctx.user.id, checkoutLockId, checkout.sessionId, checkout.expiresAt)) {
+          throw new Error("Checkout lock expired before the session was recorded");
+        }
+        return { url: checkout.url };
+      } catch (error) {
+        await releaseCheckoutLock(ctx.user.id, checkoutLockId).catch(releaseError => {
+          console.error("[Stripe] Failed to release checkout lock", releaseError);
+        });
+        throw error;
+      }
     }),
 
   createPortal: protectedProcedure
-    .input(z.object({ origin: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      const customerId = (ctx.user as any).stripeCustomerId;
+    .input(z.void())
+    .mutation(async ({ ctx }) => {
+      const customerId = ctx.user.stripeCustomerId;
       if (!customerId) throw new TRPCError({ code: "BAD_REQUEST", message: "No active subscription" });
-      const { createPortalSession } = require("./billing/stripe");
-      const url = await createPortalSession(customerId, input.origin);
+      const url = await createPortalSession(customerId);
       return { url };
     }),
 });

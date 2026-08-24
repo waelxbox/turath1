@@ -424,6 +424,20 @@ export async function updateDocumentStatus(id: number, projectId: number, status
     .where(and(eq(documents.id, id), eq(documents.projectId, projectId)));
 }
 
+/** Atomically claim a project-scoped pending/error document for AI work. */
+export async function claimDocumentForTranscription(id: number, projectId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const claimed = await db.update(documents).set({ status: "processing", errorMessage: null })
+    .where(and(
+      eq(documents.id, id),
+      eq(documents.projectId, projectId),
+      inArray(documents.status, ["pending", "error"]),
+    ))
+    .returning({ id: documents.id });
+  return Boolean(claimed[0]);
+}
+
 /** Delete a document and all related records (transcriptions, embeddings, entity links) */
 export async function deleteDocument(id: number, projectId: number) {
   const db = await getDb();

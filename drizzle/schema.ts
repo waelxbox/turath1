@@ -58,15 +58,39 @@ export const users = pgTable("users", {
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: roleEnum("role").default("user").notNull(),
   stripeCustomerId: varchar("stripeCustomerId", { length: 255 }),
+  stripeSubscriptionId: varchar("stripeSubscriptionId", { length: 255 }),
+  stripeSubscriptionStatus: subscriptionStatusEnum("stripeSubscriptionStatus"),
+  lastStripeEventCreatedAt: integer("lastStripeEventCreatedAt").default(0).notNull(),
+  pendingStripeCheckoutLockId: uuid("pendingStripeCheckoutLockId"),
+  pendingStripeCheckoutSessionId: varchar("pendingStripeCheckoutSessionId", { length: 255 }),
+  pendingStripeCheckoutExpiresAt: timestamp("pendingStripeCheckoutExpiresAt"),
   plan: planEnum("plan").default("free").notNull(),
   documentQuotaUsed: integer("documentQuotaUsed").default(0).notNull(),
+  transcriptionQuotaUsed: integer("transcriptionQuotaUsed").default(0).notNull(),
+  quotaPeriodStartedAt: integer("quotaPeriodStartedAt").default(0).notNull(),
+  demoProjectCreatedAt: timestamp("demoProjectCreatedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
-});
+}, (t) => [
+  uniqueIndex("users_stripeCustomerId_unique").on(t.stripeCustomerId).where(sql`${t.stripeCustomerId} IS NOT NULL`),
+  uniqueIndex("users_stripeSubscriptionId_unique").on(t.stripeSubscriptionId).where(sql`${t.stripeSubscriptionId} IS NOT NULL`),
+]);
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+
+// A successfully processed Stripe event is inserted in the same transaction as
+// its billing changes. The primary key makes webhook delivery idempotent across
+// retries, restarts, and multiple API replicas.
+export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
+  eventId: varchar("eventId", { length: 255 }).primaryKey(),
+  eventType: varchar("eventType", { length: 255 }).notNull(),
+  stripeCreatedAt: integer("stripeCreatedAt").notNull(),
+  processedAt: timestamp("processedAt").defaultNow().notNull(),
+});
+
+export type StripeWebhookEvent = typeof stripeWebhookEvents.$inferSelect;
 
 // ─── Projects ─────────────────────────────────────────────────────────────────
 
@@ -186,7 +210,7 @@ export const transcriptions = pgTable("transcriptions", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
-  index("transcriptions_documentId_idx").on(t.documentId),
+  uniqueIndex("transcriptions_documentId_unique").on(t.documentId),
   index("transcriptions_projectId_idx").on(t.projectId),
 ]);
 
