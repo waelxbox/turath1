@@ -8,7 +8,7 @@
 
 import { invokeLLM } from "./_core/llm";
 import { getDb } from "./db";
-import { entities, documentEntities, entityAliases } from "../drizzle/schema";
+import { entities, documentEntities, entityAliases, documents } from "../drizzle/schema";
 import { eq, and, sql } from "drizzle-orm";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -194,6 +194,15 @@ async function linkDocumentEntity(
   contextSnippet: string | null,
 ): Promise<void> {
   const db = (await getDb())!;
+  const [document] = await db.select({ id: documents.id }).from(documents).where(and(
+    eq(documents.id, documentId),
+    eq(documents.projectId, projectId),
+  )).limit(1);
+  const [entity] = await db.select({ id: entities.id }).from(entities).where(and(
+    eq(entities.id, entityId),
+    eq(entities.projectId, projectId),
+  )).limit(1);
+  if (!document || !entity) throw new Error("Document and entity must belong to the same project");
   // Check if link already exists
   const existing = await db
     .select({ id: documentEntities.id })
@@ -202,6 +211,7 @@ async function linkDocumentEntity(
       and(
         eq(documentEntities.documentId, documentId),
         eq(documentEntities.entityId, entityId),
+        eq(documentEntities.projectId, projectId),
       ),
     )
     .limit(1);
@@ -224,6 +234,11 @@ export async function reconcileDocumentEntities(
   text: string,
 ): Promise<{ removed: number; added: number }> {
   const db = (await getDb())!;
+  const [projectDocument] = await db.select({ id: documents.id }).from(documents).where(and(
+    eq(documents.id, documentId),
+    eq(documents.projectId, projectId),
+  )).limit(1);
+  if (!projectDocument) throw new Error("Document not found in project");
 
   // Get current linked entities for this document
   const currentLinks = await db
@@ -235,7 +250,11 @@ export async function reconcileDocumentEntities(
     })
     .from(documentEntities)
     .innerJoin(entities, eq(entities.id, documentEntities.entityId))
-    .where(eq(documentEntities.documentId, documentId));
+    .where(and(
+      eq(documentEntities.documentId, documentId),
+      eq(documentEntities.projectId, projectId),
+      eq(entities.projectId, projectId),
+    ));
 
   if (currentLinks.length === 0) {
     // No existing entities — just do a fresh extraction
@@ -262,7 +281,10 @@ export async function reconcileDocumentEntities(
   // Remove stale links
   let removed = 0;
   for (const linkId of staleLinks) {
-    await db.delete(documentEntities).where(eq(documentEntities.id, linkId));
+    await db.delete(documentEntities).where(and(
+      eq(documentEntities.id, linkId),
+      eq(documentEntities.projectId, projectId),
+    ));
     removed++;
   }
 
@@ -284,6 +306,7 @@ export async function reconcileDocumentEntities(
           and(
             eq(documentEntities.documentId, documentId),
             eq(documentEntities.entityId, entityId),
+            eq(documentEntities.projectId, projectId),
           ),
         )
         .limit(1);
@@ -315,6 +338,13 @@ export async function extractAndStoreEntities(
   documentId: number,
   text: string,
 ): Promise<{ entityCount: number }> {
+  const db = (await getDb())!;
+  const [projectDocument] = await db.select({ id: documents.id }).from(documents).where(and(
+    eq(documents.id, documentId),
+    eq(documents.projectId, projectId),
+  )).limit(1);
+  if (!projectDocument) throw new Error("Document not found in project");
+
   const extracted = await extractEntities(text);
 
   if (extracted.length === 0) {

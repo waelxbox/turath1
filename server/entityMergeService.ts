@@ -660,82 +660,118 @@ export async function processMergeStep(
  * store others as aliases, set canonicalId.
  */
 export async function executeMerge(
+  projectId: number,
   suggestionId: number,
   canonicalName: string,
   entityIds: number[],
 ): Promise<void> {
   const db = (await getDb())!;
 
-  if (entityIds.length < 2) return;
+  const uniqueEntityIds = Array.from(new Set(entityIds));
+  if (uniqueEntityIds.length < 2) throw new Error("At least two unique entities are required");
 
-  // Pick the first entity as canonical (or create logic to pick best one)
-  const canonicalEntityId = entityIds[0];
-  const otherIds = entityIds.slice(1);
+  await db.transaction(async (tx) => {
+    const [suggestion] = await tx.select().from(mergeSuggestions).where(and(
+      eq(mergeSuggestions.id, suggestionId),
+      eq(mergeSuggestions.projectId, projectId),
+      eq(mergeSuggestions.status, "pending"),
+    )).for("update").limit(1);
+    if (!suggestion) throw new Error("Merge suggestion not found");
 
-  // Update canonical entity name
-  await db
-    .update(entities)
-    .set({ name: canonicalName })
-    .where(eq(entities.id, canonicalEntityId));
-
-  // For each non-canonical entity:
-  for (const otherId of otherIds) {
-    // Get the entity's current name for alias storage
-    const [otherEntity] = await db
-      .select({ name: entities.name })
-      .from(entities)
-      .where(eq(entities.id, otherId));
-
-    if (otherEntity) {
-      // Store as alias of the canonical entity
-      await db.insert(entityAliases).values({
-        entityId: canonicalEntityId,
-        alias: otherEntity.name,
-        normalizedAlias: normalizeForComparison(otherEntity.name),
-        language: isArabic(otherEntity.name) ? "ar" : "other",
-      });
+    const suggestedIds = Array.from(new Set(suggestion.entityIds as number[])).sort((a, b) => a - b);
+    const requestedIds = [...uniqueEntityIds].sort((a, b) => a - b);
+    if (suggestedIds.length !== requestedIds.length || suggestedIds.some((id, i) => id !== requestedIds[i])) {
+      throw new Error("Entity IDs do not match the merge suggestion");
     }
 
-    // Reassign all document_entities links from other → canonical
-    await db
-      .update(documentEntities)
-      .set({ entityId: canonicalEntityId })
-      .where(eq(documentEntities.entityId, otherId));
+    const projectEntities = await tx.select({ id: entities.id, name: entities.name }).from(entities).where(and(
+      eq(entities.projectId, projectId),
+      inArray(entities.id, uniqueEntityIds),
+    ));
+    if (projectEntities.length !== uniqueEntityIds.length) throw new Error("One or more entities are outside this project");
 
-    // Mark the other entity as merged (set canonicalId)
-    await db
-      .update(entities)
-      .set({ canonicalId: canonicalEntityId })
-      .where(eq(entities.id, otherId));
-  }
+    const canonicalEntityId = uniqueEntityIds[0];
+    const otherIds = uniqueEntityIds.slice(1);
+    await tx.update(entities).set({
+      name: canonicalName,
+      normalizedName: normalizeForComparison(canonicalName),
+    }).where(and(eq(entities.id, canonicalEntityId), eq(entities.projectId, projectId)));
 
-  // Mark the suggestion as accepted
-  await db
-    .update(mergeSuggestions)
-    .set({ status: "accepted", reviewedAt: new Date() })
-    .where(eq(mergeSuggestions.id, suggestionId));
+    for (const otherId of otherIds) {
+      const otherEntity = projectEntities.find((entity) => entity.id === otherId)!;
+      const normalizedAlias = normalizeForComparison(otherEntity.name);
+      const [existingAlias] = await tx.select({ id: entityAliases.id }).from(entityAliases).where(and(
+        eq(entityAliases.entityId, canonicalEntityId),
+        eq(entityAliases.normalizedAlias, normalizedAlias),
+      )).limit(1);
+      if (!existingAlias) {
+        await tx.insert(entityAliases).values({
+          entityId: canonicalEntityId,
+          alias: otherEntity.name,
+          normalizedAlias,
+          language: isArabic(otherEntity.name) ? "ar" : "other",
+        });
+      }
+      const links = await tx.select({
+        documentId: documentEntities.documentId,
+        contextSnippet: documentEntities.contextSnippet,
+      }).from(documentEntities).where(and(
+        eq(documentEntities.entityId, otherId),
+        eq(documentEntities.projectId, projectId),
+      ));
+      for (const link of links) {
+        const [canonicalLink] = await tx.select({ id: documentEntities.id }).from(documentEntities).where(and(
+          eq(documentEntities.projectId, projectId),
+          eq(documentEntities.documentId, link.documentId),
+          eq(documentEntities.entityId, canonicalEntityId),
+        )).limit(1);
+        if (!canonicalLink) {
+          await tx.insert(documentEntities).values({
+            projectId,
+            documentId: link.documentId,
+            entityId: canonicalEntityId,
+            contextSnippet: link.contextSnippet,
+          });
+        }
+      }
+      await tx.delete(documentEntities).where(and(
+        eq(documentEntities.entityId, otherId),
+        eq(documentEntities.projectId, projectId),
+      ));
+      await tx.update(entities).set({ canonicalId: canonicalEntityId }).where(and(
+        eq(entities.id, otherId),
+        eq(entities.projectId, projectId),
+      ));
+    }
+
+    await tx.update(mergeSuggestions).set({ status: "accepted", reviewedAt: new Date() }).where(and(
+      eq(mergeSuggestions.id, suggestionId),
+      eq(mergeSuggestions.projectId, projectId),
+      eq(mergeSuggestions.status, "pending"),
+    ));
+  });
 }
 
 /**
  * Reject a merge suggestion (mark entities as definitely different).
  */
-export async function rejectMerge(suggestionId: number): Promise<void> {
+export async function rejectMerge(projectId: number, suggestionId: number): Promise<void> {
   const db = (await getDb())!;
   await db
     .update(mergeSuggestions)
     .set({ status: "rejected", reviewedAt: new Date() })
-    .where(eq(mergeSuggestions.id, suggestionId));
+    .where(and(eq(mergeSuggestions.id, suggestionId), eq(mergeSuggestions.projectId, projectId)));
 }
 
 /**
  * Skip a merge suggestion (come back later).
  */
-export async function skipMerge(suggestionId: number): Promise<void> {
+export async function skipMerge(projectId: number, suggestionId: number): Promise<void> {
   const db = (await getDb())!;
   await db
     .update(mergeSuggestions)
     .set({ status: "skipped", reviewedAt: new Date() })
-    .where(eq(mergeSuggestions.id, suggestionId));
+    .where(and(eq(mergeSuggestions.id, suggestionId), eq(mergeSuggestions.projectId, projectId)));
 }
 
 /**
@@ -749,56 +785,77 @@ export async function manualMerge(
 ): Promise<void> {
   const db = (await getDb())!;
 
-  if (entityIds.length < 2) return;
+  const uniqueEntityIds = Array.from(new Set(entityIds));
+  if (uniqueEntityIds.length < 2) throw new Error("At least two unique entities are required");
 
-  // Create an audit-trail suggestion record
-  const [suggestion] = await db.insert(mergeSuggestions).values({
-    projectId,
-    entityIds,
-    suggestedCanonical: canonicalName,
-    confidence: "high",
-    reasoning: "Manual merge by user",
-    status: "accepted",
-    reviewedAt: new Date(),
-  }).returning();
+  await db.transaction(async (tx) => {
+    const projectEntities = await tx.select({ id: entities.id, name: entities.name }).from(entities).where(and(
+      eq(entities.projectId, projectId),
+      inArray(entities.id, uniqueEntityIds),
+    ));
+    if (projectEntities.length !== uniqueEntityIds.length) throw new Error("One or more entities are outside this project");
 
-  // Pick the first entity as canonical
-  const canonicalEntityId = entityIds[0];
-  const otherIds = entityIds.slice(1);
+    await tx.insert(mergeSuggestions).values({
+      projectId,
+      entityIds: uniqueEntityIds,
+      suggestedCanonical: canonicalName,
+      confidence: "high",
+      reasoning: "Manual merge by user",
+      status: "accepted",
+      reviewedAt: new Date(),
+    });
 
-  // Update canonical entity name
-  await db
-    .update(entities)
-    .set({ name: canonicalName })
-    .where(eq(entities.id, canonicalEntityId));
+    const canonicalEntityId = uniqueEntityIds[0];
+    await tx.update(entities).set({
+      name: canonicalName,
+      normalizedName: normalizeForComparison(canonicalName),
+    }).where(and(eq(entities.id, canonicalEntityId), eq(entities.projectId, projectId)));
 
-  // For each non-canonical entity:
-  for (const otherId of otherIds) {
-    const [otherEntity] = await db
-      .select({ name: entities.name })
-      .from(entities)
-      .where(eq(entities.id, otherId));
-
-    if (otherEntity) {
-      // Store as alias of the canonical entity
-      await db.insert(entityAliases).values({
-        entityId: canonicalEntityId,
-        alias: otherEntity.name,
-        normalizedAlias: normalizeForComparison(otherEntity.name),
-        language: isArabic(otherEntity.name) ? "ar" : "other",
-      });
+    for (const otherId of uniqueEntityIds.slice(1)) {
+      const otherEntity = projectEntities.find((entity) => entity.id === otherId)!;
+      const normalizedAlias = normalizeForComparison(otherEntity.name);
+      const [existingAlias] = await tx.select({ id: entityAliases.id }).from(entityAliases).where(and(
+        eq(entityAliases.entityId, canonicalEntityId),
+        eq(entityAliases.normalizedAlias, normalizedAlias),
+      )).limit(1);
+      if (!existingAlias) {
+        await tx.insert(entityAliases).values({
+          entityId: canonicalEntityId,
+          alias: otherEntity.name,
+          normalizedAlias,
+          language: isArabic(otherEntity.name) ? "ar" : "other",
+        });
+      }
+      const links = await tx.select({
+        documentId: documentEntities.documentId,
+        contextSnippet: documentEntities.contextSnippet,
+      }).from(documentEntities).where(and(
+        eq(documentEntities.entityId, otherId),
+        eq(documentEntities.projectId, projectId),
+      ));
+      for (const link of links) {
+        const [canonicalLink] = await tx.select({ id: documentEntities.id }).from(documentEntities).where(and(
+          eq(documentEntities.projectId, projectId),
+          eq(documentEntities.documentId, link.documentId),
+          eq(documentEntities.entityId, canonicalEntityId),
+        )).limit(1);
+        if (!canonicalLink) {
+          await tx.insert(documentEntities).values({
+            projectId,
+            documentId: link.documentId,
+            entityId: canonicalEntityId,
+            contextSnippet: link.contextSnippet,
+          });
+        }
+      }
+      await tx.delete(documentEntities).where(and(
+        eq(documentEntities.entityId, otherId),
+        eq(documentEntities.projectId, projectId),
+      ));
+      await tx.update(entities).set({ canonicalId: canonicalEntityId }).where(and(
+        eq(entities.id, otherId),
+        eq(entities.projectId, projectId),
+      ));
     }
-
-    // Reassign all document_entities links from other → canonical
-    await db
-      .update(documentEntities)
-      .set({ entityId: canonicalEntityId })
-      .where(eq(documentEntities.entityId, otherId));
-
-    // Mark the other entity as merged (set canonicalId)
-    await db
-      .update(entities)
-      .set({ canonicalId: canonicalEntityId })
-      .where(eq(entities.id, otherId));
-  }
+  });
 }

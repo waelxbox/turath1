@@ -490,8 +490,7 @@ function ReviewInterface({
     try {
       await submitVerdict.mutateAsync({
         assignmentId: assignment.id,
-        sessionId: assignment.sessionId,
-        documentId: assignment.documentId,
+        shareToken,
         reviewerUsername: username,
         lineIndex: line.index,
         lineText: line.text,
@@ -521,6 +520,8 @@ function ReviewInterface({
           // All lines reviewed - complete assignment
           await completeAssignmentMut.mutateAsync({
             assignmentId: assignment.id,
+            shareToken,
+            reviewerUsername: username,
             totalLines: lines.length,
           });
           setIsComplete(true);
@@ -626,7 +627,7 @@ function ReviewInterface({
           <button
             onClick={() => {
               completeAssignmentMut.mutate(
-                { assignmentId: assignment.id, totalLines: 0 },
+                { assignmentId: assignment.id, shareToken, reviewerUsername: username, totalLines: 0 },
                 {
                   onSuccess: () => {
                     setAssignment(null);

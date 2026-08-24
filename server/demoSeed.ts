@@ -229,8 +229,8 @@ export async function seedDemoProject(userId: number): Promise<{ projectId: numb
     });
 
     // Mark as reviewed
-    await updateReviewedJson(transcription.id, transcriptionData.rawJson);
-    await updateDocumentStatus(doc.id, "reviewed");
+    await updateReviewedJson(transcription.id, doc.id, projectId, transcriptionData.rawJson);
+    await updateDocumentStatus(doc.id, projectId, "reviewed");
 
     // Generate embedding for semantic search (fire and forget)
     embedTranscription({

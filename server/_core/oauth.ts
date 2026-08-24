@@ -172,7 +172,7 @@ export function registerOAuthRoutes(app: Express) {
               const pendingInvites = await getPendingInvitesByEmail(email);
               for (const invite of pendingInvites) {
                 try {
-                  await acceptInvite(invite.id, user.id);
+                  await acceptInvite(invite.id, user.id, email);
                 } catch (e) {
                   console.warn(`[OAuth] Failed to auto-accept invite ${invite.id}:`, e);
                 }
