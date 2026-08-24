@@ -67,7 +67,7 @@ Experienced users can bypass the wizard entirely. Clicking "Skip — configure m
 |---|---|
 | **Frontend** | React 19, Tailwind CSS 4, shadcn/ui, Wouter |
 | **Backend** | Express 4, tRPC 11, Drizzle ORM |
-| **Database** | MySQL / TiDB (via `DATABASE_URL`) |
+| **Database** | PostgreSQL with pgvector (via `DATABASE_URL`) |
 | **AI** | Google Gemini API (direct), Manus Forge proxy (fallback) |
 | **File storage** | S3-compatible object storage via `storagePut` / `storageGet` |
 | **Auth** | Manus OAuth (session cookie, JWT-signed) |
@@ -129,7 +129,7 @@ The following environment variables are required. In the Manus hosting environme
 
 | Variable | Description |
 |---|---|
-| `DATABASE_URL` | MySQL connection string |
+| `DATABASE_URL` | PostgreSQL connection string; a direct connection is recommended for migrations |
 | `JWT_SECRET` | Session cookie signing secret |
 | `GOOGLE_AI_API_KEY` | Google AI API key for direct Gemini model access |
 | `VITE_APP_ID` | Manus OAuth application ID |
@@ -156,15 +156,19 @@ pnpm install
 cp .env.example .env
 # Edit .env with your DATABASE_URL, GOOGLE_AI_API_KEY, etc.
 
-# 4. Run database migrations
-pnpm drizzle-kit generate
-pnpm drizzle-kit migrate
+# 4. Verify and run the canonical staging migrations
+pnpm db:check
+pnpm db:verify
+pnpm db:migrate
 
 # 5. Start the development server
 pnpm dev
 ```
 
 The app runs on `http://localhost:3000`.
+
+For fresh staging setup, rollback guidance, and the separate process required for
+an existing database, see [`docs/staging-database.md`](docs/staging-database.md).
 
 ---
 

@@ -32,9 +32,9 @@ let _client: ReturnType<typeof postgres> | null = null;
 
 export async function getDb() {
   if (!_db) {
-    const url = process.env.SUPABASE_DATABASE_URL;
+    const url = ENV.databaseUrl;
     if (!url) {
-      console.warn("[Database] SUPABASE_DATABASE_URL not set");
+      console.warn("[Database] DATABASE_URL not set");
       return null;
     }
     try {

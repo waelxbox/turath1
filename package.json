@@ -15,9 +15,10 @@
     "test": "vitest run",
     "test:unit": "GOOGLE_CLIENT_ID=640280511703-rt61ei88l0vavp8g7t6a6ltro75b7kjt.apps.googleusercontent.com GOOGLE_CLIENT_SECRET=unit-test-only vitest run --exclude server/members.test.ts",
     "test:integration": "node scripts/run-integration-tests.mjs",
-    "db:check": "node scripts/verify-migrations.mjs && drizzle-kit check",
-    "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit generate && drizzle-kit migrate",
+    "db:check": "node scripts/verify-migrations.mjs && drizzle-kit check --config=drizzle.config.ts",
+    "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
+    "db:verify": "tsx scripts/verify-staging-migrations.ts",
     "security:audit": "pnpm audit --prod --audit-level=critical"
   },
   "dependencies": {

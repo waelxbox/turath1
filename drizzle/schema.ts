@@ -9,6 +9,7 @@ import {
   real,
   boolean,
   index,
+  uniqueIndex,
   serial,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -230,6 +231,10 @@ export const documentEmbeddings = pgTable("document_embeddings", {
 }, (t) => [
   index("embeddings_projectId_idx").on(t.projectId),
   index("embeddings_documentId_idx").on(t.documentId),
+  index("embeddings_content_tsv_idx").using(
+    "gin",
+    sql`(${t.contentTsv}::tsvector)`,
+  ),
 ]);
 
 export type DocumentEmbedding = typeof documentEmbeddings.$inferSelect;
@@ -291,7 +296,7 @@ export const projectMembers = pgTable("project_members", {
 }, (t) => [
   index("pm_projectId_idx").on(t.projectId),
   index("pm_userId_idx").on(t.userId),
-  index("pm_project_user_idx").on(t.projectId, t.userId),
+  uniqueIndex("pm_project_user_unique").on(t.projectId, t.userId),
 ]);
 
 export type ProjectMember = typeof projectMembers.$inferSelect;
@@ -403,7 +408,7 @@ export const userXpStats = pgTable("user_xp_stats", {
   lastActiveDate: varchar("lastActiveDate", { length: 10 }),  // YYYY-MM-DD for streak tracking
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
-  index("uxs_userId_projectId_idx").on(t.userId, t.projectId),
+  uniqueIndex("uxs_user_project_unique").on(t.userId, t.projectId),
   index("uxs_projectId_totalXp_idx").on(t.projectId, t.totalXp),
 ]);
 
@@ -425,7 +430,7 @@ export const reviewSessions = pgTable("review_sessions", {
   selectedLanguage: varchar("selectedLanguage", { length: 50 }).default(""),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
-  index("rs_userId_projectId_idx").on(t.userId, t.projectId),
+  uniqueIndex("rs_user_project_unique").on(t.userId, t.projectId),
 ]);
 
 export type ReviewSession = typeof reviewSessions.$inferSelect;
@@ -478,7 +483,11 @@ export const validationAssignments = pgTable("validation_assignments", {
   index("va_sessionId_idx").on(t.sessionId),
   index("va_documentId_idx").on(t.documentId),
   index("va_reviewer_idx").on(t.reviewerUsername),
-  index("va_session_doc_reviewer_idx").on(t.sessionId, t.documentId, t.reviewerUsername),
+  uniqueIndex("va_session_doc_reviewer_unique").on(
+    t.sessionId,
+    t.documentId,
+    t.reviewerUsername,
+  ),
 ]);
 
 export type ValidationAssignment = typeof validationAssignments.$inferSelect;
@@ -505,6 +514,7 @@ export const validationReviews = pgTable("validation_reviews", {
   index("vr_sessionId_idx").on(t.sessionId),
   index("vr_documentId_idx").on(t.documentId),
   index("vr_session_doc_line_idx").on(t.sessionId, t.documentId, t.lineIndex),
+  uniqueIndex("vr_assignment_line_unique").on(t.assignmentId, t.lineIndex),
 ]);
 
 export type ValidationReview = typeof validationReviews.$inferSelect;
