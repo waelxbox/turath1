@@ -20,50 +20,63 @@ function parseCookies(cookieHeader?: string): Map<string, string> {
   return map;
 }
 
-export async function createContext(
-  opts: CreateExpressContextOptions
-): Promise<TrpcContext> {
-  let user: User | null = null;
-
+/**
+ * Authenticate an Express request using the same session rules as tRPC.
+ * Non-tRPC routes (for example protected storage downloads) must use this
+ * rather than interpreting the session cookie independently.
+ */
+export async function authenticateRequestUser(
+  req: Pick<CreateExpressContextOptions["req"], "headers">
+): Promise<User | null> {
   try {
-    const cookies = parseCookies(opts.req.headers.cookie);
+    const cookies = parseCookies(req.headers.cookie);
     const sessionCookie = cookies.get(COOKIE_NAME);
-    if (sessionCookie) {
-      const session = await verifySessionToken(sessionCookie);
-      if (session) {
-        // Try to get user from DB with a short timeout
-        // If DB is overloaded, we retry once before giving up
-        let dbUser: User | null = null;
-        for (let attempt = 0; attempt < 2; attempt++) {
-          try {
-            const result = await db.getUserByOpenId(session.openId);
-            dbUser = result ?? null;
-            break;
-          } catch (dbErr: any) {
-            const isPoolExhausted = dbErr?.message?.includes("ECHECKOUTTIMEOUT") ||
-              dbErr?.message?.includes("pool") ||
-              dbErr?.message?.includes("timeout");
-            if (isPoolExhausted && attempt === 0) {
-              // Wait briefly and retry once
-              await new Promise(r => setTimeout(r, 500));
-              continue;
-            }
-            // On second failure or non-pool error, log but don't crash
-            console.warn("[Context] DB lookup failed:", dbErr?.message?.slice(0, 100));
-            break;
-          }
-        }
+    if (!sessionCookie) return null;
+
+    const session = await verifySessionToken(sessionCookie);
+    if (!session) return null;
+
+    // Keep the retry small and fail closed. A database outage must never turn
+    // a protected object into a public one.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const dbUser = (await db.getUserByOpenId(session.openId)) ?? null;
         // lastSignedIn acts as a lightweight session version. A new login or
         // explicit logout advances it and invalidates previously issued JWTs.
-        if (dbUser && dbUser.lastSignedIn.getTime() === session.sessionVersion) {
-          user = dbUser;
+        if (
+          dbUser &&
+          dbUser.lastSignedIn.getTime() === session.sessionVersion
+        ) {
+          return dbUser;
         }
+        return null;
+      } catch (dbErr: any) {
+        const isPoolExhausted =
+          dbErr?.message?.includes("ECHECKOUTTIMEOUT") ||
+          dbErr?.message?.includes("pool") ||
+          dbErr?.message?.includes("timeout");
+        if (isPoolExhausted && attempt === 0) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+          continue;
+        }
+        console.warn(
+          "[Context] DB lookup failed:",
+          dbErr?.message?.slice(0, 100)
+        );
+        return null;
       }
     }
   } catch {
-    // JWT verification failed or no cookie — genuinely not authenticated
-    user = null;
+    return null;
   }
+
+  return null;
+}
+
+export async function createContext(
+  opts: CreateExpressContextOptions
+): Promise<TrpcContext> {
+  const user = await authenticateRequestUser(opts.req);
 
   return {
     req: opts.req,

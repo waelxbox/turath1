@@ -245,6 +245,22 @@ export async function getSamplesByProjectId(projectId: number) {
     .orderBy(onboardingSamples.createdAt);
 }
 
+export async function getOnboardingSampleById(id: number, projectId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select()
+    .from(onboardingSamples)
+    .where(
+      and(
+        eq(onboardingSamples.id, id),
+        eq(onboardingSamples.projectId, projectId)
+      )
+    )
+    .limit(1);
+  return result[0];
+}
+
 export async function updateSampleAiOutput(id: number, projectId: number, aiOutput: unknown, validationScore: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -365,6 +381,31 @@ export async function getDocumentById(id: number, projectId: number) {
     .where(and(eq(documents.id, id), eq(documents.projectId, projectId)))
     .limit(1);
   return result[0];
+}
+
+/** Return the storage objects referenced by a project before cascade deletion. */
+export async function getProjectStoragePaths(
+  projectId: number
+): Promise<string[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [documentRows, sampleRows] = await Promise.all([
+    db
+      .select({ path: documents.storagePath })
+      .from(documents)
+      .where(eq(documents.projectId, projectId)),
+    db
+      .select({ path: onboardingSamples.imagePath })
+      .from(onboardingSamples)
+      .where(eq(onboardingSamples.projectId, projectId)),
+  ]);
+  return Array.from(
+    new Set(
+      [...documentRows, ...sampleRows]
+        .map(row => row.path)
+        .filter((path): path is string => Boolean(path))
+    )
+  );
 }
 
 export async function updateDocumentStatus(id: number, projectId: number, status: Document["status"], errorMessage?: string) {

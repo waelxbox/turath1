@@ -10,6 +10,7 @@ import {
   createProject,
   updateProject,
   getProjectStats,
+  getProjectStoragePaths,
   createOnboardingSample,
   getSamplesByProjectId,
   updateSampleAiOutput,
@@ -76,7 +77,15 @@ import crypto from "crypto";
 import { generateProjectConfig, validateConfig, refineConfig } from "./onboardingAgent";
 import { processOnboardingChat, generateConfigFromChat, type ChatMessage } from "./onboardingChat";
 import { processDocument, crossCheckTranscription } from "./transcriptionEngine";
-import { storagePut } from "./storage";
+import {
+  documentAccessUrl,
+  isProjectStorageKey,
+  onboardingSampleAccessUrl,
+  storageDelete,
+  storageDeleteMany,
+  storagePut,
+  validationDocumentAccessUrl,
+} from "./storage";
 import { TRPCError } from "@trpc/server";
 import { embedTranscription, semanticSearch } from "./embeddingService";
 import { extractAndStoreEntities, reconcileDocumentEntities } from "./nerService";
@@ -111,6 +120,50 @@ async function requireProjectDocuments(projectId: number, documentIds: number[])
     throw new TRPCError({ code: "NOT_FOUND", message: "One or more documents were not found in this project" });
   }
   return projectDocuments.filter((document): document is NonNullable<typeof document> => Boolean(document));
+}
+
+function withDocumentAccessUrl<
+  T extends { id: number; projectId: number; storageUrl?: string | null },
+>(document: T): T & { storageUrl: string } {
+  return {
+    ...document,
+    storageUrl: documentAccessUrl(document.projectId, document.id),
+  };
+}
+
+function withSampleAccessUrl<
+  T extends { id: number; projectId: number; imageUrl?: string | null },
+>(sample: T): T & { imageUrl: string } {
+  return {
+    ...sample,
+    imageUrl: onboardingSampleAccessUrl(sample.projectId, sample.id),
+  };
+}
+
+async function deleteManagedProjectStorage(
+  projectId: number,
+  paths: string[]
+): Promise<void> {
+  const managedPaths = paths.filter(path =>
+    isProjectStorageKey(path, projectId)
+  );
+  if (managedPaths.length === 0) return;
+
+  const { failures } = await storageDeleteMany(managedPaths);
+  if (failures.length > 0) {
+    console.error(
+      `[StorageDelete] ${failures.length} object(s) could not be deleted for project ${projectId}`,
+      failures.map(failure => ({
+        key: failure.key,
+        error: failure.error.message,
+      }))
+    );
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message:
+        "Stored files could not be deleted. Database records were retained so the deletion can be retried.",
+    });
+  }
 }
 
 // ─── Auth Router ──────────────────────────────────────────────────────────────
@@ -406,6 +459,8 @@ const projectsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const role = await getProjectRole(input.id, ctx.user.id);
       if (role !== "owner") throw new TRPCError({ code: "FORBIDDEN", message: "Only the project owner can delete a project" });
+      const storagePaths = await getProjectStoragePaths(input.id);
+      await deleteManagedProjectStorage(input.id, storagePaths);
       await deleteProject(input.id, ctx.user.id);
       return { deleted: true };
     }),
@@ -420,7 +475,8 @@ const onboardingRouter = router({
       // Verify ownership
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-      return getSamplesByProjectId(input.projectId);
+      const samples = await getSamplesByProjectId(input.projectId);
+      return samples.map(withSampleAccessUrl);
     }),
 
   uploadSample: protectedProcedure
@@ -440,18 +496,36 @@ const onboardingRouter = router({
       // Store image to S3
       const imageBuffer = Buffer.from(input.imageBase64, "base64");
       const key = `projects/${input.projectId}/samples/${Date.now()}-${input.filename}`;
-      const { url } = await storagePut(key, imageBuffer, input.mimeType ?? "image/jpeg");
+      const uploaded = await storagePut(
+        key,
+        imageBuffer,
+        input.mimeType ?? "image/jpeg"
+      );
 
-      await createOnboardingSample({
-        projectId: input.projectId,
-        imagePath: key,
-        imageUrl: url,
-        filename: input.filename,
-        manualTranscription: input.manualTranscription,
-        isHeldOut: input.isHeldOut,
-      });
+      try {
+        const sample = await createOnboardingSample({
+          projectId: input.projectId,
+          imagePath: uploaded.key,
+          // Provider URLs are short-lived. The API exposes a stable protected URL.
+          imageUrl: null,
+          filename: input.filename,
+          manualTranscription: input.manualTranscription,
+          isHeldOut: input.isHeldOut,
+        });
 
-      return { success: true, imageUrl: url };
+        return {
+          success: true,
+          imageUrl: onboardingSampleAccessUrl(input.projectId, sample.id),
+        };
+      } catch (error) {
+        await storageDelete(uploaded.key).catch(cleanupError => {
+          console.error(
+            "[StorageCleanup] sample upload rollback failed:",
+            cleanupError
+          );
+        });
+        throw error;
+      }
     }),
 
   generateConfig: protectedProcedure
@@ -645,19 +719,19 @@ const onboardingRouter = router({
     .input(z.object({
       projectId: z.number(),
       filename: z.string(),
-      imageBase64: z.string(),
-      mimeType: z.string().default("image/jpeg"),
+      imageBase64: z.string().max(15_000_000),
+      mimeType: z.string().regex(/^image\/[a-z0-9.+-]+$/i).default("image/jpeg"),
     }))
     .mutation(async ({ ctx, input }) => {
       await requireProjectEditor(input.projectId, ctx.user.id);
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
-      const imageBuffer = Buffer.from(input.imageBase64, "base64");
-      const key = `projects/${input.projectId}/onboarding-chat/${Date.now()}-${input.filename}`;
-      const { url } = await storagePut(key, imageBuffer, input.mimeType ?? "image/jpeg");
-
-      return { imageUrl: url };
+      // Chat images are transient. Returning a data URL avoids creating
+      // untracked objects that could not be removed when the project is deleted.
+      return {
+        imageUrl: `data:${input.mimeType};base64,${input.imageBase64}`,
+      };
     }),
 
   generateFromChat: protectedProcedure
@@ -705,7 +779,11 @@ const documentsRouter = router({
     .query(async ({ ctx, input }) => {
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-      return getDocumentsByProjectId(input.projectId, input.status);
+      const documents = await getDocumentsByProjectId(
+        input.projectId,
+        input.status
+      );
+      return documents.map(withDocumentAccessUrl);
     }),
 
   listPaginated: protectedProcedure
@@ -720,7 +798,7 @@ const documentsRouter = router({
     .query(async ({ ctx, input }) => {
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-      return getDocumentsPaginated({
+      const page = await getDocumentsPaginated({
         projectId: input.projectId,
         status: input.status,
         search: input.search,
@@ -728,6 +806,10 @@ const documentsRouter = router({
         cursor: input.cursor,
         limit: input.limit,
       });
+      return {
+        ...page,
+        documents: page.documents.map(withDocumentAccessUrl),
+      };
     }),
 
   // Get distinct languages found in project transcriptions
@@ -739,7 +821,8 @@ const documentsRouter = router({
       return getProjectLanguages(input.projectId);
     }),
 
-  // Returns a fresh presigned URL for viewing a document image (stored URLs expire)
+  // Returns a stable application URL that authorizes every request and then
+  // resolves a fresh backend URL.
   getImageUrl: protectedProcedure
     .input(z.object({ documentId: z.number(), projectId: z.number() }))
     .query(async ({ ctx, input }) => {
@@ -747,9 +830,11 @@ const documentsRouter = router({
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       const doc = await getDocumentById(input.documentId, input.projectId);
       if (!doc) throw new TRPCError({ code: "NOT_FOUND" });
-      const { storageGet } = await import("./storage");
-      const { url } = await storageGet(doc.storagePath);
-      return { url, filename: doc.filename, mimeType: doc.mimeType };
+      return {
+        url: documentAccessUrl(input.projectId, input.documentId),
+        filename: doc.filename,
+        mimeType: doc.mimeType,
+      };
     }),
 
   upload: protectedProcedure
@@ -772,22 +857,41 @@ const documentsRouter = router({
 
       const buffer = Buffer.from(input.fileBase64, "base64");
       const key = `projects/${input.projectId}/documents/${Date.now()}-${input.filename}`;
-      const { url } = await storagePut(key, buffer, input.mimeType ?? "image/jpeg");
+      const uploaded = await storagePut(
+        key,
+        buffer,
+        input.mimeType ?? "image/jpeg"
+      );
 
-      await createDocument({
-        projectId: input.projectId,
-        filename: input.filename,
-        storagePath: key,
-        storageUrl: url,
-        mimeType: input.mimeType,
-        fileSizeBytes: input.fileSizeBytes ?? null,
-        status: "pending",
-      });
+      try {
+        const document = await createDocument({
+          projectId: input.projectId,
+          filename: input.filename,
+          storagePath: uploaded.key,
+          // Never persist expiring provider URLs.
+          storageUrl: null,
+          mimeType: input.mimeType,
+          fileSizeBytes: input.fileSizeBytes ?? null,
+          status: "pending",
+        });
 
-      const docs = await getDocumentsByProjectId(input.projectId);
-      // Log activity
-      logActivity({ projectId: input.projectId, userId: ctx.user.id, action: "document_uploaded", metadata: { filename: input.filename } }).catch(() => {});
-      return docs[0];
+        // Log activity
+        logActivity({
+          projectId: input.projectId,
+          userId: ctx.user.id,
+          action: "document_uploaded",
+          metadata: { filename: input.filename },
+        }).catch(() => {});
+        return withDocumentAccessUrl(document);
+      } catch (error) {
+        await storageDelete(uploaded.key).catch(cleanupError => {
+          console.error(
+            "[StorageCleanup] document upload rollback failed:",
+            cleanupError
+          );
+        });
+        throw error;
+      }
     }),
 
   transcribe: protectedProcedure
@@ -941,6 +1045,7 @@ const documentsRouter = router({
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN", message: "Viewers cannot delete documents" });
       const doc = await getDocumentById(input.documentId, input.projectId);
       if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "Document not found" });
+      await deleteManagedProjectStorage(input.projectId, [doc.storagePath]);
       await deleteDocument(input.documentId, input.projectId);
       return { success: true };
     }),
@@ -997,11 +1102,18 @@ const documentsRouter = router({
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (!role) throw new TRPCError({ code: "NOT_FOUND" });
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN", message: "Viewers cannot delete documents" });
-      await requireProjectDocuments(input.projectId, input.documentIds);
-      for (const docId of input.documentIds) {
-        await deleteDocument(docId, input.projectId);
+      const documents = await requireProjectDocuments(
+        input.projectId,
+        input.documentIds
+      );
+      await deleteManagedProjectStorage(
+        input.projectId,
+        documents.map(document => document.storagePath)
+      );
+      for (const document of documents) {
+        await deleteDocument(document.id, input.projectId);
       }
-      return { success: true, count: input.documentIds.length };
+      return { success: true, count: documents.length };
     }),
 });
 
@@ -2178,7 +2290,7 @@ const groupsRouter = router({
       const group = await getDocumentGroupById(input.groupId, input.projectId);
       if (!group || group.projectId !== input.projectId) throw new TRPCError({ code: "NOT_FOUND" });
       const pages = await getDocumentGroupPages(input.groupId, input.projectId);
-      return { ...group, pages };
+      return { ...group, pages: pages.map(withDocumentAccessUrl) };
     }),
 
   create: protectedProcedure
@@ -2405,10 +2517,10 @@ const groupsRouter = router({
             }
           }
 
-          // Fetch image
-          const { storageGet: storageGetGroupPage } = await import("./storage");
-          const { url: pageUrl } = await storageGetGroupPage(page.storagePath);
-          const response = await fetch(pageUrl);
+          // Resolve a fresh backend URL from the durable object key.
+          const { storageGet } = await import("./storage");
+          const { url } = await storageGet(page.storagePath);
+          const response = await fetch(url);
           const buffer = Buffer.from(await response.arrayBuffer());
           const base64 = buffer.toString("base64");
           const mimeType = page.mimeType || "image/jpeg";
@@ -2507,9 +2619,9 @@ const groupsRouter = router({
       // Get the target document's image
       const targetDoc = pages[targetPageIdx];
       // Fetch image and convert to base64
-      const { storageGet: storageGetTargetPage } = await import("./storage");
-      const { url: targetPageUrl } = await storageGetTargetPage(targetDoc.storagePath);
-      const response = await fetch(targetPageUrl);
+      const { storageGet } = await import("./storage");
+      const { url } = await storageGet(targetDoc.storagePath);
+      const response = await fetch(url);
       const buffer = Buffer.from(await response.arrayBuffer());
       const base64 = buffer.toString("base64");
       const mimeType = targetDoc.mimeType || "image/jpeg";
@@ -2853,7 +2965,11 @@ const validationRouter = router({
           linesReviewed: assignment.linesReviewed,
           totalLines: lines.length,
         },
-        document: doc ? { id: doc.id, filename: doc.filename, storageUrl: doc.storageUrl } : null,
+        document: doc ? {
+          id: doc.id,
+          filename: doc.filename,
+          storageUrl: validationDocumentAccessUrl(input.shareToken, session.projectId, doc.id),
+        } : null,
         lines,
         existingReviews: existingReviews.map(r => ({ lineIndex: r.lineIndex, verdict: r.verdict })),
       };
