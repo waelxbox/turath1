@@ -68,6 +68,10 @@ import {
   updateAssignmentStatus,
   deleteAssignment,
   getAssignmentStats,
+  getValidationSessionById,
+  getDocumentAssignmentById,
+  getMergeSuggestionById,
+  getEntitiesByIds,
 } from "./db";
 import crypto from "crypto";
 import { generateProjectConfig, validateConfig, refineConfig } from "./onboardingAgent";
@@ -1128,6 +1132,8 @@ const transcriptionsRouter = router({
     .query(async ({ ctx, input }) => {
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      const document = await getDocumentById(input.documentId, input.projectId);
+      if (!document) throw new TRPCError({ code: "NOT_FOUND" });
       return getTranscriptionByDocumentId(input.documentId, input.projectId);
     }),
 
@@ -2185,6 +2191,12 @@ const mergeRouter = router({
       if (!role || role === "viewer") {
         throw new TRPCError({ code: "FORBIDDEN", message: "Only owners and editors can merge entities" });
       }
+      const suggestion = await getMergeSuggestionById(input.suggestionId, input.projectId);
+      if (!suggestion || suggestion.projectId !== input.projectId) throw new TRPCError({ code: "NOT_FOUND" });
+      const entities = await getEntitiesByIds(input.projectId, input.entityIds);
+      if (entities.length !== new Set(input.entityIds).size || entities.some((entity) => entity.projectId !== input.projectId)) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
       await executeMerge(input.projectId, input.suggestionId, input.canonicalName, input.entityIds);
       return { success: true };
     }),
@@ -2197,6 +2209,8 @@ const mergeRouter = router({
       if (!role || role === "viewer") {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
+      const suggestion = await getMergeSuggestionById(input.suggestionId, input.projectId);
+      if (!suggestion || suggestion.projectId !== input.projectId) throw new TRPCError({ code: "NOT_FOUND" });
       await rejectMerge(input.projectId, input.suggestionId);
       return { success: true };
     }),
@@ -2209,6 +2223,8 @@ const mergeRouter = router({
       if (!role || role === "viewer") {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
+      const suggestion = await getMergeSuggestionById(input.suggestionId, input.projectId);
+      if (!suggestion || suggestion.projectId !== input.projectId) throw new TRPCError({ code: "NOT_FOUND" });
       await skipMerge(input.projectId, input.suggestionId);
       return { success: true };
     }),
@@ -2224,6 +2240,10 @@ const mergeRouter = router({
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (!role || role === "viewer") {
         throw new TRPCError({ code: "FORBIDDEN", message: "Only owners and editors can merge entities" });
+      }
+      const entities = await getEntitiesByIds(input.projectId, input.entityIds);
+      if (entities.length !== new Set(input.entityIds).size || entities.some((entity) => entity.projectId !== input.projectId)) {
+        throw new TRPCError({ code: "NOT_FOUND" });
       }
       await manualMerge(input.projectId, input.canonicalName, input.entityIds);
       return { success: true };
@@ -2273,7 +2293,7 @@ const groupsRouter = router({
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       const group = await getDocumentGroupById(input.groupId, input.projectId);
-      if (!group) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!group || group.projectId !== input.projectId) throw new TRPCError({ code: "NOT_FOUND" });
       const pages = await getDocumentGroupPages(input.groupId, input.projectId);
       return { ...group, pages };
     }),
@@ -2315,7 +2335,9 @@ const groupsRouter = router({
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
       const group = await getDocumentGroupById(input.groupId, input.projectId);
-      if (!group) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!group || group.projectId !== input.projectId) throw new TRPCError({ code: "NOT_FOUND" });
+      const document = await getDocumentById(input.documentId, input.projectId);
+      if (!document) throw new TRPCError({ code: "NOT_FOUND" });
       const pageNum = input.pageNumber ?? group.pageCount + 1;
       await addDocumentToGroup(input.documentId, input.groupId, input.projectId, pageNum);
       return { success: true };
@@ -2328,6 +2350,8 @@ const groupsRouter = router({
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      const document = await getDocumentById(input.documentId, input.projectId);
+      if (!document) throw new TRPCError({ code: "NOT_FOUND" });
       await removeDocumentFromGroup(input.documentId, input.projectId);
       return { success: true };
     }),
@@ -2357,6 +2381,8 @@ const groupsRouter = router({
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      const group = await getDocumentGroupById(input.groupId, input.projectId);
+      if (!group || group.projectId !== input.projectId) throw new TRPCError({ code: "NOT_FOUND" });
       await reorderGroupPages(input.groupId, input.projectId, input.orderedDocIds);
       return { success: true };
     }),
@@ -2368,6 +2394,8 @@ const groupsRouter = router({
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      const group = await getDocumentGroupById(input.groupId, input.projectId);
+      if (!group || group.projectId !== input.projectId) throw new TRPCError({ code: "NOT_FOUND" });
       await updateDocumentGroupTitle(input.groupId, input.projectId, input.title);
       return { success: true };
     }),
@@ -2383,6 +2411,8 @@ const groupsRouter = router({
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      const group = await getDocumentGroupById(input.groupId, input.projectId);
+      if (!group || group.projectId !== input.projectId) throw new TRPCError({ code: "NOT_FOUND" });
       await updateDocumentGroupMetadata(input.groupId, input.projectId, input.sharedMetadata as Record<string, unknown>);
       return { success: true };
     }),
@@ -2394,6 +2424,8 @@ const groupsRouter = router({
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      const group = await getDocumentGroupById(input.groupId, input.projectId);
+      if (!group || group.projectId !== input.projectId) throw new TRPCError({ code: "NOT_FOUND" });
       await deleteDocumentGroup(input.groupId, input.projectId);
       return { success: true };
     }),
@@ -2411,7 +2443,7 @@ const groupsRouter = router({
 
       // Get all pages in order
       const group = await getDocumentGroupById(input.groupId, input.projectId);
-      if (!group) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!group || group.projectId !== input.projectId) throw new TRPCError({ code: "NOT_FOUND" });
       const pages = await getDocumentGroupPages(input.groupId, input.projectId);
       if (pages.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "No pages in group" });
 
@@ -2569,7 +2601,7 @@ const groupsRouter = router({
 
       // Get all pages in order
       const group = await getDocumentGroupById(input.groupId, input.projectId);
-      if (!group) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!group || group.projectId !== input.projectId) throw new TRPCError({ code: "NOT_FOUND" });
       const pages = await getDocumentGroupPages(input.groupId, input.projectId);
       const targetPageIdx = pages.findIndex(p => p.id === input.documentId);
       if (targetPageIdx < 0) throw new TRPCError({ code: "NOT_FOUND", message: "Document not in group" });
@@ -3023,6 +3055,8 @@ const validationRouter = router({
     .input(z.object({ sessionId: z.number(), projectId: z.number() }))
     .query(async ({ ctx, input }) => {
       await requireProjectEditor(input.projectId, ctx.user.id);
+      const session = await getValidationSessionById(input.sessionId, input.projectId);
+      if (!session || session.projectId !== input.projectId) throw new TRPCError({ code: "NOT_FOUND" });
       return getValidationStats(input.sessionId, input.projectId);
     }),
 
@@ -3031,6 +3065,8 @@ const validationRouter = router({
     .input(z.object({ sessionId: z.number(), projectId: z.number() }))
     .mutation(async ({ ctx, input }) => {
       await requireProjectEditor(input.projectId, ctx.user.id);
+      const session = await getValidationSessionById(input.sessionId, input.projectId);
+      if (!session || session.projectId !== input.projectId) throw new TRPCError({ code: "NOT_FOUND" });
       await closeValidationSession(input.sessionId, input.projectId);
       return { success: true };
     }),
@@ -3040,6 +3076,8 @@ const validationRouter = router({
     .input(z.object({ sessionId: z.number(), projectId: z.number() }))
     .mutation(async ({ ctx, input }) => {
       await requireProjectEditor(input.projectId, ctx.user.id);
+      const session = await getValidationSessionById(input.sessionId, input.projectId);
+      if (!session || session.projectId !== input.projectId) throw new TRPCError({ code: "NOT_FOUND" });
       await deleteValidationSession(input.sessionId, input.projectId);
       return { success: true };
     }),
@@ -3190,6 +3228,9 @@ const assignmentsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (!role || role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      await requireProjectDocuments(input.projectId, input.documentIds);
+      const assigneeRole = await getProjectRole(input.projectId, input.assigneeId);
+      if (!assigneeRole) throw new TRPCError({ code: "BAD_REQUEST", message: "Assignee is not a project member" });
       const result = await assignDocuments({
         projectId: input.projectId,
         documentIds: input.documentIds,
@@ -3243,6 +3284,8 @@ const assignmentsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (!role) throw new TRPCError({ code: "FORBIDDEN" });
+      const assignment = await getDocumentAssignmentById(input.assignmentId, input.projectId);
+      if (!assignment || assignment.projectId !== input.projectId) throw new TRPCError({ code: "NOT_FOUND" });
       await updateAssignmentStatus(
         input.assignmentId,
         input.projectId,
@@ -3258,6 +3301,8 @@ const assignmentsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const role = await getProjectRole(input.projectId, ctx.user.id);
       if (!role || role === "viewer") throw new TRPCError({ code: "FORBIDDEN" });
+      const assignment = await getDocumentAssignmentById(input.assignmentId, input.projectId);
+      if (!assignment || assignment.projectId !== input.projectId) throw new TRPCError({ code: "NOT_FOUND" });
       await deleteAssignment(input.assignmentId, input.projectId);
       return { success: true };
     }),
