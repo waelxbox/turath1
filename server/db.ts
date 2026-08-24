@@ -22,6 +22,7 @@ import {
   researchConversations, ResearchConversation, InsertResearchConversation,
   activityLog, InsertActivityLog,
   documentAssignments, InsertDocumentAssignment,
+  mergeSuggestions,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -1501,6 +1502,16 @@ export async function getValidationSessionsByProject(projectId: number) {
   return db.select().from(validationSessions).where(eq(validationSessions.projectId, projectId)).orderBy(validationSessions.createdAt);
 }
 
+export async function getValidationSessionById(sessionId: number, projectId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [session] = await db.select().from(validationSessions).where(and(
+    eq(validationSessions.id, sessionId),
+    eq(validationSessions.projectId, projectId),
+  )).limit(1);
+  return session ?? null;
+}
+
 export async function closeValidationSession(sessionId: number, projectId: number) {
   const db = await getDb();
   if (!db) return;
@@ -2026,6 +2037,36 @@ export async function getProjectAssignments(projectId: number) {
     .innerJoin(users, eq(documentAssignments.assigneeId, users.id))
     .where(eq(documentAssignments.projectId, projectId))
     .orderBy(desc(documentAssignments.createdAt));
+}
+
+export async function getDocumentAssignmentById(assignmentId: number, projectId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [assignment] = await db.select().from(documentAssignments).where(and(
+    eq(documentAssignments.id, assignmentId),
+    eq(documentAssignments.projectId, projectId),
+  )).limit(1);
+  return assignment ?? null;
+}
+
+export async function getMergeSuggestionById(suggestionId: number, projectId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [suggestion] = await db.select().from(mergeSuggestions).where(and(
+    eq(mergeSuggestions.id, suggestionId),
+    eq(mergeSuggestions.projectId, projectId),
+  )).limit(1);
+  return suggestion ?? null;
+}
+
+export async function getEntitiesByIds(projectId: number, entityIds: number[]) {
+  if (entityIds.length === 0) return [];
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(entities).where(and(
+    eq(entities.projectId, projectId),
+    inArray(entities.id, Array.from(new Set(entityIds))),
+  ));
 }
 
 export async function updateAssignmentStatus(
