@@ -53,7 +53,11 @@ export async function createContext(
             break;
           }
         }
-        user = dbUser;
+        // lastSignedIn acts as a lightweight session version. A new login or
+        // explicit logout advances it and invalidates previously issued JWTs.
+        if (dbUser && dbUser.lastSignedIn.getTime() === session.sessionVersion) {
+          user = dbUser;
+        }
       }
     }
   } catch {

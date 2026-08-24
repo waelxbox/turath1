@@ -72,6 +72,7 @@ import {
   getDocumentAssignmentById,
   getMergeSuggestionById,
   getEntitiesByIds,
+  upsertUser,
 } from "./db";
 import crypto from "crypto";
 import { generateProjectConfig, validateConfig, refineConfig } from "./onboardingAgent";
@@ -117,7 +118,13 @@ async function requireProjectDocuments(projectId: number, documentIds: number[])
 
 const authRouter = router({
   me: publicProcedure.query(opts => opts.ctx.user),
-  logout: publicProcedure.mutation(({ ctx }) => {
+  logout: publicProcedure.mutation(async ({ ctx }) => {
+    if (ctx.user) {
+      const revokedAt = new Date(
+        Math.max(Date.now(), ctx.user.lastSignedIn.getTime() + 1)
+      );
+      await upsertUser({ openId: ctx.user.openId, lastSignedIn: revokedAt });
+    }
     const cookieOptions = getSessionCookieOptions(ctx.req);
     ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
     return { success: true } as const;

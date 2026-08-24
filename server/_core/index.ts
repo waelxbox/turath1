@@ -1,5 +1,9 @@
 import "dotenv/config";
-import express from "express";
+import express, {
+  type NextFunction,
+  type Request,
+  type Response,
+} from "express";
 import helmet from "helmet";
 import { createServer, type Server } from "http";
 import net from "net";
@@ -8,7 +12,18 @@ import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { registerStorageProxy } from "./storageProxy";
 import { createContext } from "./context";
-import { serveStatic, setupVite } from "./vite";
+import {
+  getProductionInlineScriptHashes,
+  serveStatic,
+  setupVite,
+} from "./vite";
+import { validateStartupEnv } from "./env";
+import {
+  getHelmetOptions,
+  requireTrustedOrigin,
+  setAdditionalSecurityHeaders,
+} from "./httpSecurity";
+import { createRateLimit } from "./rateLimit";
 import { registerStripeWebhook } from "../billing/webhook";
 import { closeDb } from "../db";
 import { beginShutdown, getReadiness, registerHealthRoutes } from "./health";
@@ -102,6 +117,7 @@ function installShutdownHandlers(server: Server): void {
 }
 
 export async function startServer() {
+  const startupConfig = validateStartupEnv();
   const configIssues = assertRuntimeConfig();
   if (configIssues.length > 0) {
     logEvent("warn", "server.configuration.incomplete", {
@@ -113,35 +129,56 @@ export async function startServer() {
   }
 
   const app = express();
-  const server = createServer(app);
   app.disable("x-powered-by");
+  app.set("trust proxy", startupConfig.trustProxyHops || false);
+  const server = createServer(app);
 
   registerHealthRoutes(app);
 
-  // Security headers
-  app.use(
-    helmet({
-      contentSecurityPolicy: false, // Disabled — Vite injects inline scripts in dev; tune CSP separately for production
-      crossOriginEmbedderPolicy: false, // Allow loading external images (S3, Google Maps)
-    })
-  );
+  const inlineScriptHashes =
+    process.env.NODE_ENV === "production"
+      ? getProductionInlineScriptHashes()
+      : [];
+  app.use(helmet(getHelmetOptions(process.env, inlineScriptHashes)));
+  app.use(setAdditionalSecurityHeaders);
 
   // Stripe webhook (MUST be before express.json())
   registerStripeWebhook(app);
 
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  // OAuth callback under /api/oauth/callback
+  app.use("/api/auth", createRateLimit({ windowMs: 15 * 60_000, max: 30 }));
+  app.use("/api/trpc", createRateLimit({ windowMs: 60_000, max: 300 }));
+  app.use("/manus-storage", createRateLimit({ windowMs: 60_000, max: 120 }));
+
+  // The largest accepted upload payload is 15 MB of base64 plus JSON overhead.
+  app.use(express.json({ limit: "20mb", strict: true }));
+  app.use(
+    express.urlencoded({ limit: "100kb", extended: false, parameterLimit: 100 })
+  );
+
   registerStorageProxy(app);
   registerOAuthRoutes(app);
-  // tRPC API
+  app.use("/api/trpc", requireTrustedOrigin);
   app.use(
     "/api/trpc",
     createExpressMiddleware({
       router: appRouter,
       createContext,
     })
+  );
+
+  app.use(
+    (error: unknown, _req: Request, res: Response, next: NextFunction) => {
+      const bodyError = error as { type?: string; status?: number };
+      if (bodyError.type === "entity.too.large" || bodyError.status === 413) {
+        res.status(413).json({ error: "Request body is too large" });
+        return;
+      }
+      if (error instanceof SyntaxError) {
+        res.status(400).json({ error: "Malformed JSON request body" });
+        return;
+      }
+      next(error);
+    }
   );
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {

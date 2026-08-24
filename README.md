@@ -130,7 +130,11 @@ The following environment variables are required. In the Manus hosting environme
 | Variable | Description |
 |---|---|
 | `DATABASE_URL` | PostgreSQL connection string; a direct connection is recommended for migrations |
-| `JWT_SECRET` | Session cookie signing secret |
+| `JWT_SECRET` | Session signing secret; required and at least 32 bytes |
+| `APP_ORIGIN` | Canonical externally visible origin, for example `https://staging.turath.example` |
+| `GOOGLE_CLIENT_ID` | Google OAuth web application client ID |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth web application client secret |
+| `TRUST_PROXY_HOPS` | Number of known reverse-proxy hops; defaults to `0` and should normally be `1` behind one platform proxy |
 | `GOOGLE_AI_API_KEY` | Google AI API key for direct Gemini model access |
 | `VITE_APP_ID` | Manus OAuth application ID |
 | `OAUTH_SERVER_URL` | Manus OAuth backend base URL |
@@ -139,6 +143,11 @@ The following environment variables are required. In the Manus hosting environme
 | `BUILT_IN_FORGE_API_URL` | Manus built-in LLM API base URL |
 | `VITE_FRONTEND_FORGE_API_KEY` | Manus built-in LLM API key (frontend) |
 | `VITE_FRONTEND_FORGE_API_URL` | Manus built-in LLM API URL (frontend) |
+
+Production startup fails closed when the session secret, canonical origin, or
+Google OAuth credentials are missing or invalid. `APP_ORIGIN` must use HTTPS in
+production and must exactly match the authorized Google OAuth origin. Do not set
+`TRUST_PROXY_HOPS` higher than the number of proxies in the deployment path.
 
 ---
 
