@@ -752,3 +752,17 @@
 - [x] Add document counter on homepage showing total processed docs / 1M goal with progress bar
 - [x] Fix PDF upload: don't auto-enable multi-page mode, let pages process in parallel (10 at a time)
 - [x] Bulk ungroup: select multiple documents and remove them from groups at once
+
+## Pricing Launch Preparation
+- [ ] Implement launch-ready usage metering, prepaid document top-ups, customer-controlled monthly spend caps, and billing warning thresholds before enabling paid plans
+
+## Operations
+- [x] Identify and prepare a recipient list for notifying active external TURATH users about the August 23–25 planned maintenance outage
+
+## Codex Security-Hardening Review
+- [ ] Inventory the `codex/staging-security-hardening` branch, commit `3ceb5ac`, and all related pull requests
+- [ ] Audit tenancy, OAuth/session, storage, Stripe/quota, queue, migration, CI, and deployment changes for regressions
+- [ ] Run the claimed test, type-check, lint, audit, migration, and production-build checks independently
+- [ ] Classify each pull request or change set as merge, revise, or reject
+- [ ] Merge only production-compatible changes and preserve the existing TURATH database and hosted deployment
+- [ ] Save a verified checkpoint and document remaining staging/production gates
