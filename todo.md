@@ -761,8 +761,8 @@
 
 ## Codex Security-Hardening Review
 - [x] Inventory the `codex/staging-security-hardening` branch, commit `3ceb5ac`, and all related pull requests
-- [ ] Audit tenancy, OAuth/session, storage, Stripe/quota, queue, migration, CI, and deployment changes for regressions
-- [ ] Run the claimed test, type-check, lint, audit, migration, and production-build checks independently
-- [ ] Classify each pull request or change set as merge, revise, or reject
-- [ ] Merge only production-compatible changes and preserve the existing TURATH database and hosted deployment
+- [x] Audit tenancy, OAuth/session, storage, Stripe/quota, queue, migration, CI, and deployment changes for regressions
+- [x] Run the claimed test, type-check, lint, audit, migration, and production-build checks independently
+- [x] Classify each pull request or change set as merge, revise, or reject
+- [x] Merge only production-compatible changes and preserve the existing TURATH database and hosted deployment
 - [ ] Save a verified checkpoint and document remaining staging/production gates

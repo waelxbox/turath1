@@ -228,6 +228,15 @@ export async function getSamplesByProjectId(projectId: number) {
     .orderBy(onboardingSamples.createdAt);
 }
 
+export async function getOnboardingSampleById(id: number, projectId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(onboardingSamples)
+    .where(and(eq(onboardingSamples.id, id), eq(onboardingSamples.projectId, projectId)))
+    .limit(1);
+  return result[0];
+}
+
 export async function updateSampleAiOutput(id: number, projectId: number, aiOutput: unknown, validationScore: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

@@ -20,13 +20,13 @@ function parseCookies(cookieHeader?: string): Map<string, string> {
   return map;
 }
 
-export async function createContext(
-  opts: CreateExpressContextOptions
-): Promise<TrpcContext> {
+export async function authenticateRequestUser(
+  req: CreateExpressContextOptions["req"]
+): Promise<User | null> {
   let user: User | null = null;
 
   try {
-    const cookies = parseCookies(opts.req.headers.cookie);
+    const cookies = parseCookies(req.headers.cookie);
     const sessionCookie = cookies.get(COOKIE_NAME);
     if (sessionCookie) {
       const session = await verifySessionToken(sessionCookie);
@@ -60,6 +60,14 @@ export async function createContext(
     // JWT verification failed or no cookie — genuinely not authenticated
     user = null;
   }
+
+  return user;
+}
+
+export async function createContext(
+  opts: CreateExpressContextOptions
+): Promise<TrpcContext> {
+  const user = await authenticateRequestUser(opts.req);
 
   return {
     req: opts.req,

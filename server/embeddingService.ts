@@ -20,6 +20,7 @@ import {
 
 const EMBEDDING_MODEL = "gemini-embedding-2-preview";
 const EMBEDDING_DIMENSIONS = 3072;
+const EMBEDDING_REQUEST_TIMEOUT_MS = 60_000;
 
 /**
  * Call Google AI Embedding API to get a vector for a text string.
@@ -42,6 +43,7 @@ export async function getEmbedding(text: string): Promise<number[]> {
       },
       taskType: "RETRIEVAL_DOCUMENT",
     }),
+    signal: AbortSignal.timeout(EMBEDDING_REQUEST_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -77,6 +79,7 @@ export async function getQueryEmbedding(text: string): Promise<number[]> {
       },
       taskType: "RETRIEVAL_QUERY",
     }),
+    signal: AbortSignal.timeout(EMBEDDING_REQUEST_TIMEOUT_MS),
   });
 
   if (!response.ok) {

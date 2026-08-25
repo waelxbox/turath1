@@ -77,7 +77,12 @@ import crypto from "crypto";
 import { generateProjectConfig, validateConfig, refineConfig } from "./onboardingAgent";
 import { processOnboardingChat, generateConfigFromChat, type ChatMessage } from "./onboardingChat";
 import { processDocument, crossCheckTranscription } from "./transcriptionEngine";
-import { storagePut } from "./storage";
+import {
+  documentAccessUrl,
+  onboardingSampleAccessUrl,
+  storagePut,
+  validationDocumentAccessUrl,
+} from "./storage";
 import { TRPCError } from "@trpc/server";
 import { embedTranscription, semanticSearch } from "./embeddingService";
 import { extractAndStoreEntities, reconcileDocumentEntities } from "./nerService";
@@ -89,6 +94,18 @@ import { getReviewSession, saveReviewSession, createValidationSession, getValida
 import { runResearchAgent } from "./researchAgent";
 
 type ProjectRole = "owner" | "editor" | "viewer";
+
+const STORAGE_FETCH_TIMEOUT_MS = 30_000;
+
+async function fetchStorageObject(url: string): Promise<Buffer> {
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(STORAGE_FETCH_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error(`Storage download failed with HTTP ${response.status}`);
+  }
+  return Buffer.from(await response.arrayBuffer());
+}
 
 async function requireProjectAccess(projectId: number, userId: number): Promise<ProjectRole> {
   const role = await getProjectRole(projectId, userId);
@@ -111,6 +128,24 @@ async function requireProjectDocuments(projectId: number, documentIds: number[])
     throw new TRPCError({ code: "NOT_FOUND", message: "One or more documents were not found in this project" });
   }
   return projectDocuments.filter((document): document is NonNullable<typeof document> => Boolean(document));
+}
+
+function withDocumentAccessUrl<
+  T extends { id: number; projectId: number; storageUrl?: string | null },
+>(document: T): T & { storageUrl: string } {
+  return {
+    ...document,
+    storageUrl: documentAccessUrl(document.projectId, document.id),
+  };
+}
+
+function withSampleAccessUrl<
+  T extends { id: number; projectId: number; imageUrl?: string | null },
+>(sample: T): T & { imageUrl: string } {
+  return {
+    ...sample,
+    imageUrl: onboardingSampleAccessUrl(sample.projectId, sample.id),
+  };
 }
 
 // ─── Auth Router ──────────────────────────────────────────────────────────────
@@ -359,9 +394,7 @@ const projectsRouter = router({
           samplePairs = await Promise.all(
             samples.filter(s => !s.isHeldOut).slice(0, 3).map(async (s) => {
               const { url } = await storageGetRefine(s.imagePath);
-              const resp = await fetch(url);
-              const buf = await resp.arrayBuffer();
-              const base64 = Buffer.from(buf).toString("base64");
+              const base64 = (await fetchStorageObject(url)).toString("base64");
               return {
                 imageBase64: base64,
                 mimeType: "image/jpeg",
@@ -414,7 +447,8 @@ const onboardingRouter = router({
       // Verify ownership
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-      return getSamplesByProjectId(input.projectId);
+      const samples = await getSamplesByProjectId(input.projectId);
+      return samples.map(withSampleAccessUrl);
     }),
 
   uploadSample: protectedProcedure
@@ -434,18 +468,21 @@ const onboardingRouter = router({
       // Store image to S3
       const imageBuffer = Buffer.from(input.imageBase64, "base64");
       const key = `projects/${input.projectId}/samples/${Date.now()}-${input.filename}`;
-      const { url } = await storagePut(key, imageBuffer, input.mimeType ?? "image/jpeg");
+      await storagePut(key, imageBuffer, input.mimeType ?? "image/jpeg");
 
-      await createOnboardingSample({
+      const sample = await createOnboardingSample({
         projectId: input.projectId,
         imagePath: key,
-        imageUrl: url,
+        imageUrl: null,
         filename: input.filename,
         manualTranscription: input.manualTranscription,
         isHeldOut: input.isHeldOut,
       });
 
-      return { success: true, imageUrl: url };
+      return {
+        success: true,
+        imageUrl: onboardingSampleAccessUrl(input.projectId, sample.id),
+      };
     }),
 
   generateConfig: protectedProcedure
@@ -467,9 +504,7 @@ const onboardingRouter = router({
           const { storageGet } = await import("./storage");
           const { url } = await storageGet(s.imagePath);
           // Fetch the image bytes and re-encode
-          const resp = await fetch(url);
-          const buf = await resp.arrayBuffer();
-          const base64 = Buffer.from(buf).toString("base64");
+          const base64 = (await fetchStorageObject(url)).toString("base64");
           return {
             imageBase64: base64,
             mimeType: "image/jpeg",
@@ -513,9 +548,7 @@ const onboardingRouter = router({
       // Fetch held-out image
       const { storageGet: storageGetValidate } = await import("./storage");
       const { url } = await storageGetValidate(heldOut.imagePath);
-      const resp = await fetch(url);
-      const buf = await resp.arrayBuffer();
-      const base64 = Buffer.from(buf).toString("base64");
+      const base64 = (await fetchStorageObject(url)).toString("base64");
 
       const config = {
         pipelineType: project.pipelineType as "single_pass" | "two_pass",
@@ -557,9 +590,7 @@ const onboardingRouter = router({
         samples.filter(s => !s.isHeldOut).map(async (s) => {
           const { storageGet: storageGetRefine } = await import("./storage");
           const { url } = await storageGetRefine(s.imagePath);
-          const resp = await fetch(url);
-          const buf = await resp.arrayBuffer();
-          const base64 = Buffer.from(buf).toString("base64");
+          const base64 = (await fetchStorageObject(url)).toString("base64");
           return {
             imageBase64: base64,
             mimeType: "image/jpeg",
@@ -649,9 +680,9 @@ const onboardingRouter = router({
 
       const imageBuffer = Buffer.from(input.imageBase64, "base64");
       const key = `projects/${input.projectId}/onboarding-chat/${Date.now()}-${input.filename}`;
-      const { url } = await storagePut(key, imageBuffer, input.mimeType ?? "image/jpeg");
+      await storagePut(key, imageBuffer, input.mimeType ?? "image/jpeg");
 
-      return { imageUrl: url };
+      return { imageUrl: `data:${input.mimeType};base64,${input.imageBase64}` };
     }),
 
   generateFromChat: protectedProcedure
@@ -699,7 +730,8 @@ const documentsRouter = router({
     .query(async ({ ctx, input }) => {
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-      return getDocumentsByProjectId(input.projectId, input.status);
+      const documents = await getDocumentsByProjectId(input.projectId, input.status);
+      return documents.map(withDocumentAccessUrl);
     }),
 
   listPaginated: protectedProcedure
@@ -714,7 +746,7 @@ const documentsRouter = router({
     .query(async ({ ctx, input }) => {
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-      return getDocumentsPaginated({
+      const page = await getDocumentsPaginated({
         projectId: input.projectId,
         status: input.status,
         search: input.search,
@@ -722,6 +754,10 @@ const documentsRouter = router({
         cursor: input.cursor,
         limit: input.limit,
       });
+      return {
+        ...page,
+        documents: page.documents.map(withDocumentAccessUrl),
+      };
     }),
 
   // Get distinct languages found in project transcriptions
@@ -741,9 +777,11 @@ const documentsRouter = router({
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       const doc = await getDocumentById(input.documentId, input.projectId);
       if (!doc) throw new TRPCError({ code: "NOT_FOUND" });
-      const { storageGet } = await import("./storage");
-      const { url } = await storageGet(doc.storagePath);
-      return { url, filename: doc.filename, mimeType: doc.mimeType };
+      return {
+        url: documentAccessUrl(input.projectId, input.documentId),
+        filename: doc.filename,
+        mimeType: doc.mimeType,
+      };
     }),
 
   upload: protectedProcedure
@@ -766,13 +804,13 @@ const documentsRouter = router({
 
       const buffer = Buffer.from(input.fileBase64, "base64");
       const key = `projects/${input.projectId}/documents/${Date.now()}-${input.filename}`;
-      const { url } = await storagePut(key, buffer, input.mimeType ?? "image/jpeg");
+      await storagePut(key, buffer, input.mimeType ?? "image/jpeg");
 
       await createDocument({
         projectId: input.projectId,
         filename: input.filename,
         storagePath: key,
-        storageUrl: url,
+        storageUrl: null,
         mimeType: input.mimeType,
         fileSizeBytes: input.fileSizeBytes ?? null,
         status: "pending",
@@ -781,7 +819,7 @@ const documentsRouter = router({
       const docs = await getDocumentsByProjectId(input.projectId);
       // Log activity
       logActivity({ projectId: input.projectId, userId: ctx.user.id, action: "document_uploaded", metadata: { filename: input.filename } }).catch(() => {});
-      return docs[0];
+      return withDocumentAccessUrl(docs[0]);
     }),
 
   transcribe: protectedProcedure
@@ -804,9 +842,7 @@ const documentsRouter = router({
         // Fetch image from storage
         const { storageGet: storageGetDoc } = await import("./storage");
         const { url } = await storageGetDoc(doc.storagePath);
-        const resp = await fetch(url);
-        const buf = await resp.arrayBuffer();
-        const base64 = Buffer.from(buf).toString("base64");
+        const base64 = (await fetchStorageObject(url)).toString("base64");
 
         const result = await processDocument(project, base64, doc.mimeType ?? "image/jpeg", doc.filename);
 
@@ -850,9 +886,7 @@ const documentsRouter = router({
       try {
         const { storageGet: storageGetDoc } = await import("./storage");
         const { url } = await storageGetDoc(doc.storagePath);
-        const resp = await fetch(url);
-        const buf = await resp.arrayBuffer();
-        const base64 = Buffer.from(buf).toString("base64");
+        const base64 = (await fetchStorageObject(url)).toString("base64");
         const existingJson = (transcription.reviewedJson ?? transcription.rawJson) as Record<string, unknown>;
         const result = await crossCheckTranscription(project, base64, doc.mimeType ?? "image/jpeg", existingJson);
         logActivity({ projectId: input.projectId, userId: ctx.user.id, action: "document_cross_checked", metadata: { documentId: input.documentId, assessment: result.overallAssessment } }).catch(() => {});
@@ -911,10 +945,7 @@ const documentsRouter = router({
               let lastError: string | null = null;
               for (let attempt = 0; attempt < 3; attempt++) {
                 try {
-                  const resp = await fetch(url);
-                  if (!resp.ok) throw new Error(`Storage fetch failed: ${resp.status}`);
-                  const buf = await resp.arrayBuffer();
-                  const base64 = Buffer.from(buf).toString("base64");
+                  const base64 = (await fetchStorageObject(url)).toString("base64");
                   const result = await processDocument(project, base64, doc.mimeType ?? "image/jpeg", doc.filename);
 
                   if (result.error) {
@@ -1002,10 +1033,7 @@ const documentsRouter = router({
               let lastError: string | null = null;
               for (let attempt = 0; attempt < 3; attempt++) {
                 try {
-                  const resp = await fetch(url);
-                  if (!resp.ok) throw new Error(`Storage fetch failed: ${resp.status}`);
-                  const buf = await resp.arrayBuffer();
-                  const base64 = Buffer.from(buf).toString("base64");
+                  const base64 = (await fetchStorageObject(url)).toString("base64");
                   const result = await processDocument(project, base64, doc.mimeType ?? "image/jpeg", doc.filename);
 
                   if (result.error) {
@@ -2295,7 +2323,7 @@ const groupsRouter = router({
       const group = await getDocumentGroupById(input.groupId, input.projectId);
       if (!group || group.projectId !== input.projectId) throw new TRPCError({ code: "NOT_FOUND" });
       const pages = await getDocumentGroupPages(input.groupId, input.projectId);
-      return { ...group, pages };
+      return { ...group, pages: pages.map(withDocumentAccessUrl) };
     }),
 
   create: protectedProcedure
@@ -2970,7 +2998,11 @@ const validationRouter = router({
           linesReviewed: assignment.linesReviewed,
           totalLines: lines.length,
         },
-        document: doc ? { id: doc.id, filename: doc.filename, storageUrl: doc.storageUrl } : null,
+        document: doc ? {
+          id: doc.id,
+          filename: doc.filename,
+          storageUrl: validationDocumentAccessUrl(input.shareToken, session.projectId, doc.id),
+        } : null,
         lines,
         existingReviews: existingReviews.map(r => ({ lineIndex: r.lineIndex, verdict: r.verdict })),
       };

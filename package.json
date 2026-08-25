@@ -44,6 +44,7 @@
     "@trpc/react-query": "^11.18.0",
     "@trpc/server": "^11.18.0",
     "axios": "^1.19.0",
+    "body-parser": "1.20.6",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -53,7 +54,7 @@
     "dotenv": "^17.2.2",
     "drizzle-orm": "^0.45.2",
     "embla-carousel-react": "^8.6.0",
-    "express": "^4.21.2",
+    "express": "^4.22.2",
     "framer-motion": "^12.23.22",
     "helmet": "^8.3.0",
     "input-otp": "^1.4.2",
@@ -61,8 +62,10 @@
     "lucide-react": "^0.453.0",
     "nanoid": "^5.1.16",
     "next-themes": "^0.4.6",
+    "path-to-regexp": "0.1.13",
     "pdfjs-dist": "^6.2.108",
     "postgres": "^3.4.8",
+    "qs": "6.15.2",
     "react": "^19.2.1",
     "react-day-picker": "^9.11.1",
     "react-dom": "^19.2.1",
@@ -106,20 +109,5 @@
     "vite-plugin-manus-runtime": "^0.0.57",
     "vitest": "^2.1.4"
   },
-  "packageManager": "pnpm@10.4.1+sha512.c753b6c3ad7afa13af388fa6d808035a008e30ea9993f58c6663e2bc5ff21679aa834db094987129aa4d488b86df57f7b634981b2f827cdcacc698cc0cfb88af",
-  "pnpm": {
-    "patchedDependencies": {
-      "wouter@3.7.1": "patches/wouter@3.7.1.patch"
-    },
-    "overrides": {
-      "express>body-parser": "1.20.6",
-      "express>path-to-regexp": "0.1.13",
-      "express>qs": "6.15.2",
-      "tailwindcss>nanoid": "3.3.7"
-    },
-    "ignoredBuiltDependencies": [
-      "@tailwindcss/oxide",
-      "esbuild"
-    ]
-  }
+  "packageManager": "pnpm@10.4.1+sha512.c753b6c3ad7afa13af388fa6d808035a008e30ea9993f58c6663e2bc5ff21679aa834db094987129aa4d488b86df57f7b634981b2f827cdcacc698cc0cfb88af"
 }
