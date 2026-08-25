@@ -760,7 +760,7 @@
 - [x] Identify and prepare a recipient list for notifying active external TURATH users about the August 23–25 planned maintenance outage
 
 ## Codex Security-Hardening Review
-- [ ] Inventory the `codex/staging-security-hardening` branch, commit `3ceb5ac`, and all related pull requests
+- [x] Inventory the `codex/staging-security-hardening` branch, commit `3ceb5ac`, and all related pull requests
 - [ ] Audit tenancy, OAuth/session, storage, Stripe/quota, queue, migration, CI, and deployment changes for regressions
 - [ ] Run the claimed test, type-check, lint, audit, migration, and production-build checks independently
 - [ ] Classify each pull request or change set as merge, revise, or reject
