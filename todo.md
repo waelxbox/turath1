@@ -770,3 +770,17 @@
 ## Patent Review
 - [x] Revise the patent-claim review so conversational and mixed-input onboarding is not narrowed to sample-pair-only configuration
 - [x] Draft method, system, and computer-readable-medium claims for conversational and mixed-input onboarding for Dean’s review
+
+## Visual Archives (VRA Core 4)
+- [ ] Audit the Visual Archives specification against TURATH’s current production architecture and prepare a safe, feature-flagged MVP plan
+- [ ] Add an immutable visual-VRA project mode with forward-compatible migrations and tenant-safe private asset storage
+- [ ] Build reviewable VRA Collection, Work, and Image catalog records with AI suggestions kept separate from approved data
+- [ ] Add visual asset ingestion, image-aware discovery, annotations, relationships, standards exports, and controlled-staging validation
+- [ ] Add `TURATH_VISUAL_ARCHIVES_ENABLED` server gating and preserve document-only behavior when disabled
+- [ ] Add `projects.archiveMode` defaulting existing projects to `document_transcription` and prohibit mode changes after visual data exists
+- [ ] Add tenant-scoped visual assets, VRA records, Work–Image links, and revision/provenance data with forward migration SQL
+- [ ] Add protected JPEG/PNG upload validation, immutable original objects, checksums, thumbnails, display derivatives, and cleanup-safe deletion states
+- [ ] Add visual project creation, overview, upload, catalog, record editor, and review-queue routes and navigation
+- [ ] Add manual VRA Collection, Work, and Image creation/editing/approval before enabling AI suggestions
+- [ ] Store `aiSuggestedJson` separately from `reviewedJson` and require explicit field-level acceptance
+- [ ] Add cross-tenant, role, migration, asset lifecycle, VRA validation, and browser workflow tests for the visual MVP
