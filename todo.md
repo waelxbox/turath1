@@ -769,3 +769,4 @@
 
 ## Patent Review
 - [x] Revise the patent-claim review so conversational and mixed-input onboarding is not narrowed to sample-pair-only configuration
+- [x] Draft method, system, and computer-readable-medium claims for conversational and mixed-input onboarding for Dean’s review
