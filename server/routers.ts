@@ -92,6 +92,9 @@ import { seedDemoProject } from "./demoSeed";
 import { awardXp, getUserStats, getLeaderboard, maybeAwardStreakBonus, XP_VALUES, xpProgressInLevel } from "./gamification";
 import { getReviewSession, saveReviewSession, createValidationSession, getValidationSessionByToken, getValidationSessionsByProject, closeValidationSession, deleteValidationSession, getNextAssignment, getAssignmentById, submitLineVerdict, completeAssignment, getReviewerProgress, getValidationStats, getReviewsForAssignment, getResearchConversations, getResearchConversation, createResearchConversation, updateResearchConversation, deleteResearchConversation } from "./db";
 import { runResearchAgent } from "./researchAgent";
+import { visualArchivesRouter } from "./visualArchives/router";
+import { getVisualProjectIds, getVisualProjectMode } from "./visualArchives/db";
+import { isVisualArchivesEnabled } from "./visualArchives/config";
 
 type ProjectRole = "owner" | "editor" | "viewer";
 
@@ -163,7 +166,15 @@ const authRouter = router({
 
 const projectsRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
-    return getProjectsByUserId(ctx.user.id);
+    const items = await getProjectsByUserId(ctx.user.id);
+    if (!isVisualArchivesEnabled()) {
+      return items.map(project => ({ ...project, archiveMode: "document_transcription" as const }));
+    }
+    const visualIds = await getVisualProjectIds(items.map(project => project.id));
+    return items.map(project => ({
+      ...project,
+      archiveMode: visualIds.has(project.id) ? "visual_vra" as const : "document_transcription" as const,
+    }));
   }),
 
   createDemo: protectedProcedure.mutation(async ({ ctx }) => {
@@ -182,7 +193,11 @@ const projectsRouter = router({
     .query(async ({ ctx, input }) => {
       const project = await getProjectById(input.id, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-      return project;
+      const visualMode = isVisualArchivesEnabled() ? await getVisualProjectMode(project.id) : undefined;
+      return {
+        ...project,
+        archiveMode: visualMode ? "visual_vra" as const : "document_transcription" as const,
+      };
     }),
 
   create: protectedProcedure
@@ -3421,6 +3436,7 @@ export const appRouter = router({
   activity: activityRouter,
   assignments: assignmentsRouter,
   billing: billingRouter,
+  visualArchives: visualArchivesRouter,
 });
 
 export type AppRouter = typeof appRouter;

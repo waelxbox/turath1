@@ -57,6 +57,7 @@ function fakeResponse() {
 
 function dependencies(overrides: Partial<StorageProxyDependencies> = {}): StorageProxyDependencies {
   return {
+    visualArchivesEnabled: vi.fn().mockReturnValue(true),
     authenticateUser: vi.fn().mockResolvedValue({ id: 7 }),
     getProjectRole: vi.fn().mockResolvedValue("owner"),
     getDocument: vi.fn().mockResolvedValue({
@@ -64,6 +65,12 @@ function dependencies(overrides: Partial<StorageProxyDependencies> = {}): Storag
       storageUrl: null,
     }),
     getSample: vi.fn().mockResolvedValue({ imagePath: "projects/12/samples/sample.jpg" }),
+    getVisualAsset: vi.fn().mockResolvedValue({
+      originalKey: "projects/12/visual-assets/123e4567-e89b-12d3-a456-426614174000/original.jpg",
+      displayKey: "projects/12/visual-assets/123e4567-e89b-12d3-a456-426614174000/display.jpg",
+      thumbnailKey: "projects/12/visual-assets/123e4567-e89b-12d3-a456-426614174000/thumbnail.jpg",
+      status: "ready",
+    }),
     getValidationSession: vi.fn().mockResolvedValue({
       projectId: 12,
       documentIds: [34],
@@ -81,6 +88,23 @@ function dependencies(overrides: Partial<StorageProxyDependencies> = {}): Storag
 }
 
 describe("private storage resource routes", () => {
+  it("does not access visual storage or database dependencies when the feature is disabled", async () => {
+    const deps = dependencies({ visualArchivesEnabled: vi.fn().mockReturnValue(false) });
+    const routes = captureRoutes(deps);
+    const handler = routes.get("/api/storage/projects/:projectId/visual-assets/:assetId/:variant")!;
+    const { response, state } = fakeResponse();
+
+    await handler(
+      { params: { projectId: "12", assetId: "123e4567-e89b-12d3-a456-426614174000", variant: "thumbnail" } },
+      response,
+    );
+
+    expect(state.status).toBe(404);
+    expect(deps.authenticateUser).not.toHaveBeenCalled();
+    expect(deps.getVisualAsset).not.toHaveBeenCalled();
+    expect(deps.getDownloadUrl).not.toHaveBeenCalled();
+  });
+
   it("serves a document only after project authorization", async () => {
     const deps = dependencies();
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("archive bytes", {
@@ -134,5 +158,79 @@ describe("private storage resource routes", () => {
     expect(state.status).toBe(200);
     expect(deps.getValidationSession).toHaveBeenCalledWith("share-token");
     expect(deps.getDocument).toHaveBeenCalledWith(34, 12);
+  });
+
+  it("serves a visual thumbnail only after project authorization", async () => {
+    const deps = dependencies();
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("thumbnail bytes", {
+      status: 200,
+      headers: { "content-type": "image/jpeg" },
+    }));
+    const routes = captureRoutes(deps);
+    const { response, state } = fakeResponse();
+
+    await routes.get("/api/storage/projects/:projectId/visual-assets/:assetId/:variant")!(
+      {
+        params: {
+          projectId: "12",
+          assetId: "123e4567-e89b-12d3-a456-426614174000",
+          variant: "thumbnail",
+        },
+        headers: {},
+      },
+      response,
+    );
+
+    expect(state.status).toBe(200);
+    expect(deps.getProjectRole).toHaveBeenCalledWith(12, 7);
+    expect(deps.getVisualAsset).toHaveBeenCalledWith(12, "123e4567-e89b-12d3-a456-426614174000");
+    expect(deps.getDownloadUrl).toHaveBeenCalledWith(expect.stringContaining("thumbnail.jpg"));
+    expect(state.headers.get("Cache-Control")).toBe("private, max-age=3600");
+  });
+
+  it("does not fetch a visual asset for a user outside the project", async () => {
+    const deps = dependencies({ getProjectRole: vi.fn().mockResolvedValue(null) });
+    const backendFetch = vi.spyOn(globalThis, "fetch");
+    const routes = captureRoutes(deps);
+    const { response, state } = fakeResponse();
+
+    await routes.get("/api/storage/projects/:projectId/visual-assets/:assetId/:variant")!(
+      {
+        params: {
+          projectId: "12",
+          assetId: "123e4567-e89b-12d3-a456-426614174000",
+          variant: "original",
+        },
+        headers: {},
+      },
+      response,
+    );
+
+    expect(state.status).toBe(404);
+    expect(deps.getVisualAsset).not.toHaveBeenCalled();
+    expect(backendFetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects unknown visual asset variants before authorization or storage access", async () => {
+    const deps = dependencies();
+    const backendFetch = vi.spyOn(globalThis, "fetch");
+    const routes = captureRoutes(deps);
+    const { response, state } = fakeResponse();
+
+    await routes.get("/api/storage/projects/:projectId/visual-assets/:assetId/:variant")!(
+      {
+        params: {
+          projectId: "12",
+          assetId: "123e4567-e89b-12d3-a456-426614174000",
+          variant: "raw-provider-key",
+        },
+        headers: {},
+      },
+      response,
+    );
+
+    expect(state.status).toBe(404);
+    expect(deps.getProjectRole).not.toHaveBeenCalled();
+    expect(backendFetch).not.toHaveBeenCalled();
   });
 });

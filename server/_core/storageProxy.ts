@@ -12,13 +12,22 @@ import {
 } from "../storage";
 import { authenticateRequestUser } from "./context";
 import { ENV } from "./env";
+import { getVisualAsset } from "../visualArchives/db";
+import { isVisualArchivesEnabled } from "../visualArchives/config";
 
 type AuthenticatedUser = { id: number };
 type StoredDocument = { storagePath: string; storageUrl: string | null };
 type StoredSample = { imagePath: string };
 type ValidationSession = { projectId: number; documentIds: unknown; status: string };
+type StoredVisualAsset = {
+  originalKey: string;
+  displayKey: string | null;
+  thumbnailKey: string | null;
+  status: string;
+};
 
 export type StorageProxyDependencies = {
+  visualArchivesEnabled: () => boolean;
   authenticateUser: (req: Request) => Promise<AuthenticatedUser | null>;
   getProjectRole: (
     projectId: number,
@@ -32,6 +41,10 @@ export type StorageProxyDependencies = {
     sampleId: number,
     projectId: number
   ) => Promise<StoredSample | undefined>;
+  getVisualAsset?: (
+    projectId: number,
+    assetId: string
+  ) => Promise<StoredVisualAsset | undefined>;
   getValidationSession: (
     token: string
   ) => Promise<ValidationSession | null | undefined>;
@@ -61,10 +74,12 @@ async function heroDownloadUrl(): Promise<string> {
 }
 
 const defaultDependencies: StorageProxyDependencies = {
+  visualArchivesEnabled: isVisualArchivesEnabled,
   authenticateUser: authenticateRequestUser,
   getProjectRole,
   getDocument: getDocumentById,
   getSample: getOnboardingSampleById,
+  getVisualAsset,
   getValidationSession: getValidationSessionByToken,
   verifyValidationToken: verifyValidationStorageToken,
   getDownloadUrl: async key => (await storageGet(key)).url,
@@ -74,6 +89,12 @@ function positiveInteger(value: string): number | null {
   if (!/^\d+$/.test(value)) return null;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function validUuid(value: string): string | null {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ? value
+    : null;
 }
 
 function trustedDemoUrl(document: StoredDocument): string | null {
@@ -189,6 +210,44 @@ export function registerStorageProxy(
         res,
         await dependencies.getDownloadUrl(sample.imagePath),
         "private, no-store"
+      );
+    } catch (error) {
+      storageFailure(res, error);
+    }
+  });
+
+  app.get("/api/storage/projects/:projectId/visual-assets/:assetId/:variant", async (req, res) => {
+    if (!dependencies.visualArchivesEnabled()) {
+      res.status(404).send("Not found");
+      return;
+    }
+    const projectId = positiveInteger(req.params.projectId);
+    const assetId = validUuid(req.params.assetId);
+    const variant = req.params.variant;
+    if (!projectId || !assetId || !["original", "display", "thumbnail"].includes(variant)) {
+      res.status(404).send("Not found");
+      return;
+    }
+    try {
+      if (!(await authorizeProjectRequest(req, res, projectId, dependencies))) return;
+      const asset = await dependencies.getVisualAsset?.(projectId, assetId);
+      if (!asset || asset.status !== "ready") {
+        res.status(404).send("Not found");
+        return;
+      }
+      const key = variant === "original"
+        ? asset.originalKey
+        : variant === "display"
+          ? asset.displayKey
+          : asset.thumbnailKey;
+      if (!key) {
+        res.status(404).send("Not found");
+        return;
+      }
+      await streamStorageObject(
+        res,
+        await dependencies.getDownloadUrl(key),
+        variant === "original" ? "private, no-store" : "private, max-age=3600",
       );
     } catch (error) {
       storageFailure(res, error);

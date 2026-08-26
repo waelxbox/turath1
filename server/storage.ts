@@ -2,6 +2,7 @@
 // Uses the Biz-provided storage proxy (Authorization: Bearer <token>)
 
 import { createHmac, timingSafeEqual } from "node:crypto";
+import sharp from "sharp";
 import { ENV } from "./_core/env";
 
 type StorageConfig = { baseUrl: string; apiKey: string };
@@ -15,6 +16,61 @@ export type ValidationStorageToken = {
 
 const VALIDATION_STORAGE_TOKEN_TTL_MS = 5 * 60 * 1000;
 const STORAGE_REQUEST_TIMEOUT_MS = 30_000;
+const MAX_VISUAL_INPUT_PIXELS = 100_000_000;
+
+export type VisualDerivatives = {
+  display: Buffer;
+  thumbnail: Buffer;
+  displayMimeType: "image/jpeg";
+  width: number;
+  height: number;
+  format: string;
+  orientation: number | null;
+  density: number | null;
+  space: string | null;
+  hasAlpha: boolean;
+};
+
+export async function createVisualDerivatives(source: Buffer): Promise<VisualDerivatives> {
+  const metadata = await sharp(source, { limitInputPixels: MAX_VISUAL_INPUT_PIXELS }).metadata();
+  if (!metadata.width || !metadata.height || !["jpeg", "png"].includes(metadata.format ?? "")) {
+    throw new Error("The uploaded file is not a supported JPEG or PNG image");
+  }
+  const [display, thumbnail] = await Promise.all([
+    sharp(source, { limitInputPixels: MAX_VISUAL_INPUT_PIXELS })
+      .rotate()
+      .resize({ width: 2200, height: 2200, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 90, mozjpeg: true })
+      .toBuffer(),
+    sharp(source, { limitInputPixels: MAX_VISUAL_INPUT_PIXELS })
+      .rotate()
+      .resize({ width: 640, height: 640, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 82, mozjpeg: true })
+      .toBuffer(),
+  ]);
+  return {
+    display,
+    thumbnail,
+    displayMimeType: "image/jpeg",
+    width: metadata.width,
+    height: metadata.height,
+    format: metadata.format ?? "unknown",
+    orientation: metadata.orientation ?? null,
+    density: metadata.density ?? null,
+    space: metadata.space ?? null,
+    hasAlpha: metadata.hasAlpha ?? false,
+  };
+}
+
+export function buildVisualAssetKey(
+  projectId: number,
+  assetId: string,
+  variant: "original" | "display" | "thumbnail",
+  mimeType: "image/jpeg" | "image/png",
+): string {
+  const extension = variant === "original" && mimeType === "image/png" ? "png" : "jpg";
+  return `projects/${projectId}/visual-assets/${assetId}/${variant}.${extension}`;
+}
 
 function getStorageConfig(): StorageConfig {
   const baseUrl = ENV.forgeApiUrl;
@@ -144,6 +200,14 @@ export function documentAccessUrl(projectId: number, documentId: number): string
 
 export function onboardingSampleAccessUrl(projectId: number, sampleId: number): string {
   return `/api/storage/projects/${projectId}/samples/${sampleId}`;
+}
+
+export function visualAssetAccessUrl(
+  projectId: number,
+  assetId: string,
+  variant: "original" | "display" | "thumbnail",
+): string {
+  return `/api/storage/projects/${projectId}/visual-assets/${assetId}/${variant}`;
 }
 
 function validationStorageSecret(): Uint8Array {

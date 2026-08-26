@@ -22,6 +22,7 @@ import ValidationAdminPage from "./project/ValidationAdminPage";
 import ResearchPage from "./project/ResearchPage";
 import ActivityFeedPage from "./project/ActivityFeedPage";
 import ReviewQueuePage from "./project/ReviewQueuePage";
+import VisualWorkspace from "./visual/VisualWorkspace";
 import { toast } from "sonner";
 
 type NavItem = {
@@ -488,7 +489,7 @@ export default function ProjectWorkspace() {
   );
   const { data: stats } = trpc.projects.stats.useQuery(
     { id: projectId },
-    { enabled: !!projectId && isAuthenticated }
+    { enabled: !!projectId && isAuthenticated && project?.archiveMode === "document_transcription" }
   );
 
   if (authLoading || isLoading) {
@@ -509,6 +510,16 @@ export default function ProjectWorkspace() {
   }
 
   const basePath = `/projects/${projectId}`;
+
+  if (project.archiveMode === "visual_vra") {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <Router base={basePath}>
+          <VisualWorkspace projectId={projectId} project={project} />
+        </Router>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background flex flex-col">

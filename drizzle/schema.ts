@@ -9,6 +9,8 @@ import {
   real,
   boolean,
   index,
+  uniqueIndex,
+  foreignKey,
   serial,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -46,6 +48,11 @@ export const jobTypeEnum = pgEnum("job_type", ["transcribe", "batch_transcribe",
 export const jobStatusEnum = pgEnum("job_status", ["queued", "running", "completed", "failed"]);
 export const planEnum = pgEnum("plan", ["free", "pro", "team", "enterprise"]);
 export const subscriptionStatusEnum = pgEnum("subscription_status", ["active", "canceled", "past_due", "trialing"]);
+export const archiveModeEnum = pgEnum("archive_mode", ["document_transcription", "visual_vra"]);
+export const visualAssetStatusEnum = pgEnum("visual_asset_status", ["uploaded", "ready", "failed", "deletion_pending"]);
+export const vraRecordTypeEnum = pgEnum("vra_record_type", ["collection", "work", "image"]);
+export const vraRecordStatusEnum = pgEnum("vra_record_status", ["draft", "needs_review", "approved", "archived"]);
+export const vraRelationStatusEnum = pgEnum("vra_relation_status", ["suggested", "approved", "rejected"]);
 
 // ─── Users ────────────────────────────────────────────────────────────────────
 
@@ -102,6 +109,17 @@ export const projects = pgTable("projects", {
 
 export type Project = typeof projects.$inferSelect;
 export type InsertProject = typeof projects.$inferInsert;
+
+// Visual projects opt in through an immutable one-to-one discriminator row.
+// Existing projects have no row and remain document_transcription projects.
+export const visualProjectModes = pgTable("visual_project_modes", {
+  projectId: integer("projectId").primaryKey().references(() => projects.id, { onDelete: "cascade" }),
+  archiveMode: archiveModeEnum("archiveMode").default("visual_vra").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type VisualProjectMode = typeof visualProjectModes.$inferSelect;
+export type InsertVisualProjectMode = typeof visualProjectModes.$inferInsert;
 
 // ─── Onboarding Samples ───────────────────────────────────────────────────────
 
@@ -582,3 +600,121 @@ export const documentAssignments = pgTable("document_assignments", {
 
 export type DocumentAssignment = typeof documentAssignments.$inferSelect;
 export type InsertDocumentAssignment = typeof documentAssignments.$inferInsert;
+
+// ─── Visual Archives (VRA Core 4 MVP) ────────────────────────────────────────
+
+export const visualAssets = pgTable("visual_assets", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: integer("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  createdByUserId: integer("createdByUserId").references(() => users.id, { onDelete: "set null" }),
+  filename: varchar("filename", { length: 512 }).notNull(),
+  mimeType: varchar("mimeType", { length: 64 }).notNull(),
+  byteSize: integer("byteSize").notNull(),
+  sha256: varchar("sha256", { length: 64 }).notNull(),
+  width: integer("width"),
+  height: integer("height"),
+  originalKey: text("originalKey").notNull(),
+  displayKey: text("displayKey"),
+  thumbnailKey: text("thumbnailKey"),
+  technicalMetadata: jsonb("technicalMetadata").default(sql`'{}'::jsonb`).notNull(),
+  status: visualAssetStatusEnum("status").default("uploaded").notNull(),
+  errorMessage: text("errorMessage"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("visual_assets_projectId_idx").on(t.projectId),
+  index("visual_assets_projectId_status_idx").on(t.projectId, t.status),
+  index("visual_assets_projectId_sha256_idx").on(t.projectId, t.sha256),
+  uniqueIndex("visual_assets_projectId_id_uq").on(t.projectId, t.id),
+]);
+
+export type VisualAsset = typeof visualAssets.$inferSelect;
+export type InsertVisualAsset = typeof visualAssets.$inferInsert;
+
+export const vraRecords = pgTable("vra_records", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: integer("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  recordType: vraRecordTypeEnum("recordType").notNull(),
+  status: vraRecordStatusEnum("status").default("draft").notNull(),
+  title: varchar("title", { length: 1024 }).notNull(),
+  localIdentifier: varchar("localIdentifier", { length: 255 }),
+  assetId: uuid("assetId"),
+  reviewedJson: jsonb("reviewedJson").default(sql`'{}'::jsonb`).notNull(),
+  aiSuggestedJson: jsonb("aiSuggestedJson").default(sql`'{}'::jsonb`).notNull(),
+  suggestionProvenance: jsonb("suggestionProvenance").default(sql`'{}'::jsonb`).notNull(),
+  revision: integer("revision").default(1).notNull(),
+  createdByUserId: integer("createdByUserId").references(() => users.id, { onDelete: "set null" }),
+  updatedByUserId: integer("updatedByUserId").references(() => users.id, { onDelete: "set null" }),
+  approvedByUserId: integer("approvedByUserId").references(() => users.id, { onDelete: "set null" }),
+  approvedAt: timestamp("approvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("vra_records_projectId_idx").on(t.projectId),
+  index("vra_records_projectId_type_idx").on(t.projectId, t.recordType),
+  index("vra_records_projectId_status_idx").on(t.projectId, t.status),
+  index("vra_records_projectId_assetId_idx").on(t.projectId, t.assetId),
+  uniqueIndex("vra_records_projectId_id_uq").on(t.projectId, t.id),
+  foreignKey({
+    columns: [t.projectId, t.assetId],
+    foreignColumns: [visualAssets.projectId, visualAssets.id],
+    name: "vra_records_project_asset_fk",
+  }).onDelete("restrict"),
+]);
+
+export type VraRecord = typeof vraRecords.$inferSelect;
+export type InsertVraRecord = typeof vraRecords.$inferInsert;
+
+export const vraRecordRelations = pgTable("vra_record_relations", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: integer("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  sourceRecordId: uuid("sourceRecordId").notNull(),
+  targetRecordId: uuid("targetRecordId").notNull(),
+  relationType: varchar("relationType", { length: 128 }).notNull(),
+  status: vraRelationStatusEnum("status").default("approved").notNull(),
+  evidenceJson: jsonb("evidenceJson").default(sql`'{}'::jsonb`).notNull(),
+  createdByUserId: integer("createdByUserId").references(() => users.id, { onDelete: "set null" }),
+  approvedByUserId: integer("approvedByUserId").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("vra_relations_projectId_idx").on(t.projectId),
+  index("vra_relations_source_idx").on(t.projectId, t.sourceRecordId),
+  index("vra_relations_target_idx").on(t.projectId, t.targetRecordId),
+  uniqueIndex("vra_relations_project_source_target_type_uq").on(t.projectId, t.sourceRecordId, t.targetRecordId, t.relationType),
+  foreignKey({
+    columns: [t.projectId, t.sourceRecordId],
+    foreignColumns: [vraRecords.projectId, vraRecords.id],
+    name: "vra_relations_source_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [t.projectId, t.targetRecordId],
+    foreignColumns: [vraRecords.projectId, vraRecords.id],
+    name: "vra_relations_target_fk",
+  }).onDelete("cascade"),
+]);
+
+export type VraRecordRelation = typeof vraRecordRelations.$inferSelect;
+export type InsertVraRecordRelation = typeof vraRecordRelations.$inferInsert;
+
+export const vraRecordRevisions = pgTable("vra_record_revisions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: integer("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  recordId: uuid("recordId").notNull(),
+  revision: integer("revision").notNull(),
+  snapshotJson: jsonb("snapshotJson").notNull(),
+  changeSummary: text("changeSummary"),
+  createdByUserId: integer("createdByUserId").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("vra_revisions_projectId_recordId_idx").on(t.projectId, t.recordId),
+  uniqueIndex("vra_revisions_project_record_revision_uq").on(t.projectId, t.recordId, t.revision),
+  foreignKey({
+    columns: [t.projectId, t.recordId],
+    foreignColumns: [vraRecords.projectId, vraRecords.id],
+    name: "vra_revisions_record_fk",
+  }).onDelete("cascade"),
+]);
+
+export type VraRecordRevision = typeof vraRecordRevisions.$inferSelect;
+export type InsertVraRecordRevision = typeof vraRecordRevisions.$inferInsert;

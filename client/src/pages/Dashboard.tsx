@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { getLoginUrl } from "@/const";
 import { useLocation } from "wouter";
-import { Plus, FolderOpen, Clock, CheckCircle2, AlertCircle, Loader2, ArrowRight, BookOpen, Sparkles, HelpCircle, Sun, Moon } from "lucide-react";
+import { Plus, FolderOpen, Clock, CheckCircle2, AlertCircle, Loader2, ArrowRight, BookOpen, Sparkles, HelpCircle, Sun, Moon, Images } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -31,9 +31,17 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   archived: { label: "Archived", color: "text-muted-foreground" },
 };
 
-function ProjectCard({ project }: { project: { id: number; name: string; description: string | null; status: string; createdAt: Date; _memberRole?: "owner" | "editor" | "viewer" } }) {
+function ProjectCard({ project }: { project: { id: number; name: string; description: string | null; status: string; createdAt: Date; archiveMode?: "document_transcription" | "visual_vra"; _memberRole?: "owner" | "editor" | "viewer" } }) {
   const [, navigate] = useLocation();
-  const { data: stats } = trpc.projects.stats.useQuery({ id: project.id });
+  const isVisual = project.archiveMode === "visual_vra";
+  const { data: stats } = trpc.projects.stats.useQuery(
+    { id: project.id },
+    { enabled: !isVisual },
+  );
+  const { data: visualStats } = trpc.visualArchives.stats.useQuery(
+    { projectId: project.id },
+    { enabled: isVisual },
+  );
   const statusInfo = STATUS_LABELS[project.status] ?? { label: project.status, color: "text-muted-foreground" };
 
   const progress = stats && stats.total > 0
@@ -42,6 +50,11 @@ function ProjectCard({ project }: { project: { id: number; name: string; descrip
 
   // Determine recommended action text
   const getRecommendedAction = () => {
+    if (isVisual) {
+      if (visualStats && visualStats.needsReview > 0) return `Review ${visualStats.needsReview} record${visualStats.needsReview !== 1 ? "s" : ""}`;
+      if (visualStats && visualStats.assets === 0) return "Upload images";
+      return "Open visual archive";
+    }
     if (project.status === "onboarding" || project.status === "validating") return "Continue setup";
     if (stats && stats.needsReview > 0) return `Review ${stats.needsReview} doc${stats.needsReview !== 1 ? "s" : ""}`;
     if (stats && stats.total === 0) return "Upload documents";
@@ -53,7 +66,7 @@ function ProjectCard({ project }: { project: { id: number; name: string; descrip
       className="bg-card border border-border rounded-xl p-4 md:p-5 hover:border-primary/40 transition-all cursor-pointer group text-left w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       aria-label={`${project.name} — ${getRecommendedAction()}`}
       onClick={() => {
-        if (project.status === "onboarding" || project.status === "validating") {
+        if (!isVisual && (project.status === "onboarding" || project.status === "validating")) {
           navigate(`/projects/${project.id}/onboarding`);
         } else {
           navigate(`/projects/${project.id}`);
@@ -62,7 +75,9 @@ function ProjectCard({ project }: { project: { id: number; name: string; descrip
     >
       <div className="flex items-start justify-between mb-2 md:mb-3">
         <div className="w-8 h-8 md:w-9 md:h-9 rounded-lg bg-primary/15 border border-primary/30 flex items-center justify-center">
-          <BookOpen className="w-3.5 h-3.5 md:w-4 md:h-4 text-primary" />
+          {isVisual
+            ? <Images className="w-3.5 h-3.5 md:w-4 md:h-4 text-primary" />
+            : <BookOpen className="w-3.5 h-3.5 md:w-4 md:h-4 text-primary" />}
         </div>
         <div className="flex items-center gap-2">
           {project._memberRole && project._memberRole !== "owner" && (
@@ -90,6 +105,17 @@ function ProjectCard({ project }: { project: { id: number; name: string; descrip
               style={{ width: `${progress}%` }}
             />
           </div>
+        </div>
+      )}
+
+      {isVisual && visualStats && (
+        <div className="mb-3 text-xs text-muted-foreground">
+          <span>{visualStats.assets} asset{visualStats.assets !== 1 ? "s" : ""}</span>
+          <span className="mx-1.5">·</span>
+          <span>{visualStats.works} work{visualStats.works !== 1 ? "s" : ""}</span>
+          {visualStats.needsReview > 0 && (
+            <><span className="mx-1.5">·</span><span className="text-amber-700 dark:text-amber-400">{visualStats.needsReview} to review</span></>
+          )}
         </div>
       )}
 
@@ -132,12 +158,14 @@ export default function Dashboard() {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
+  const [newProjectMode, setNewProjectMode] = useState<"document_transcription" | "visual_vra">("document_transcription");
 
   const { showTour, hasCompletedTour, startTour, endTour } = useTourState();
 
   const { data: projects, isLoading, refetch } = trpc.projects.list.useQuery(undefined, {
     enabled: isAuthenticated,
   });
+  const { data: visualAvailability } = trpc.visualArchives.availability.useQuery();
 
   // Auto-start tour for first-time users with no projects
   useEffect(() => {
@@ -152,8 +180,22 @@ export default function Dashboard() {
       setShowCreate(false);
       setNewName("");
       setNewDesc("");
+      setNewProjectMode("document_transcription");
       refetch();
       if (project) navigate(`/projects/${project.id}/onboarding`);
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const createVisualProject = trpc.visualArchives.createProject.useMutation({
+    onSuccess: (project) => {
+      toast.success("Visual archive created!");
+      setShowCreate(false);
+      setNewName("");
+      setNewDesc("");
+      setNewProjectMode("document_transcription");
+      refetch();
+      navigate(`/projects/${project.id}`);
     },
     onError: (err) => toast.error(err.message),
   });
@@ -213,7 +255,7 @@ export default function Dashboard() {
           <div>
             <h1 className="text-2xl md:text-3xl font-serif font-semibold mb-1">Your projects</h1>
             <p className="text-muted-foreground text-xs md:text-sm">
-              Each project is a separate archive with its own AI reader trained on your documents.
+              Build searchable document collections and standards-aligned visual archives.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -238,7 +280,7 @@ export default function Dashboard() {
             </div>
             <h3 className="font-serif text-xl font-semibold mb-2">No projects yet</h3>
             <p className="text-muted-foreground text-sm max-w-sm mb-6">
-              Create your first project to start transcribing. You'll teach the AI how to read your documents by showing it a few examples.
+              Create your first project to transcribe documents or catalog a visual collection.
             </p>
             <div className="flex items-center gap-3">
               <Button onClick={() => setShowCreate(true)} className="gap-2">
@@ -272,6 +314,31 @@ export default function Dashboard() {
             <DialogTitle className="font-serif text-xl">Create a new project</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
+            {visualAvailability?.enabled && (
+              <div className="space-y-2">
+                <Label>Archive type</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewProjectMode("document_transcription")}
+                    className={`rounded-lg border p-3 text-left transition-colors ${newProjectMode === "document_transcription" ? "border-primary bg-primary/10" : "border-border bg-background hover:border-primary/40"}`}
+                  >
+                    <BookOpen className="mb-2 h-4 w-4 text-primary" />
+                    <span className="block text-sm font-medium">Documents</span>
+                    <span className="block text-xs text-muted-foreground">Transcribe and explore pages</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewProjectMode("visual_vra")}
+                    className={`rounded-lg border p-3 text-left transition-colors ${newProjectMode === "visual_vra" ? "border-primary bg-primary/10" : "border-border bg-background hover:border-primary/40"}`}
+                  >
+                    <Images className="mb-2 h-4 w-4 text-primary" />
+                    <span className="block text-sm font-medium">Visual archive</span>
+                    <span className="block text-xs text-muted-foreground">Catalog works and images</span>
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="proj-name">Project name</Label>
               <Input
@@ -286,7 +353,7 @@ export default function Dashboard() {
               <Label htmlFor="proj-desc">Description <span className="text-muted-foreground">(optional)</span></Label>
               <Textarea
                 id="proj-desc"
-                placeholder="Brief description of your archive and what you're transcribing..."
+                placeholder={newProjectMode === "visual_vra" ? "Brief description of the visual collection..." : "Brief description of your archive and what you're transcribing..."}
                 value={newDesc}
                 onChange={e => setNewDesc(e.target.value)}
                 className="bg-background resize-none"
@@ -297,12 +364,16 @@ export default function Dashboard() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreate(false)} className="bg-transparent">Cancel</Button>
             <Button
-              onClick={() => createProject.mutate({ name: newName, description: newDesc || undefined })}
-              disabled={!newName.trim() || createProject.isPending}
+              onClick={() => {
+                const payload = { name: newName, description: newDesc || undefined };
+                if (newProjectMode === "visual_vra") createVisualProject.mutate(payload);
+                else createProject.mutate(payload);
+              }}
+              disabled={!newName.trim() || createProject.isPending || createVisualProject.isPending}
               className="gap-2"
             >
-              {createProject.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-              Create & set up
+              {(createProject.isPending || createVisualProject.isPending) && <Loader2 className="w-4 h-4 animate-spin" />}
+              {newProjectMode === "visual_vra" ? "Create visual archive" : "Create & set up"}
             </Button>
           </DialogFooter>
         </DialogContent>
