@@ -766,3 +766,6 @@
 - [x] Classify each pull request or change set as merge, revise, or reject
 - [x] Merge only production-compatible changes and preserve the existing TURATH database and hosted deployment
 - [x] Save a verified checkpoint and document remaining staging/production gates
+
+## Patent Review
+- [x] Revise the patent-claim review so conversational and mixed-input onboarding is not narrowed to sample-pair-only configuration
