@@ -12,8 +12,12 @@ import {
   visualAssetAccessUrl,
 } from "../storage";
 import { isVisualArchivesEnabled, isVisualArchivesMemoryEnabled, isVisualArchivesPreviewUser } from "./config";
+import { VraRevisionConflictError } from "./recordConcurrency";
+import { canonicalVisualSearchText, visualQueryTerms } from "./searchTerms";
+import { validateEvidenceLinkedAnswer } from "./chatEvidence";
 import {
   acceptVraSuggestionFields,
+  bulkSetVraRecordStatus,
   createVisualAsset,
   createVisualProject,
   createVraRecord,
@@ -122,7 +126,7 @@ function matchedReviewedFields(record: { title: string; localIdentifier: string 
   return ["title", "localIdentifier", ...Object.keys(reviewed)].filter(field => {
     const value = field === "title" ? record.title : field === "localIdentifier" ? record.localIdentifier : reviewed[field];
     const text = Array.isArray(value) ? value.join(" ") : typeof value === "string" ? value : "";
-    return terms.some(term => text.toLocaleLowerCase().includes(term));
+    return terms.some(term => canonicalVisualSearchText(text).includes(term));
   });
 }
 
@@ -298,11 +302,14 @@ function reviewedFieldValues(record: { reviewedJson: unknown }, field: VisualFac
   return [];
 }
 
-function reviewedSearchText(record: { title: string; localIdentifier?: string | null; reviewedJson: unknown }) {
+function reviewedSearchText(record: { title: string; localIdentifier?: string | null; recordType?: string; reviewedJson: unknown }) {
   const reviewed = record.reviewedJson as Record<string, unknown>;
-  return [record.title, record.localIdentifier ?? "", ...Object.values(reviewed).flatMap(value => Array.isArray(value) ? value : [value]).map(value => String(value))]
-    .join(" ")
-    .toLocaleLowerCase();
+  return canonicalVisualSearchText([
+    record.title,
+    record.localIdentifier ?? "",
+    record.recordType ?? "",
+    ...Object.entries(reviewed).flatMap(([field, value]) => [field, ...(Array.isArray(value) ? value : [value])]).map(value => String(value)),
+  ].join(" "));
 }
 
 function buildVisualFacets(records: Array<{ reviewedJson: unknown }>) {
@@ -649,7 +656,7 @@ export const visualArchivesRouter = router({
       if (input.includeDrafts) await requireVisualEditor(input.projectId, ctx.user);
       const catalogRecords = await listVraRecords({ projectId: input.projectId, recordType: input.recordType, status: input.includeDrafts ? undefined : "approved" });
       const facets = buildVisualFacets(catalogRecords);
-      const terms = input.query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
+      const terms = visualQueryTerms(input.query);
       const matchingRecords = catalogRecords.filter(record => {
         const text = reviewedSearchText(record);
         if (!terms.every(term => text.includes(term))) return false;
@@ -690,9 +697,14 @@ export const visualArchivesRouter = router({
       if (approved.length === 0) {
         return { answer: "No approved catalog records are available yet. Review and approve Image, Work, or Collection records before asking questions about this Visual Archive.", sources: [], insufficientEvidence: true };
       }
-      const terms = input.question.toLocaleLowerCase().split(/[^A-Za-z0-9\u0600-\u06FF]+/).filter(term => term.length >= 2);
+      const currentTerms = visualQueryTerms(input.question);
+      const previousUserQuestion = [...input.history].reverse().find(item => item.role === "user")?.content ?? "";
+      const terms = currentTerms.length > 0 ? currentTerms : visualQueryTerms(previousUserQuestion);
+      if (terms.length === 0) {
+        return { answer: "Please include a title, place, subject, creator, material, date, or another reviewed catalog term so I can locate relevant approved evidence.", sources: [], insufficientEvidence: true };
+      }
       const rankedWithScores = approved.map(record => {
-        const title = `${record.title} ${record.localIdentifier ?? ""}`.toLocaleLowerCase();
+        const title = canonicalVisualSearchText(`${record.title} ${record.localIdentifier ?? ""}`);
         const reviewed = reviewedSearchText(record);
         const score = terms.reduce((total, term) => total + (title.includes(term) ? 5 : 0) + (reviewed.includes(term) ? 1 : 0), 0);
         return { record, score };
@@ -700,7 +712,7 @@ export const visualArchivesRouter = router({
       if (terms.length > 0 && rankedWithScores[0]?.score === 0) {
         return { answer: "I do not have enough approved catalog evidence to answer that question. Try a title, place, subject, material, or other reviewed term, or review more records first.", sources: [], insufficientEvidence: true };
       }
-      const ranked = rankedWithScores.slice(0, 5).map(item => item.record);
+      const ranked = rankedWithScores.filter(item => item.score > 0).slice(0, 5).map(item => item.record);
       const assets = await getVisualAssetsByIds(input.projectId, ranked.flatMap(record => record.assetId ? [record.assetId] : []));
       const assetsById = new Map(assets.map(asset => [asset.id, asset]));
       const visualSources = ranked.map((record, index) => ({
@@ -725,9 +737,14 @@ export const visualArchivesRouter = router({
         }],
         maxTokens: 2200,
       });
+      const validatedAnswer = validateEvidenceLinkedAnswer(
+        response.choices[0]?.message?.content,
+        visualSources.map(source => source.index),
+      );
+      const citedIndices = new Set(validatedAnswer.citedIndices);
       return {
-        answer: typeof response.choices[0]?.message?.content === "string" ? response.choices[0].message.content : "I could not generate an evidence-linked response.",
-        sources: visualSources.map(source => ({
+        answer: validatedAnswer.answer,
+        sources: visualSources.filter(source => citedIndices.has(source.index)).map(source => ({
           index: source.index,
           recordId: source.record.id,
           title: source.record.title,
@@ -737,7 +754,7 @@ export const visualArchivesRouter = router({
           reviewedJson: source.record.reviewedJson,
           thumbnailUrl: source.asset?.thumbnailKey ? visualAssetAccessUrl(input.projectId, source.asset.id, "thumbnail") : null,
         })),
-        insufficientEvidence: false,
+        insufficientEvidence: validatedAnswer.insufficientEvidence,
       };
     }),
 
@@ -809,10 +826,19 @@ export const visualArchivesRouter = router({
       reviewedJson: reviewedJsonSchema.optional(),
       status: recordStatusSchema.optional(),
       changeSummary: z.string().max(1000).optional(),
+      expectedRevision: z.number().int().nonnegative().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       await requireVisualEditor(input.projectId, ctx.user);
-      const updated = await updateVraRecord({ ...input, userId: ctx.user.id });
+      let updated;
+      try {
+        updated = await updateVraRecord({ ...input, userId: ctx.user.id });
+      } catch (error) {
+        if (error instanceof VraRevisionConflictError) {
+          throw new TRPCError({ code: "CONFLICT", message: error.message, cause: error });
+        }
+        throw error;
+      }
       if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Record not found" });
       return updated;
     }),
@@ -922,20 +948,11 @@ export const visualArchivesRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       await requireVisualEditor(input.projectId, ctx.user);
-      const records = await getVraRecordsByIds(input.projectId, input.recordIds);
-      if (records.length !== input.recordIds.length) {
+      const result = await bulkSetVraRecordStatus({ ...input, userId: ctx.user.id });
+      if (!result) {
         throw new TRPCError({ code: "NOT_FOUND", message: "One or more catalog records were not found" });
       }
-      for (const record of records) {
-        await updateVraRecord({
-          projectId: input.projectId,
-          recordId: record.id,
-          userId: ctx.user.id,
-          status: input.status,
-          changeSummary: `Bulk status change to ${input.status}`,
-        });
-      }
-      return { updated: records.length };
+      return result;
     }),
 
   listRelations: protectedProcedure
