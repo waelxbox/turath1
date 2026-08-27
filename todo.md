@@ -787,3 +787,5 @@
 - [x] Apply `0011_visual_archives_mvp.sql` to TURATH’s actual Supabase PostgreSQL database, enable the feature in staging, and run credentialed upload/AI/storage smoke tests
 - [x] Verify the live Supabase visual tables and RLS policies, then run a controlled staging smoke test with an explicitly authorized test account
 - [ ] Introduce a non-BYPASSRLS runtime database role and explicit project-membership RLS policies before treating database RLS as an independent tenant-isolation control
+- [x] Improve visual AI suggestions with review-required candidate identification, location, and contextual detail instead of generic-only descriptions
+- [x] Restrict Visual Archives discovery, creation, access, and protected asset delivery to Adam Amin’s allowlisted account during controlled development

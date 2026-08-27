@@ -58,7 +58,7 @@ function fakeResponse() {
 function dependencies(overrides: Partial<StorageProxyDependencies> = {}): StorageProxyDependencies {
   return {
     visualArchivesEnabled: vi.fn().mockReturnValue(true),
-    authenticateUser: vi.fn().mockResolvedValue({ id: 7 }),
+    authenticateUser: vi.fn().mockResolvedValue({ id: 7, email: "adamamin2027@gmail.com" }),
     getProjectRole: vi.fn().mockResolvedValue("owner"),
     getDocument: vi.fn().mockResolvedValue({
       storagePath: "projects/12/documents/private.jpg",
@@ -207,6 +207,33 @@ describe("private storage resource routes", () => {
     );
 
     expect(state.status).toBe(404);
+    expect(deps.getVisualAsset).not.toHaveBeenCalled();
+    expect(backendFetch).not.toHaveBeenCalled();
+  });
+
+  it("does not reveal visual assets to an authenticated user outside the controlled preview allowlist", async () => {
+    const deps = dependencies({
+      authenticateUser: vi.fn().mockResolvedValue({ id: 8, email: "researcher@example.org" }),
+      visualArchivesUserAllowed: vi.fn().mockReturnValue(false),
+    });
+    const backendFetch = vi.spyOn(globalThis, "fetch");
+    const routes = captureRoutes(deps);
+    const { response, state } = fakeResponse();
+
+    await routes.get("/api/storage/projects/:projectId/visual-assets/:assetId/:variant")!(
+      {
+        params: {
+          projectId: "12",
+          assetId: "123e4567-e89b-12d3-a456-426614174000",
+          variant: "thumbnail",
+        },
+        headers: {},
+      },
+      response,
+    );
+
+    expect(state.status).toBe(404);
+    expect(deps.getProjectRole).not.toHaveBeenCalled();
     expect(deps.getVisualAsset).not.toHaveBeenCalled();
     expect(backendFetch).not.toHaveBeenCalled();
   });

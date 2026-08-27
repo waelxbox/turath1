@@ -22,6 +22,15 @@ type VisualProject = {
   _memberRole?: "owner" | "editor" | "viewer";
 };
 
+type IdentificationCandidate = {
+  name: string;
+  classification: string;
+  location: string;
+  rationale: string;
+  confidence: "high" | "medium" | "low";
+  verificationNote: string;
+};
+
 const navItems = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/assets", label: "Visual assets", icon: Images },
@@ -64,6 +73,17 @@ function formatFieldValue(value: unknown): string {
 function parseFieldValue(field: string, value: string): string | string[] {
   if (!ARRAY_FIELDS.has(field)) return value.trim();
   return value.split(",").map(item => item.trim()).filter(Boolean);
+}
+
+function identificationCandidates(value: unknown): IdentificationCandidate[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is IdentificationCandidate => {
+    if (!item || typeof item !== "object") return false;
+    const candidate = item as Record<string, unknown>;
+    return ["name", "classification", "location", "rationale", "confidence", "verificationNote"]
+      .every(key => typeof candidate[key] === "string")
+      && ["high", "medium", "low"].includes(candidate.confidence as string);
+  });
 }
 
 async function fileToBase64(file: File): Promise<string> {
@@ -322,6 +342,7 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
   if (isLoading) return <Loader2 className="h-6 w-6 animate-spin text-primary" />;
   if (!record) return <div className="text-sm text-muted-foreground">Record not found.</div>;
   const suggestions = record.aiSuggestedJson as Record<string, unknown>;
+  const candidates = identificationCandidates(suggestions.identificationCandidates);
   const asset = record.assetId ? assets?.find(item => item.id === record.assetId) : undefined;
   const save = (status: "draft" | "needs_review" | "approved" | "archived" = "draft") => update.mutate({
     projectId,
@@ -338,11 +359,27 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
       <div className="grid gap-8 lg:grid-cols-[0.8fr_1.2fr]">
         <aside>{asset ? <div className="sticky top-24 border border-border bg-slate-100 dark:bg-slate-900"><img src={asset.displayUrl ?? asset.originalUrl} alt="" className="max-h-[70vh] w-full object-contain" /></div> : <div className="flex aspect-[4/3] items-center justify-center border border-dashed border-border text-sm text-muted-foreground">No image attached</div>}</aside>
         <section className="space-y-5">
+          {typeof suggestions.title === "string" && suggestions.title.trim() && (
+            <div className="border-y border-primary/30 bg-primary/5 px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Suggested catalog title</p><p className="mt-1 font-medium">{suggestions.title}</p></div>
+                {canEdit && <Button size="sm" variant="outline" onClick={() => accept.mutate({ projectId, recordId: record.id, acceptedFields: ["title"] })}><Check className="mr-1 h-3.5 w-3.5" /> Accept title</Button>}
+              </div>
+            </div>
+          )}
+          {candidates.length > 0 && (
+            <div className="border-y border-amber-500/30 bg-amber-500/5 px-4 py-4">
+              <div className="mb-3"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800 dark:text-amber-300">Candidate identification</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">AI hypotheses only. Verify against authoritative sources before saving as catalog fact.</p></div>
+              <div className="space-y-4">
+                {candidates.map((candidate, index) => <article key={`${candidate.name}-${index}`} className="border-t border-amber-500/20 pt-3 first:border-t-0 first:pt-0"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-medium">{candidate.name}</p><p className="text-xs text-muted-foreground">{candidate.classification}{candidate.location ? ` · ${candidate.location}` : ""}</p></div><Badge variant="outline" className="capitalize">{candidate.confidence} confidence</Badge></div><p className="mt-2 text-sm leading-relaxed">{candidate.rationale}</p><p className="mt-2 text-xs leading-relaxed text-muted-foreground"><span className="font-medium text-foreground">Verify:</span> {candidate.verificationNote}</p>{canEdit && <Button size="sm" variant="ghost" className="mt-2 h-7 px-0 text-xs text-primary hover:bg-transparent hover:text-primary" onClick={() => setTitle(candidate.name)}>Use as title, then save</Button>}</article>)}
+              </div>
+            </div>
+          )}
           {CATALOG_FIELDS.map(([key, label]) => {
             const suggestion = suggestions[key];
             return <div key={key} className="border-b border-border pb-5"><div className="mb-2 flex items-center justify-between"><Label htmlFor={key}>{label}</Label>{canEdit && suggestion !== undefined && formatFieldValue(suggestion) !== "" && <Button size="sm" variant="ghost" className="h-7 text-xs text-primary" onClick={() => accept.mutate({ projectId, recordId: record.id, acceptedFields: [key] })}><Check className="mr-1 h-3 w-3" /> Accept suggestion</Button>}</div>{key === "description" ? <Textarea id={key} rows={4} value={fields[key] ?? ""} onChange={event => setFields(current => ({ ...current, [key]: event.target.value }))} disabled={!canEdit} /> : <Input id={key} value={fields[key] ?? ""} onChange={event => setFields(current => ({ ...current, [key]: event.target.value }))} placeholder={ARRAY_FIELDS.has(key) ? "Comma-separated values" : undefined} disabled={!canEdit} />}{suggestion !== undefined && formatFieldValue(suggestion) !== "" && <div className="mt-2 bg-primary/5 px-3 py-2 text-xs leading-relaxed"><span className="font-semibold text-primary">AI suggestion:</span> {formatFieldValue(suggestion)}</div>}</div>;
           })}
-          {canEdit && asset && <div className="border-y border-border py-5"><div className="flex items-center justify-between gap-4"><div><div className="font-medium">Generate catalog suggestions</div><p className="text-xs text-muted-foreground">Gemini analyzes visible evidence only. Nothing enters reviewed data automatically.</p></div><Button variant="outline" onClick={() => suggest.mutate({ projectId, recordId: record.id })} disabled={suggest.isPending}>{suggest.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}Suggest fields</Button></div></div>}
+          {canEdit && asset && <div className="border-y border-border py-5"><div className="flex items-center justify-between gap-4"><div><div className="font-medium">Generate catalog suggestions</div><p className="text-xs text-muted-foreground">Gemini proposes detailed descriptions and clearly labeled identification candidates. Nothing enters reviewed data automatically.</p></div><Button variant="outline" onClick={() => suggest.mutate({ projectId, recordId: record.id })} disabled={suggest.isPending}>{suggest.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}Suggest fields</Button></div></div>}
         </section>
       </div>
     </div>

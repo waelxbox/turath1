@@ -94,7 +94,7 @@ import { getReviewSession, saveReviewSession, createValidationSession, getValida
 import { runResearchAgent } from "./researchAgent";
 import { visualArchivesRouter } from "./visualArchives/router";
 import { getVisualProjectIds, getVisualProjectMode } from "./visualArchives/db";
-import { isVisualArchivesEnabled } from "./visualArchives/config";
+import { isVisualArchivesEnabled, isVisualArchivesPreviewUser } from "./visualArchives/config";
 
 type ProjectRole = "owner" | "editor" | "viewer";
 
@@ -171,6 +171,11 @@ const projectsRouter = router({
       return items.map(project => ({ ...project, archiveMode: "document_transcription" as const }));
     }
     const visualIds = await getVisualProjectIds(items.map(project => project.id));
+    if (!isVisualArchivesPreviewUser(ctx.user)) {
+      return items
+        .filter(project => !visualIds.has(project.id))
+        .map(project => ({ ...project, archiveMode: "document_transcription" as const }));
+    }
     return items.map(project => ({
       ...project,
       archiveMode: visualIds.has(project.id) ? "visual_vra" as const : "document_transcription" as const,
@@ -194,6 +199,9 @@ const projectsRouter = router({
       const project = await getProjectById(input.id, ctx.user.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       const visualMode = isVisualArchivesEnabled() ? await getVisualProjectMode(project.id) : undefined;
+      if (visualMode && !isVisualArchivesPreviewUser(ctx.user)) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
       return {
         ...project,
         archiveMode: visualMode ? "visual_vra" as const : "document_transcription" as const,

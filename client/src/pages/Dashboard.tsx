@@ -166,6 +166,7 @@ export default function Dashboard() {
     enabled: isAuthenticated,
   });
   const { data: visualAvailability } = trpc.visualArchives.availability.useQuery();
+  const canUseVisualArchives = visualAvailability?.enabled === true;
 
   // Auto-start tour for first-time users with no projects
   useEffect(() => {
@@ -255,7 +256,9 @@ export default function Dashboard() {
           <div>
             <h1 className="text-2xl md:text-3xl font-serif font-semibold mb-1">Your projects</h1>
             <p className="text-muted-foreground text-xs md:text-sm">
-              Build searchable document collections and standards-aligned visual archives.
+              {canUseVisualArchives
+                ? "Build searchable document collections and standards-aligned visual archives."
+                : "Build searchable document collections."}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -280,7 +283,9 @@ export default function Dashboard() {
             </div>
             <h3 className="font-serif text-xl font-semibold mb-2">No projects yet</h3>
             <p className="text-muted-foreground text-sm max-w-sm mb-6">
-              Create your first project to transcribe documents or catalog a visual collection.
+              {canUseVisualArchives
+                ? "Create your first project to transcribe documents or catalog a visual collection."
+                : "Create your first project to transcribe and explore documents."}
             </p>
             <div className="flex items-center gap-3">
               <Button onClick={() => setShowCreate(true)} className="gap-2">
@@ -314,7 +319,7 @@ export default function Dashboard() {
             <DialogTitle className="font-serif text-xl">Create a new project</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            {visualAvailability?.enabled && (
+            {canUseVisualArchives && (
               <div className="space-y-2">
                 <Label>Archive type</Label>
                 <div className="grid grid-cols-2 gap-2">

@@ -13,9 +13,9 @@ import {
 import { authenticateRequestUser } from "./context";
 import { ENV } from "./env";
 import { getVisualAsset } from "../visualArchives/db";
-import { isVisualArchivesEnabled } from "../visualArchives/config";
+import { isVisualArchivesEnabled, isVisualArchivesPreviewUser } from "../visualArchives/config";
 
-type AuthenticatedUser = { id: number };
+type AuthenticatedUser = { id: number; email?: string | null };
 type StoredDocument = { storagePath: string; storageUrl: string | null };
 type StoredSample = { imagePath: string };
 type ValidationSession = { projectId: number; documentIds: unknown; status: string };
@@ -28,6 +28,7 @@ type StoredVisualAsset = {
 
 export type StorageProxyDependencies = {
   visualArchivesEnabled: () => boolean;
+  visualArchivesUserAllowed?: (user: AuthenticatedUser) => boolean;
   authenticateUser: (req: Request) => Promise<AuthenticatedUser | null>;
   getProjectRole: (
     projectId: number,
@@ -75,6 +76,7 @@ async function heroDownloadUrl(): Promise<string> {
 
 const defaultDependencies: StorageProxyDependencies = {
   visualArchivesEnabled: isVisualArchivesEnabled,
+  visualArchivesUserAllowed: isVisualArchivesPreviewUser,
   authenticateUser: authenticateRequestUser,
   getProjectRole,
   getDocument: getDocumentById,
@@ -142,6 +144,29 @@ async function authorizeProjectRequest(
   const user = await dependencies.authenticateUser(req);
   if (!user) {
     res.status(401).send("Authentication required");
+    return false;
+  }
+  const role = await dependencies.getProjectRole(projectId, user.id);
+  if (!role) {
+    res.status(404).send("Not found");
+    return false;
+  }
+  return true;
+}
+
+async function authorizeVisualArchiveRequest(
+  req: Request,
+  res: Response,
+  projectId: number,
+  dependencies: StorageProxyDependencies
+): Promise<boolean> {
+  const user = await dependencies.authenticateUser(req);
+  if (!user) {
+    res.status(401).send("Authentication required");
+    return false;
+  }
+  if (!(dependencies.visualArchivesUserAllowed ?? isVisualArchivesPreviewUser)(user)) {
+    res.status(404).send("Not found");
     return false;
   }
   const role = await dependencies.getProjectRole(projectId, user.id);
@@ -229,7 +254,7 @@ export function registerStorageProxy(
       return;
     }
     try {
-      if (!(await authorizeProjectRequest(req, res, projectId, dependencies))) return;
+      if (!(await authorizeVisualArchiveRequest(req, res, projectId, dependencies))) return;
       const asset = await dependencies.getVisualAsset?.(projectId, assetId);
       if (!asset || asset.status !== "ready") {
         res.status(404).send("Not found");

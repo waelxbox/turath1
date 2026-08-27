@@ -11,7 +11,7 @@ import {
   storagePut,
   visualAssetAccessUrl,
 } from "../storage";
-import { isVisualArchivesEnabled } from "./config";
+import { isVisualArchivesEnabled, isVisualArchivesPreviewUser } from "./config";
 import {
   createVisualAsset,
   createVisualProject,
@@ -37,27 +37,27 @@ const recordTypeSchema = z.enum(["collection", "work", "image"]);
 const recordStatusSchema = z.enum(["draft", "needs_review", "approved", "archived"]);
 const reviewedJsonSchema = z.record(z.string(), z.unknown());
 const suggestionFieldSchema = z.enum([
-  "description", "workType", "agents", "dates", "locations", "subjects",
+  "title", "description", "workType", "agents", "dates", "locations", "subjects",
   "culturalContext", "materials", "techniques", "inscriptions", "stylePeriod",
 ]);
 
-function assertFeatureEnabled() {
-  if (!isVisualArchivesEnabled()) {
+function assertFeatureEnabled(user?: { email?: string | null } | null) {
+  if (!isVisualArchivesEnabled() || !isVisualArchivesPreviewUser(user)) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Visual Archives is not enabled" });
   }
 }
 
-async function requireVisualRole(projectId: number, userId: number) {
-  assertFeatureEnabled();
-  const role = await getProjectRole(projectId, userId);
+async function requireVisualRole(projectId: number, user: { id: number; email?: string | null }) {
+  assertFeatureEnabled(user);
+  const role = await getProjectRole(projectId, user.id);
   if (!role) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
   const mode = await getVisualProjectMode(projectId);
   if (!mode) throw new TRPCError({ code: "NOT_FOUND", message: "Visual project not found" });
   return role;
 }
 
-async function requireVisualEditor(projectId: number, userId: number) {
-  const role = await requireVisualRole(projectId, userId);
+async function requireVisualEditor(projectId: number, user: { id: number; email?: string | null }) {
+  const role = await requireVisualRole(projectId, user);
   if (role === "viewer") {
     throw new TRPCError({ code: "FORBIDDEN", message: "Editor access is required" });
   }
@@ -101,36 +101,55 @@ const catalogSuggestionSchema = {
     techniques: { type: "array", items: { type: "string" } },
     inscriptions: { type: "array", items: { type: "string" } },
     stylePeriod: { type: "array", items: { type: "string" } },
+    identificationCandidates: {
+      type: "array",
+      maxItems: 3,
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          classification: { type: "string" },
+          location: { type: "string" },
+          rationale: { type: "string" },
+          confidence: { type: "string", enum: ["high", "medium", "low"] },
+          verificationNote: { type: "string" },
+        },
+        required: ["name", "classification", "location", "rationale", "confidence", "verificationNote"],
+        additionalProperties: false,
+      },
+    },
     confidenceNotes: { type: "string" },
   },
   required: [
     "title", "description", "workType", "agents", "dates", "locations", "subjects",
-    "culturalContext", "materials", "techniques", "inscriptions", "stylePeriod", "confidenceNotes",
+    "culturalContext", "materials", "techniques", "inscriptions", "stylePeriod", "identificationCandidates", "confidenceNotes",
   ],
   additionalProperties: false,
 } as const;
 
 export const visualArchivesRouter = router({
-  availability: publicProcedure.query(() => ({ enabled: isVisualArchivesEnabled() })),
+  availability: publicProcedure.query(({ ctx }) => ({
+    enabled: isVisualArchivesEnabled() && isVisualArchivesPreviewUser(ctx.user),
+  })),
 
   createProject: protectedProcedure
     .input(z.object({ name: z.string().min(1).max(255), description: z.string().max(4000).optional() }))
     .mutation(async ({ ctx, input }) => {
-      assertFeatureEnabled();
+      assertFeatureEnabled(ctx.user);
       return createVisualProject({ userId: ctx.user.id, name: input.name, description: input.description });
     }),
 
   stats: protectedProcedure
     .input(z.object({ projectId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
-      await requireVisualRole(input.projectId, ctx.user.id);
+      await requireVisualRole(input.projectId, ctx.user);
       return getVisualArchiveStats(input.projectId);
     }),
 
   listAssets: protectedProcedure
     .input(z.object({ projectId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
-      await requireVisualRole(input.projectId, ctx.user.id);
+      await requireVisualRole(input.projectId, ctx.user);
       return (await listVisualAssets(input.projectId)).map(safeAssetResponse);
     }),
 
@@ -142,7 +161,7 @@ export const visualArchivesRouter = router({
       fileBase64: z.string().min(1).max(21_000_000),
     }))
     .mutation(async ({ ctx, input }) => {
-      await requireVisualEditor(input.projectId, ctx.user.id);
+      await requireVisualEditor(input.projectId, ctx.user);
       if (!SUPPORTED_MIME_TYPES.has(input.mimeType)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Only JPEG and PNG files are supported" });
       }
@@ -216,7 +235,7 @@ export const visualArchivesRouter = router({
       status: recordStatusSchema.optional(),
     }))
     .query(async ({ ctx, input }) => {
-      await requireVisualRole(input.projectId, ctx.user.id);
+      await requireVisualRole(input.projectId, ctx.user);
       return listVraRecords(input);
     }),
 
@@ -230,7 +249,7 @@ export const visualArchivesRouter = router({
       reviewedJson: reviewedJsonSchema.default({}),
     }))
     .mutation(async ({ ctx, input }) => {
-      await requireVisualEditor(input.projectId, ctx.user.id);
+      await requireVisualEditor(input.projectId, ctx.user);
       if (input.assetId) {
         const asset = await getVisualAsset(input.projectId, input.assetId);
         if (!asset) throw new TRPCError({ code: "NOT_FOUND", message: "Asset not found" });
@@ -260,7 +279,7 @@ export const visualArchivesRouter = router({
       changeSummary: z.string().max(1000).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      await requireVisualEditor(input.projectId, ctx.user.id);
+      await requireVisualEditor(input.projectId, ctx.user);
       const updated = await updateVraRecord({ ...input, userId: ctx.user.id });
       if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Record not found" });
       return updated;
@@ -274,7 +293,7 @@ export const visualArchivesRouter = router({
       relationType: z.string().min(1).max(128),
     }))
     .mutation(async ({ ctx, input }) => {
-      await requireVisualEditor(input.projectId, ctx.user.id);
+      await requireVisualEditor(input.projectId, ctx.user);
       if (input.sourceRecordId === input.targetRecordId) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "A record cannot relate to itself" });
       }
@@ -297,14 +316,14 @@ export const visualArchivesRouter = router({
   listRelations: protectedProcedure
     .input(z.object({ projectId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
-      await requireVisualRole(input.projectId, ctx.user.id);
+      await requireVisualRole(input.projectId, ctx.user);
       return listVraRelations(input.projectId);
     }),
 
   generateSuggestions: protectedProcedure
     .input(z.object({ projectId: z.number().int().positive(), recordId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      await requireVisualEditor(input.projectId, ctx.user.id);
+      await requireVisualEditor(input.projectId, ctx.user);
       const record = await getVraRecord(input.projectId, input.recordId);
       if (!record) throw new TRPCError({ code: "NOT_FOUND", message: "Record not found" });
       if (!record.assetId) throw new TRPCError({ code: "BAD_REQUEST", message: "Attach an image before generating suggestions" });
@@ -317,7 +336,7 @@ export const visualArchivesRouter = router({
         model: "gemini-3.1-pro-preview",
         messages: [{
           role: "system",
-          content: "You are a visual-resources cataloging assistant. Suggest VRA Core-aligned descriptive fields from visible evidence only. Do not invent identities, dates, locations, or cultural attributions. Use empty strings or arrays when evidence is insufficient. Suggestions require human review and are not approved catalog data.",
+          content: "You are a rigorous visual-resources cataloging assistant. Produce useful VRA Core-aligned suggestions, not merely generic scene descriptions. Describe visually grounded architectural, artistic, material, inscriptional, and contextual details with precision. When a distinctive building, monument, work, person, place, or collection appears recognizable from its visual features, use your visual knowledge to propose up to three specific identification candidates. Put every inferential or recognition-based claim in identificationCandidates, explain the visual rationale, assign calibrated high/medium/low confidence, and state what a human cataloger should verify. Do not present a candidate as established fact. Keep uncertain normal fields empty; when a candidate is high confidence, you may also propose a concise, neutral catalog title and location. Do not put labels such as '[Review Required]', confidence qualifiers, or instructions in the title field. Every response is a draft for human review and no suggestion is approved catalog data.",
         }, {
           role: "user",
           content: [
@@ -349,7 +368,7 @@ export const visualArchivesRouter = router({
           model: "gemini-3.1-pro-preview",
           generatedAt: new Date().toISOString(),
           assetId: asset.id,
-          source: "visual-evidence-only",
+          source: "visual-evidence-with-review-required-identification-candidates",
         },
       });
     }),
@@ -358,21 +377,27 @@ export const visualArchivesRouter = router({
     .input(z.object({
       projectId: z.number().int().positive(),
       recordId: z.string().uuid(),
-      acceptedFields: z.array(suggestionFieldSchema).min(1).max(11),
+      acceptedFields: z.array(suggestionFieldSchema).min(1).max(12),
     }))
     .mutation(async ({ ctx, input }) => {
-      await requireVisualEditor(input.projectId, ctx.user.id);
+      await requireVisualEditor(input.projectId, ctx.user);
       const record = await getVraRecord(input.projectId, input.recordId);
       if (!record) throw new TRPCError({ code: "NOT_FOUND", message: "Record not found" });
       const reviewed = { ...(record.reviewedJson as Record<string, unknown>) };
       const suggestions = record.aiSuggestedJson as Record<string, unknown>;
+      let acceptedTitle: string | undefined;
       for (const field of input.acceptedFields) {
+        if (field === "title" && typeof suggestions.title === "string" && suggestions.title.trim()) {
+          acceptedTitle = suggestions.title.trim();
+          continue;
+        }
         if (Object.prototype.hasOwnProperty.call(suggestions, field)) reviewed[field] = suggestions[field];
       }
       return updateVraRecord({
         projectId: input.projectId,
         recordId: input.recordId,
         userId: ctx.user.id,
+        ...(acceptedTitle ? { title: acceptedTitle } : {}),
         reviewedJson: reviewed,
         status: "draft",
         changeSummary: `Accepted AI suggestions: ${input.acceptedFields.join(", ")}`,
