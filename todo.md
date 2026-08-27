@@ -784,4 +784,6 @@
 - [x] Add manual VRA Collection, Work, and Image creation/editing/approval before enabling AI suggestions
 - [x] Store `aiSuggestedJson` separately from `reviewedJson` and require explicit field-level acceptance
 - [x] Add cross-tenant, role, migration, asset lifecycle, VRA validation, and browser workflow tests for the visual MVP
-- [ ] Apply `0011_visual_archives_mvp.sql` to TURATH’s actual Supabase PostgreSQL database, enable the feature in staging, and run credentialed upload/AI/storage smoke tests
+- [x] Apply `0011_visual_archives_mvp.sql` to TURATH’s actual Supabase PostgreSQL database, enable the feature in staging, and run credentialed upload/AI/storage smoke tests
+- [x] Verify the live Supabase visual tables and RLS policies, then run a controlled staging smoke test with an explicitly authorized test account
+- [ ] Introduce a non-BYPASSRLS runtime database role and explicit project-membership RLS policies before treating database RLS as an independent tenant-isolation control
