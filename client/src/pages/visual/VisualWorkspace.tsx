@@ -97,6 +97,21 @@ const CATALOG_FIELDS = [
   ["stylePeriod", "Style / period"],
 ] as const;
 
+type SuggestionField = "title" | (typeof CATALOG_FIELDS)[number][0];
+
+function suggestionReviewFields(
+  provenance: unknown,
+  key: "acceptedFields" | "rejectedFields",
+): Set<SuggestionField> {
+  if (!provenance || typeof provenance !== "object") return new Set();
+  const value = (provenance as Record<string, unknown>)[key];
+  if (!Array.isArray(value)) return new Set();
+  const valid = new Set<string>(["title", ...CATALOG_FIELDS.map(([field]) => field)]);
+  return new Set(value.filter(
+    (field): field is SuggestionField => typeof field === "string" && valid.has(field),
+  ));
+}
+
 function statusBadge(status: string) {
   if (status === "approved") return <Badge className="rounded-full border border-emerald-700/15 bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100">Approved</Badge>;
   if (status === "needs_review") return <Badge className="rounded-full border border-amber-700/15 bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-100">Needs review</Badge>;
@@ -165,6 +180,19 @@ function isTransientVisualUploadError(error: unknown): boolean {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise(resolve => window.setTimeout(resolve, milliseconds));
+}
+
+function mergeUniquePages<T extends { id: string }>(
+  current: T[][],
+  incoming: T[],
+  append: boolean,
+): T[][] {
+  if (!append) return [incoming];
+  const incomingById = new Map(incoming.map(item => [item.id, item]));
+  const updated = current.map(page => page.map(item => incomingById.get(item.id) ?? item));
+  const knownIds = new Set(updated.flat().map(item => item.id));
+  const additions = incoming.filter(item => !knownIds.has(item.id));
+  return additions.length > 0 ? [...updated, additions] : updated;
 }
 
 function VisualShell({ project, children }: { project: VisualProject; children: React.ReactNode }) {
@@ -289,7 +317,7 @@ function AssetsPage({ projectId, canEdit }: { projectId: number; canEdit: boolea
 
   useEffect(() => {
     if (!assetPageQuery.data) return;
-    setAssetPages(current => assetCursor ? [...current, assetPageQuery.data.items as VisualAsset[]] : [assetPageQuery.data.items as VisualAsset[]]);
+    setAssetPages(current => mergeUniquePages(current, assetPageQuery.data.items as VisualAsset[], Boolean(assetCursor)));
   }, [assetPageQuery.data, assetCursor]);
 
   useEffect(() => {
@@ -310,12 +338,16 @@ function AssetsPage({ projectId, canEdit }: { projectId: number; canEdit: boolea
     if (selectedFiles.length === 0) return;
     setBatch({ total: selectedFiles.length, completed: 0, failed: 0, active: 0, running: true });
     setFailedFiles([]);
+    let succeededCount = 0;
+    let failedCount = 0;
+    let duplicateCount = 0;
+    let suggestionsPendingCount = 0;
     const uploadOne = async (file: File) => {
       let succeeded = false;
       if (!["image/jpeg", "image/png"].includes(file.type)) {
-        toast.error(`${file.name}: only JPEG and PNG are supported`);
+        setFailedFiles(current => [...current, `${file.name} (JPEG or PNG required)`]);
       } else if (file.size > 15 * 1024 * 1024) {
-        toast.error(`${file.name}: file must be 15 MB or smaller`);
+        setFailedFiles(current => [...current, `${file.name} (larger than 15 MB)`]);
       } else {
         try {
           setBatch(current => ({ ...current, active: current.active + 1 }));
@@ -334,20 +366,17 @@ function AssetsPage({ projectId, canEdit }: { projectId: number; canEdit: boolea
           }
           if (!result) throw lastError instanceof Error ? lastError : new Error("Could not upload image");
           succeeded = true;
-          toast.success(
-            result.autoCatalog.suggestionStatus === "already_present"
-              ? `${file.name}: already cataloged; restored to your review workflow`
-              : result.autoCatalog.suggestionStatus === "generated"
-                ? `${file.name}: Image record and AI draft ready for review`
-                : `${file.name}: Image record ready for review; AI suggestions can be retried`,
-          );
+          succeededCount += 1;
+          if (result.autoCatalog.suggestionStatus === "already_present") duplicateCount += 1;
+          if (result.autoCatalog.suggestionStatus === "pending_review") suggestionsPendingCount += 1;
         } catch (error) {
-          toast.error(error instanceof Error ? error.message : `Could not upload ${file.name}`);
-          setFailedFiles(current => [...current, file.name]);
+          const reason = error instanceof Error ? error.message : "upload failed";
+          setFailedFiles(current => [...current, `${file.name} (${reason})`]);
         } finally {
           setBatch(current => ({ ...current, active: Math.max(0, current.active - 1) }));
         }
       }
+      if (!succeeded) failedCount += 1;
       setBatch(current => ({
         ...current,
         completed: current.completed + 1,
@@ -363,8 +392,7 @@ function AssetsPage({ projectId, canEdit }: { projectId: number; canEdit: boolea
     };
     // Two concurrent image+Gemini operations keep the preview responsive and avoid a burst of premium model calls.
     await Promise.all(Array.from({ length: Math.min(2, selectedFiles.length) }, worker));
-    setBatch(current => ({ ...current, running: false }));
-    await Promise.all([
+    await Promise.allSettled([
       utils.visualArchives.listAssets.invalidate({ projectId }),
       utils.visualArchives.listAssetsPage.invalidate({ projectId }),
       utils.visualArchives.listRecords.invalidate({ projectId }),
@@ -373,7 +401,16 @@ function AssetsPage({ projectId, canEdit }: { projectId: number; canEdit: boolea
     ]);
     setAssetCursor(undefined);
     setAssetPages([]);
+    setBatch(current => ({ ...current, running: false }));
     if (inputRef.current) inputRef.current.value = "";
+    if (succeededCount > 0) {
+      const details = [
+        duplicateCount > 0 ? `${duplicateCount} already cataloged` : "",
+        suggestionsPendingCount > 0 ? `${suggestionsPendingCount} awaiting suggestion retry` : "",
+      ].filter(Boolean).join(" · ");
+      toast.success(`${succeededCount} image${succeededCount === 1 ? "" : "s"} ready for review${details ? ` · ${details}` : ""}`);
+    }
+    if (failedCount > 0) toast.error(`${failedCount} image${failedCount === 1 ? "" : "s"} could not be cataloged. Review the batch details and retry those files.`);
   };
 
   return (
@@ -389,7 +426,7 @@ function AssetsPage({ projectId, canEdit }: { projectId: number; canEdit: boolea
               </div>
               <div className="p-3">
                 <div className="truncate text-sm font-medium" title={asset.filename}>{asset.filename}</div>
-                <div className="mt-1 text-xs text-muted-foreground">{asset.width} × {asset.height} · {(asset.byteSize / 1024 / 1024).toFixed(1)} MB</div>
+                <div className="mt-1 text-xs text-muted-foreground">{asset.width && asset.height ? `${asset.width} × ${asset.height}` : "Dimensions pending"} · {(asset.byteSize / 1024 / 1024).toFixed(1)} MB</div>
                 <div className="mt-3 flex items-center justify-between">
                   <Badge variant={asset.status === "ready" ? "outline" : "secondary"}>{asset.status}</Badge>
                   {asset.status === "ready" && <span className="text-xs text-muted-foreground">Image record created automatically</span>}
@@ -414,12 +451,16 @@ function CatalogPage({ projectId, canEdit }: { projectId: number; canEdit: boole
   const [assetId, setAssetId] = useState("");
   const [filter, setFilter] = useState<"all" | "collection" | "work" | "image">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "needs_review" | "approved" | "draft" | "archived">("all");
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [cursor, setCursor] = useState<PageCursor | undefined>();
   const [pages, setPages] = useState<VisualRecordListItem[][]>([]);
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
+  const [selectedRecordTypes, setSelectedRecordTypes] = useState<Record<string, VisualRecordListItem["recordType"]>>({});
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [lastBulkChange, setLastBulkChange] = useState<Array<{ id: string; status: VisualRecordListItem["status"] }> | null>(null);
+  const [bulkOperation, setBulkOperation] = useState<"updating" | "undoing" | null>(null);
+  const bulkOperationLocked = useRef(false);
   const [workRecordId, setWorkRecordId] = useState("");
   const [newWorkTitle, setNewWorkTitle] = useState("");
   const [groupingSuggestion, setGroupingSuggestion] = useState<GroupingSuggestion | null>(null);
@@ -442,19 +483,31 @@ function CatalogPage({ projectId, canEdit }: { projectId: number; canEdit: boole
     limit: 500,
   }, { enabled: false });
   const records = pages.flat();
-  const selectedImages = records.filter(record => selectedRecordIds.includes(record.id) && record.recordType === "image");
+  const selectedImageIds = selectedRecordIds.filter(id => selectedRecordTypes[id] === "image");
   const selectedCount = selectedRecordIds.length;
 
   const resetCatalog = useCallback(() => {
     setCursor(undefined);
     setPages([]);
     setSelectedRecordIds([]);
+    setSelectedRecordTypes({});
   }, []);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => window.clearTimeout(timeout);
+  }, [searchInput]);
 
   useEffect(() => { resetCatalog(); }, [projectId, filter, statusFilter, search, resetCatalog]);
   useEffect(() => {
+    setLastBulkChange(null);
+    setShowCreate(false);
+    setShowGroup(false);
+    setGroupingSuggestion(null);
+  }, [projectId]);
+  useEffect(() => {
     if (!catalogPage.data) return;
-    setPages(current => cursor ? [...current, catalogPage.data.items as VisualRecordListItem[]] : [catalogPage.data.items as VisualRecordListItem[]]);
+    setPages(current => mergeUniquePages(current, catalogPage.data.items as VisualRecordListItem[], Boolean(cursor)));
   }, [catalogPage.data, cursor]);
 
   const create = trpc.visualArchives.createRecord.useMutation({
@@ -465,14 +518,7 @@ function CatalogPage({ projectId, canEdit }: { projectId: number; canEdit: boole
     },
     onError: error => toast.error(error.message),
   });
-  const bulkStatus = trpc.visualArchives.bulkSetRecordStatus.useMutation({
-    onSuccess: async result => {
-      toast.success(`${result.updated} record${result.updated === 1 ? "" : "s"} updated`);
-      resetCatalog();
-      await Promise.all([utils.visualArchives.listRecords.invalidate(), utils.visualArchives.listRecordsPage.invalidate(), utils.visualArchives.stats.invalidate({ projectId })]);
-    },
-    onError: error => toast.error(error.message),
-  });
+  const bulkStatus = trpc.visualArchives.bulkSetRecordStatus.useMutation();
   const groupExisting = trpc.visualArchives.linkImagesToWork.useMutation({
     onSuccess: async result => {
       toast.success(`${result.linked} Image record${result.linked === 1 ? "" : "s"} linked to this Work`);
@@ -484,7 +530,7 @@ function CatalogPage({ projectId, canEdit }: { projectId: number; canEdit: boole
   const createWorkAndGroup = trpc.visualArchives.createRecord.useMutation({
     onSuccess: async work => {
       try {
-        await groupExisting.mutateAsync({ projectId, workRecordId: work.id, imageRecordIds: selectedImages.map(record => record.id) });
+        await groupExisting.mutateAsync({ projectId, workRecordId: work.id, imageRecordIds: selectedImageIds });
       } catch {
         toast.error("The Work was created, but one or more Images could not be linked. You can link them from Relationships.");
       }
@@ -498,47 +544,119 @@ function CatalogPage({ projectId, canEdit }: { projectId: number; canEdit: boole
     },
     onError: error => toast.error(error.message),
   });
-  const toggleSelection = (recordId: string) => setSelectedRecordIds(current => current.includes(recordId) ? current.filter(id => id !== recordId) : [...current, recordId]);
-  const selectPage = () => setSelectedRecordIds(current => Array.from(new Set([...current, ...records.map(record => record.id)])));
+  const clearSelection = () => {
+    setSelectedRecordIds([]);
+    setSelectedRecordTypes({});
+  };
+  const toggleSelection = (recordId: string) => {
+    const record = records.find(item => item.id === recordId);
+    const removing = selectedRecordIds.includes(recordId);
+    setSelectedRecordIds(current => removing ? current.filter(id => id !== recordId) : [...current, recordId]);
+    setSelectedRecordTypes(current => {
+      if (!removing && record) return { ...current, [recordId]: record.recordType };
+      const next = { ...current };
+      delete next[recordId];
+      return next;
+    });
+  };
+  const selectPage = () => {
+    setSelectedRecordIds(current => Array.from(new Set([...current, ...records.map(record => record.id)])));
+    setSelectedRecordTypes(current => ({
+      ...current,
+      ...Object.fromEntries(records.map(record => [record.id, record.recordType])),
+    }));
+  };
   const selectFiltered = async () => {
-    const result = await matchingRecordIds.refetch();
-    const ids = result.data?.map(record => record.id) ?? [];
-    setSelectedRecordIds(ids);
-    toast.success(`Selected ${ids.length} matching record${ids.length === 1 ? "" : "s"}${ids.length === 500 ? " (first 500)" : ""}`);
+    try {
+      const result = await matchingRecordIds.refetch();
+      const matchedRecords = result.data ?? [];
+      const ids = matchedRecords.map(record => record.id);
+      setSelectedRecordIds(ids);
+      setSelectedRecordTypes(Object.fromEntries(matchedRecords.map(record => [record.id, record.recordType])));
+      toast.success(`Selected ${ids.length} matching record${ids.length === 1 ? "" : "s"}${ids.length === 500 ? " (first 500)" : ""}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not select the matching records");
+    }
+  };
+  const refreshCatalog = async () => {
+    resetCatalog();
+    await Promise.all([
+      utils.visualArchives.listRecords.invalidate(),
+      utils.visualArchives.listRecordsPage.invalidate(),
+      utils.visualArchives.searchReviewedCatalog.invalidate(),
+      utils.visualArchives.stats.invalidate({ projectId }),
+    ]);
   };
   const applyBulkStatus = async (status: VisualRecordListItem["status"]) => {
-    const loadedStates = new Map(records.map(record => [record.id, record.status]));
-    let before = selectedRecordIds.map(id => ({ id, status: loadedStates.get(id) })).filter((record): record is { id: string; status: VisualRecordListItem["status"] } => Boolean(record.status));
-    if (before.length !== selectedRecordIds.length) {
-      const matching = await matchingRecordIds.refetch();
-      const states = new Map((matching.data ?? []).map(record => [record.id, record.status]));
-      before = selectedRecordIds.map(id => ({ id, status: states.get(id) })).filter((record): record is { id: string; status: VisualRecordListItem["status"] } => Boolean(record.status));
-    }
+    if (selectedRecordIds.length === 0 || bulkOperationLocked.current) return;
+    bulkOperationLocked.current = true;
+    setBulkOperation("updating");
+    const updatedIds: string[] = [];
+    let before: Array<{ id: string; status: VisualRecordListItem["status"] }> = [];
     try {
+      const loadedStates = new Map(records.map(record => [record.id, record.status]));
+      before = selectedRecordIds.map(id => ({ id, status: loadedStates.get(id) })).filter((record): record is { id: string; status: VisualRecordListItem["status"] } => Boolean(record.status));
+      if (before.length !== selectedRecordIds.length) {
+        const matching = await matchingRecordIds.refetch();
+        const states = new Map((matching.data ?? []).map(record => [record.id, record.status]));
+        before = selectedRecordIds.map(id => ({ id, status: states.get(id) })).filter((record): record is { id: string; status: VisualRecordListItem["status"] } => Boolean(record.status));
+      }
+      if (before.length !== selectedRecordIds.length) throw new Error("Some selected records are no longer available. Refresh the catalog and try again.");
       for (let index = 0; index < selectedRecordIds.length; index += 100) {
-        await bulkStatus.mutateAsync({ projectId, recordIds: selectedRecordIds.slice(index, index + 100), status });
+        const recordIds = selectedRecordIds.slice(index, index + 100);
+        await bulkStatus.mutateAsync({ projectId, recordIds, status });
+        updatedIds.push(...recordIds);
       }
       setLastBulkChange(before.length === selectedRecordIds.length ? before : null);
-    } catch {
-      // Mutation-level feedback already explains the failed request.
+      toast.success(`${updatedIds.length} record${updatedIds.length === 1 ? "" : "s"} updated`);
+      await refreshCatalog().catch(() => undefined);
+    } catch (error) {
+      const updated = new Set(updatedIds);
+      const partialBefore = before.filter(record => updated.has(record.id));
+      setLastBulkChange(partialBefore.length > 0 ? partialBefore : null);
+      toast.error(updatedIds.length > 0
+        ? `${updatedIds.length} records changed before the operation stopped. You can undo that partial change.`
+        : error instanceof Error ? error.message : "The bulk update failed");
+      await refreshCatalog().catch(() => undefined);
+    } finally {
+      bulkOperationLocked.current = false;
+      setBulkOperation(null);
     }
   };
   const undoBulkStatus = async () => {
-    if (!lastBulkChange?.length) return;
+    if (!lastBulkChange?.length || bulkOperationLocked.current) return;
+    bulkOperationLocked.current = true;
+    setBulkOperation("undoing");
     const grouped = lastBulkChange.reduce<Record<string, string[]>>((groups, record) => {
       groups[record.status] = [...(groups[record.status] ?? []), record.id];
       return groups;
     }, {});
+    let restored = 0;
+    const restoredIds = new Set<string>();
     try {
       for (const [status, ids] of Object.entries(grouped)) {
         for (let index = 0; index < ids.length; index += 100) {
-          await bulkStatus.mutateAsync({ projectId, recordIds: ids.slice(index, index + 100), status: status as VisualRecordListItem["status"] });
+          const recordIds = ids.slice(index, index + 100);
+          await bulkStatus.mutateAsync({ projectId, recordIds, status: status as VisualRecordListItem["status"] });
+          restored += recordIds.length;
+          recordIds.forEach(id => restoredIds.add(id));
         }
       }
-      toast.success("Bulk status change undone");
+      toast.success(`${restored} record${restored === 1 ? "" : "s"} restored`);
       setLastBulkChange(null);
-    } catch {
-      // Mutation-level feedback already explains the failed request.
+      await refreshCatalog().catch(() => undefined);
+    } catch (error) {
+      setLastBulkChange(current => {
+        const remaining = (current ?? []).filter(record => !restoredIds.has(record.id));
+        return remaining.length > 0 ? remaining : null;
+      });
+      toast.error(restored > 0
+        ? `${restored} records were restored before undo stopped. Retry to finish the remaining records.`
+        : error instanceof Error ? error.message : "Undo failed");
+      await refreshCatalog().catch(() => undefined);
+    } finally {
+      bulkOperationLocked.current = false;
+      setBulkOperation(null);
     }
   };
 
@@ -547,16 +665,17 @@ function CatalogPage({ projectId, canEdit }: { projectId: number; canEdit: boole
       <VisualPageHeading eyebrow="VRA Core 4" title="Catalog" description="Collections contain Works; Images document Works. Approved catalog data stays distinct from AI suggestions." actions={canEdit ? <Button className="gap-2" onClick={() => setShowCreate(true)}><Plus className="h-4 w-4" /> New record</Button> : undefined} />
       <div className="sticky top-16 z-20 -mx-4 border-y border-border bg-background/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap gap-1">{(["all", "collection", "work", "image"] as const).map(value => <button key={value} onClick={() => setFilter(value)} className={`px-3 py-2 text-sm capitalize ${filter === value ? "border-b-2 border-primary font-medium text-primary" : "text-muted-foreground hover:text-foreground"}`}>{value}</button>)}</div><div className="flex gap-1 rounded-md border border-border p-1"><Button size="sm" variant={viewMode === "grid" ? "secondary" : "ghost"} onClick={() => setViewMode("grid")}>Grid</Button><Button size="sm" variant={viewMode === "list" ? "secondary" : "ghost"} onClick={() => setViewMode("list")}>List</Button></div></div>
-        <div className="mt-3 grid gap-3 md:grid-cols-[1fr_190px_auto]"><Input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search catalog titles…" aria-label="Search catalog titles" /><select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)} className="h-10 rounded-md border border-input bg-background px-3 text-sm"><option value="all">All review states</option><option value="needs_review">Needs review</option><option value="approved">Approved</option><option value="draft">Draft</option><option value="archived">Archived</option></select>{canEdit && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={selectPage} disabled={records.length === 0}>Select page</Button><Button size="sm" variant="outline" onClick={() => void selectFiltered()} disabled={matchingRecordIds.isFetching}>Select all</Button></div>}</div>
+        <div className="mt-3 grid gap-3 md:grid-cols-[1fr_190px_auto]"><Input value={searchInput} onChange={event => setSearchInput(event.target.value)} placeholder="Search catalog titles…" aria-label="Search catalog titles" /><select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)} className="h-10 rounded-md border border-input bg-background px-3 text-sm"><option value="all">All review states</option><option value="needs_review">Needs review</option><option value="approved">Approved</option><option value="draft">Draft</option><option value="archived">Archived</option></select>{canEdit && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={selectPage} disabled={records.length === 0}>Select loaded</Button><Button size="sm" variant="outline" onClick={() => void selectFiltered()} disabled={matchingRecordIds.isFetching}>{matchingRecordIds.isFetching ? "Selecting…" : "Select all matches"}</Button></div>}</div>
       </div>
-      {canEdit && selectedCount > 0 && <div className="sticky top-[13.25rem] z-10 flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary px-4 py-3 text-primary-foreground shadow-md sm:top-[10.25rem] md:top-[8.5rem]"><span className="mr-2 text-sm font-medium">{selectedCount} selected</span><Button size="sm" variant="secondary" onClick={() => void applyBulkStatus("needs_review")} disabled={bulkStatus.isPending}>Needs review</Button><Button size="sm" variant="secondary" onClick={() => void applyBulkStatus("approved")} disabled={bulkStatus.isPending}>Approve</Button>{selectedImages.length > 0 && <Button size="sm" variant="secondary" onClick={() => { setGroupingSuggestion(null); setShowGroup(true); }} disabled={groupExisting.isPending || createWorkAndGroup.isPending}>Organize {selectedImages.length} image{selectedImages.length === 1 ? "" : "s"} as a Work</Button>}{lastBulkChange && <Button size="sm" variant="ghost" className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground" onClick={() => void undoBulkStatus()} disabled={bulkStatus.isPending}>Undo</Button>}<Button size="sm" variant="ghost" className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground" onClick={() => setSelectedRecordIds([])}>Clear</Button></div>}
+      {canEdit && selectedCount > 0 && <div className="sticky top-[13.25rem] z-10 flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary px-4 py-3 text-primary-foreground shadow-md sm:top-[10.25rem] md:top-[8.5rem]"><span className="mr-2 text-sm font-medium">{bulkOperation === "updating" ? "Updating selected records…" : `${selectedCount} selected`}</span><Button size="sm" variant="secondary" onClick={() => void applyBulkStatus("needs_review")} disabled={Boolean(bulkOperation)}>Needs review</Button><Button size="sm" variant="secondary" onClick={() => void applyBulkStatus("approved")} disabled={Boolean(bulkOperation)}>Approve</Button>{selectedImageIds.length > 0 && <Button size="sm" variant="secondary" onClick={() => { setGroupingSuggestion(null); setShowGroup(true); }} disabled={Boolean(bulkOperation) || groupExisting.isPending || createWorkAndGroup.isPending}>Organize {selectedImageIds.length} image{selectedImageIds.length === 1 ? "" : "s"} as a Work</Button>}{lastBulkChange && <Button size="sm" variant="ghost" className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground" onClick={() => void undoBulkStatus()} disabled={Boolean(bulkOperation)}>Undo</Button>}<Button size="sm" variant="ghost" className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground" onClick={clearSelection} disabled={Boolean(bulkOperation)}>Clear</Button></div>}
+      {canEdit && lastBulkChange?.length && selectedCount === 0 ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/25 bg-primary/5 px-4 py-3 text-sm"><span>{lastBulkChange.length} catalog record{lastBulkChange.length === 1 ? " was" : "s were"} changed. You can restore the previous review state.</span><Button size="sm" variant="outline" onClick={() => void undoBulkStatus()} disabled={Boolean(bulkOperation)}>{bulkOperation === "undoing" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Undo bulk change</Button></div> : null}
       {catalogPage.isLoading && records.length === 0 ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">{Array.from({ length: 10 }, (_, index) => <div key={index} className="animate-pulse overflow-hidden rounded-lg border border-border bg-card"><div className="aspect-[4/3] bg-muted" /><div className="space-y-2 p-3"><div className="h-3 w-3/4 bg-muted" /><div className="h-2.5 w-1/2 bg-muted" /></div></div>)}</div> : records.length === 0 ? <VisualEmptyState icon={Images} title="No matching catalog records" description="Adjust the filters, search another title, or upload images to create review records automatically." action={canEdit ? <Link href="/assets"><Button><Upload className="mr-2 h-4 w-4" />Open intake</Button></Link> : undefined} /> : viewMode === "grid" ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"><div className="col-span-full flex items-center justify-between text-xs text-muted-foreground"><span>Click a card to review. Select Images to organize them under a Work or site.</span><span>{selectedCount ? `${selectedCount} selected` : "No selection"}</span></div>{records.map(record => <article key={record.id} className={`group overflow-hidden rounded-lg border bg-card transition-colors ${selectedRecordIds.includes(record.id) ? "border-primary ring-1 ring-primary" : "border-border hover:border-primary/60"}`}><div className="relative aspect-[4/3] bg-slate-100 dark:bg-slate-900">{record.asset?.thumbnailUrl ? <img src={record.asset.thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <div className="flex h-full items-center justify-center"><LibraryBig className="h-7 w-7 text-muted-foreground" /></div>}{canEdit && <label className="absolute left-2 top-2 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-border/60 bg-background/90 shadow-sm"><input type="checkbox" aria-label={`Select ${record.title}`} checked={selectedRecordIds.includes(record.id)} onChange={() => toggleSelection(record.id)} className="h-4 w-4" /></label>}<div className="absolute bottom-2 right-2">{statusBadge(record.status)}</div></div><Link href={`/records/${record.id}`} className="block p-3"><p className="truncate text-sm font-medium group-hover:text-primary">{record.title}</p><p className="mt-1 truncate text-xs text-muted-foreground capitalize">{record.recordType}{record.localIdentifier ? ` · ${record.localIdentifier}` : ""}</p><p className="mt-2 text-[11px] text-muted-foreground">Revision {record.revision}</p></Link></article>)}</div> : <div className="divide-y divide-border rounded-lg border border-border bg-card">{records.map(record => <div key={record.id} className={`grid grid-cols-[auto_52px_1fr_auto] items-center gap-3 px-3 py-3 transition-colors ${selectedRecordIds.includes(record.id) ? "bg-primary/5" : "hover:bg-muted/40"}`}><input type="checkbox" aria-label={`Select ${record.title}`} checked={selectedRecordIds.includes(record.id)} onChange={() => toggleSelection(record.id)} disabled={!canEdit} /><div className="flex h-12 w-12 overflow-hidden rounded-md bg-slate-100 dark:bg-slate-900">{record.asset?.thumbnailUrl ? <img src={record.asset.thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <span className="m-auto"><LibraryBig className="h-4 w-4 text-muted-foreground" /></span>}</div><Link href={`/records/${record.id}`} className="min-w-0 hover:text-primary"><div className="truncate font-medium">{record.title}</div><div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground"><span className="capitalize">{record.recordType}</span>{record.localIdentifier && <><span>·</span><span>{record.localIdentifier}</span></>}<span>·</span><span>rev. {record.revision}</span></div></Link><div className="flex items-center gap-3">{statusBadge(record.status)}<ChevronRight className="h-4 w-4" /></div></div>)}</div>}
       {records.length > 0 && <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground"><span>Showing {records.length} of {catalogPage.data?.total ?? records.length} records</span>{catalogPage.data?.nextCursor && <Button variant="outline" onClick={() => setCursor(catalogPage.data?.nextCursor ?? undefined)} disabled={catalogPage.isFetching}>{catalogPage.isFetching && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Load more</Button>}</div>}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent><DialogHeader><DialogTitle className="font-serif">Create VRA record</DialogTitle></DialogHeader><div className="space-y-4 py-2"><div className="space-y-1.5"><Label>Record type</Label><select value={recordType} onChange={event => setRecordType(event.target.value as typeof recordType)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="collection">Collection</option><option value="work">Work</option><option value="image">Image</option></select></div><div className="space-y-1.5"><Label>Title</Label><Input value={title} onChange={event => setTitle(event.target.value)} placeholder="Untitled photograph, architectural work, collection..." /></div><div className="space-y-1.5"><Label>Local identifier</Label><Input value={localIdentifier} onChange={event => setLocalIdentifier(event.target.value)} placeholder="Optional accession or local ID" /></div>{recordType === "image" && <div className="space-y-1.5"><Label>Visual asset</Label><select value={assetId} onChange={event => setAssetId(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="">No asset attached</option>{(assets?.items ?? []).filter(item => item.status === "ready").map(item => <option key={item.id} value={item.id}>{item.filename}</option>)}</select></div>}</div><DialogFooter><Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button><Button onClick={() => create.mutate({ projectId, recordType, title, localIdentifier: localIdentifier || undefined, assetId: assetId || undefined, reviewedJson: {} })} disabled={!title.trim() || create.isPending}>{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create record</Button></DialogFooter></DialogContent>
       </Dialog>
       <Dialog open={showGroup} onOpenChange={setShowGroup}>
-        <DialogContent><DialogHeader><DialogTitle className="font-serif">Organize selected Images as one Work or site</DialogTitle></DialogHeader><div className="space-y-4 py-2"><p className="text-sm text-muted-foreground">This creates reviewed Work → Image links. It never merges, deletes, or replaces the selected Image records.</p><div className="border-y border-amber-500/30 bg-amber-500/5 px-3 py-3"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-medium">Compare selected Images</p><p className="mt-1 text-xs text-muted-foreground">Gemini may identify a common Work, site, or duplicate. It cannot create links or change metadata.</p></div><Button size="sm" variant="outline" onClick={() => suggestGrouping.mutate({ projectId, imageRecordIds: selectedImages.map(record => record.id) })} disabled={suggestGrouping.isPending || selectedImages.length < 2}>{suggestGrouping.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Compare with AI</Button></div>{groupingSuggestion && <div className="mt-3 border-t border-amber-500/20 pt-3 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><p className="font-medium capitalize">Possible relationship: {groupingSuggestion.relationship.replace(/_/g, " ")}</p><Badge variant="outline" className="capitalize">{groupingSuggestion.confidence} confidence</Badge></div>{groupingSuggestion.proposedWorkTitle && <div className="mt-2 flex flex-wrap items-center justify-between gap-2"><p><span className="font-medium">Candidate Work:</span> {groupingSuggestion.proposedWorkTitle}</p><Button size="sm" variant="ghost" className="h-7 px-0 text-xs text-primary" onClick={() => { setNewWorkTitle(groupingSuggestion.proposedWorkTitle); setWorkRecordId(""); }}>Use proposed title</Button></div>}<p className="mt-2 leading-relaxed">{groupingSuggestion.rationale}</p><p className="mt-2 text-xs text-muted-foreground"><span className="font-medium text-foreground">Verify:</span> {groupingSuggestion.verificationNote}</p></div>}</div><div className="space-y-1.5"><Label>Link to an existing Work</Label><select value={workRecordId} onChange={event => { setWorkRecordId(event.target.value); setNewWorkTitle(""); }} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="">Choose a Work</option>{(worksPage?.items ?? []).map(work => <option key={work.id} value={work.id}>{work.title}</option>)}</select></div><div className="relative py-1 text-center text-xs uppercase tracking-[0.16em] text-muted-foreground before:absolute before:left-0 before:top-1/2 before:h-px before:w-[43%] before:bg-border after:absolute after:right-0 after:top-1/2 after:h-px after:w-[43%] after:bg-border">or</div><div className="space-y-1.5"><Label>Create a new Work or site</Label><Input value={newWorkTitle} onChange={event => { setNewWorkTitle(event.target.value); setWorkRecordId(""); }} placeholder="e.g. Nasir al-Mulk Mosque, Shiraz" /></div></div><DialogFooter><Button variant="outline" onClick={() => setShowGroup(false)}>Cancel</Button>{workRecordId ? <Button onClick={() => groupExisting.mutate({ projectId, workRecordId, imageRecordIds: selectedImages.map(record => record.id) })} disabled={groupExisting.isPending}>{groupExisting.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Link Images</Button> : <Button onClick={() => createWorkAndGroup.mutate({ projectId, recordType: "work", title: newWorkTitle, reviewedJson: {} })} disabled={!newWorkTitle.trim() || createWorkAndGroup.isPending}>{createWorkAndGroup.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Work and link Images</Button>}</DialogFooter></DialogContent>
+        <DialogContent><DialogHeader><DialogTitle className="font-serif">Organize selected Images as one Work or site</DialogTitle></DialogHeader><div className="space-y-4 py-2"><p className="text-sm text-muted-foreground">This creates reviewed Work → Image links. It never merges, deletes, or replaces the selected Image records.</p><div className="border-y border-amber-500/30 bg-amber-500/5 px-3 py-3"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-medium">Compare selected Images</p><p className="mt-1 text-xs text-muted-foreground">Gemini may identify a common Work, site, or duplicate. It cannot create links or change metadata.</p></div><Button size="sm" variant="outline" onClick={() => suggestGrouping.mutate({ projectId, imageRecordIds: selectedImageIds })} disabled={suggestGrouping.isPending || selectedImageIds.length < 2}>{suggestGrouping.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Compare with AI</Button></div>{groupingSuggestion && <div className="mt-3 border-t border-amber-500/20 pt-3 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><p className="font-medium capitalize">Possible relationship: {groupingSuggestion.relationship.replace(/_/g, " ")}</p><Badge variant="outline" className="capitalize">{groupingSuggestion.confidence} confidence</Badge></div>{groupingSuggestion.proposedWorkTitle && <div className="mt-2 flex flex-wrap items-center justify-between gap-2"><p><span className="font-medium">Candidate Work:</span> {groupingSuggestion.proposedWorkTitle}</p><Button size="sm" variant="ghost" className="h-7 px-0 text-xs text-primary" onClick={() => { setNewWorkTitle(groupingSuggestion.proposedWorkTitle); setWorkRecordId(""); }}>Use proposed title</Button></div>}<p className="mt-2 leading-relaxed">{groupingSuggestion.rationale}</p><p className="mt-2 text-xs text-muted-foreground"><span className="font-medium text-foreground">Verify:</span> {groupingSuggestion.verificationNote}</p></div>}</div><div className="space-y-1.5"><Label>Link to an existing Work</Label><select value={workRecordId} onChange={event => { setWorkRecordId(event.target.value); setNewWorkTitle(""); }} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="">Choose a Work</option>{(worksPage?.items ?? []).map(work => <option key={work.id} value={work.id}>{work.title}</option>)}</select></div><div className="relative py-1 text-center text-xs uppercase tracking-[0.16em] text-muted-foreground before:absolute before:left-0 before:top-1/2 before:h-px before:w-[43%] before:bg-border after:absolute after:right-0 after:top-1/2 after:h-px after:w-[43%] after:bg-border">or</div><div className="space-y-1.5"><Label>Create a new Work or site</Label><Input value={newWorkTitle} onChange={event => { setNewWorkTitle(event.target.value); setWorkRecordId(""); }} placeholder="e.g. Nasir al-Mulk Mosque, Shiraz" /></div></div><DialogFooter><Button variant="outline" onClick={() => setShowGroup(false)}>Cancel</Button>{workRecordId ? <Button onClick={() => groupExisting.mutate({ projectId, workRecordId, imageRecordIds: selectedImageIds })} disabled={groupExisting.isPending}>{groupExisting.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Link Images</Button> : <Button onClick={() => createWorkAndGroup.mutate({ projectId, recordType: "work", title: newWorkTitle, reviewedJson: {} })} disabled={!newWorkTitle.trim() || createWorkAndGroup.isPending}>{createWorkAndGroup.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Work and link Images</Button>}</DialogFooter></DialogContent>
       </Dialog>
     </div>
   );
@@ -574,6 +693,7 @@ const DISCOVERY_FACET_LABELS: Record<(typeof DISCOVERY_FACETS)[number], string> 
 
 function VisualSearchPage({ projectId, canEdit }: { projectId: number; canEdit: boolean }) {
   const referenceInputRef = useRef<HTMLInputElement>(null);
+  const activeProjectIdRef = useRef(projectId);
   const [draftQuery, setDraftQuery] = useState("");
   const [query, setQuery] = useState("");
   const [searchOffset, setSearchOffset] = useState(0);
@@ -584,22 +704,44 @@ function VisualSearchPage({ projectId, canEdit }: { projectId: number; canEdit: 
   const search = trpc.visualArchives.searchReviewedCatalog.useQuery({ projectId, query, facets, includeDrafts, offset: searchOffset, limit: 48 });
   const availability = trpc.visualArchives.availability.useQuery();
   const findSimilar = trpc.visualArchives.findSimilarToUploadedImage.useMutation({
-    onSuccess: result => {
+    onSuccess: (result, variables) => {
+      if (variables.projectId !== activeProjectIdRef.current) return;
       setReferenceResults(result.items as typeof referenceResults extends Array<infer Item> ? Item[] : never);
       toast.success(result.items.length ? "Visual matches ready for review" : "No close matches found in the current scope");
     },
-    onError: error => toast.error(error.message),
+    onError: (error, variables) => {
+      if (variables.projectId === activeProjectIdRef.current) toast.error(error.message);
+    },
   });
+  useEffect(() => {
+    activeProjectIdRef.current = projectId;
+    setDraftQuery("");
+    setQuery("");
+    setSearchOffset(0);
+    setFacets({});
+    setIncludeDrafts(false);
+    setReferenceName(null);
+    setReferenceResults(null);
+    if (referenceInputRef.current) referenceInputRef.current.value = "";
+  }, [projectId]);
   const searchReference = async (file: File | undefined) => {
     if (!file) return;
-    if (!['image/jpeg', 'image/png'].includes(file.type) || file.size > 15 * 1024 * 1024) {
-      toast.error("Choose a JPEG or PNG of 15 MB or smaller");
-      return;
+    try {
+      if (!["image/jpeg", "image/png"].includes(file.type) || file.size > 15 * 1024 * 1024) {
+        toast.error("Choose a JPEG or PNG of 15 MB or smaller");
+        return;
+      }
+      setReferenceName(file.name);
+      setReferenceResults(null);
+      const fileBase64 = await fileToBase64(file);
+      findSimilar.mutate({ projectId, mimeType: file.type as "image/jpeg" | "image/png", fileBase64, includeDrafts, limit: 24 });
+    } catch (error) {
+      setReferenceName(null);
+      setReferenceResults(null);
+      toast.error(error instanceof Error ? error.message : "The reference image could not be read");
+    } finally {
+      if (referenceInputRef.current) referenceInputRef.current.value = "";
     }
-    setReferenceName(file.name);
-    setReferenceResults(null);
-    const fileBase64 = await fileToBase64(file);
-    findSimilar.mutate({ projectId, mimeType: file.type as "image/jpeg" | "image/png", fileBase64, includeDrafts, limit: 24 });
   };
   const toggleFacet = (field: (typeof DISCOVERY_FACETS)[number], value: string) => {
     setFacets(current => {
@@ -614,11 +756,11 @@ function VisualSearchPage({ projectId, canEdit }: { projectId: number; canEdit: 
     <div className="mx-auto max-w-7xl space-y-6">
       <VisualPageHeading eyebrow="Discovery" title="Explore approved catalog evidence" description="Search titles and reviewed metadata, or compare a temporary reference image with this archive. AI drafts and unreviewed identifications stay out of results by default." actions={canEdit ? <label className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-sm"><input type="checkbox" checked={includeDrafts} onChange={event => { setIncludeDrafts(event.target.checked); setReferenceResults(null); setSearchOffset(0); }} /> Include draft records</label> : undefined} />
       <form className="rounded-lg border border-border bg-card p-3 sm:flex sm:gap-2" onSubmit={event => { event.preventDefault(); setSearchOffset(0); setQuery(draftQuery.trim()); }}><Input value={draftQuery} onChange={event => setDraftQuery(event.target.value)} placeholder="Search places, subjects, materials, titles…" aria-label="Search approved visual catalog" /><Button type="submit" className="mt-2 w-full sm:mt-0 sm:w-auto"><Search className="mr-2 h-4 w-4" />Search</Button></form>
-      <section className="rounded-lg border border-border bg-card p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-medium">Search by reference image</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Compare a local JPEG or PNG against project fingerprints. The reference is processed in memory and never saved. Results are visual signals, not catalog facts.</p></div><div className="shrink-0"><input ref={referenceInputRef} type="file" accept="image/jpeg,image/png" className="hidden" onChange={event => void searchReference(event.target.files?.[0])} /><Button variant="outline" onClick={() => referenceInputRef.current?.click()} disabled={findSimilar.isPending}>{findSimilar.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ImagePlus className="mr-2 h-4 w-4" />}{findSimilar.isPending ? "Comparing…" : "Choose reference image"}</Button></div></div>{referenceName && <p className="mt-3 text-xs text-muted-foreground">Reference: <span className="font-medium text-foreground">{referenceName}</span> · {includeDrafts ? "approved and draft records" : "approved records only"}</p>}{referenceResults && <div className="mt-4 border-t border-border pt-4"><div className="mb-3 flex items-center justify-between"><p className="text-sm font-medium">Visual matches</p><Button size="sm" variant="ghost" className="h-7 px-0 text-xs" onClick={() => { setReferenceResults(null); setReferenceName(null); }}>Clear</Button></div>{referenceResults.length ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{referenceResults.map(item => <Link key={item.asset.id} href={item.record ? `/records/${item.record.id}` : "/assets"} className="group overflow-hidden rounded-md border border-border hover:border-primary/60"><div className="aspect-square bg-slate-100 dark:bg-slate-900">{item.asset.thumbnailUrl ? <img src={item.asset.thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <div className="flex h-full items-center justify-center"><Images className="h-5 w-5 text-muted-foreground" /></div>}</div><div className="p-2"><p className="truncate text-xs font-medium group-hover:text-primary">{item.record?.title ?? item.asset.filename}</p><p className="mt-1 text-[11px] text-muted-foreground">{Math.round(item.score * 100)}% · {item.classification}</p></div></Link>)}</div> : <p className="py-6 text-sm text-muted-foreground">No close visual matches were found in this project scope.</p>}</div>}</section>
+      <section className="rounded-lg border border-border bg-card p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-medium">Search by reference image</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Compare a local JPEG or PNG against project fingerprints. The reference is processed in memory and never saved. Results are visual signals, not catalog facts.</p></div><div className="shrink-0"><input ref={referenceInputRef} type="file" accept="image/jpeg,image/png" className="hidden" onChange={event => void searchReference(event.target.files?.[0])} /><Button variant="outline" onClick={() => referenceInputRef.current?.click()} disabled={findSimilar.isPending}>{findSimilar.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ImagePlus className="mr-2 h-4 w-4" />}{findSimilar.isPending ? "Comparing…" : "Choose reference image"}</Button></div></div>{referenceName && <p className="mt-3 text-xs text-muted-foreground">Reference: <span className="font-medium text-foreground">{referenceName}</span> · {includeDrafts ? "approved and draft records" : "approved records only"}</p>}{referenceResults && <div className="mt-4 border-t border-border pt-4"><div className="mb-3 flex items-center justify-between"><p className="text-sm font-medium">Visual matches</p><Button size="sm" variant="ghost" className="h-7 px-0 text-xs" onClick={() => { setReferenceResults(null); setReferenceName(null); if (referenceInputRef.current) referenceInputRef.current.value = ""; }}>Clear</Button></div>{referenceResults.length ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{referenceResults.map(item => <Link key={item.asset.id} href={item.record ? `/records/${item.record.id}` : "/assets"} className="group overflow-hidden rounded-md border border-border hover:border-primary/60"><div className="aspect-square bg-slate-100 dark:bg-slate-900">{item.asset.thumbnailUrl ? <img src={item.asset.thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <div className="flex h-full items-center justify-center"><Images className="h-5 w-5 text-muted-foreground" /></div>}</div><div className="p-2"><p className="truncate text-xs font-medium group-hover:text-primary">{item.record?.title ?? item.asset.filename}</p><p className="mt-1 text-[11px] text-muted-foreground">{Math.round(item.score * 100)}% · {item.classification}</p></div></Link>)}</div> : <p className="py-6 text-sm text-muted-foreground">No close visual matches were found in this project scope.</p>}</div>}</section>
       {!availability.data?.memoryEnabled && <div className="flex flex-col gap-2 rounded-lg border border-dashed border-border bg-muted/25 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"><div><p className="font-medium">Semantic visual memory is not enabled</p><p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">Text-vector and hybrid semantic results are intentionally unavailable until the dedicated Visual Archives migration is applied and the feature is explicitly enabled. No semantic results are being simulated.</p></div><Badge variant="outline" className="w-fit rounded-full">Unavailable</Badge></div>}
       <div className="grid gap-8 lg:grid-cols-[230px_1fr]">
         <aside className="space-y-5 border-y border-border py-4 lg:border-y-0 lg:border-r lg:py-0 lg:pr-6"><div className="flex items-center justify-between"><h2 className="font-serif text-lg font-semibold">Refine</h2>{(query || Object.values(facets).some(values => values?.length)) && <Button size="sm" variant="ghost" className="h-7 px-0 text-xs" onClick={clearFilters}>Clear all</Button>}</div>{DISCOVERY_FACETS.map(field => { const options = search.data?.facets?.[field] ?? []; return options.length > 0 ? <div key={field}><p className="mb-2 text-xs font-semibold uppercase tracking-[0.13em] text-muted-foreground">{DISCOVERY_FACET_LABELS[field]}</p><div className="space-y-1.5">{options.map(option => <label key={option.value} className="flex cursor-pointer items-start gap-2 text-sm"><input type="checkbox" className="mt-0.5" checked={(facets[field] ?? []).includes(option.value)} onChange={() => toggleFacet(field, option.value)} /><span className="min-w-0 flex-1 truncate">{option.value}</span><span className="text-xs text-muted-foreground">{option.count}</span></label>)}</div></div> : null; })}</aside>
-        <section>{search.isLoading ? <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">{Array.from({ length: 6 }, (_, index) => <div key={index} className="animate-pulse overflow-hidden rounded-lg border border-border bg-card"><div className="aspect-[4/3] bg-muted" /><div className="space-y-2 p-3"><div className="h-3 w-2/3 bg-muted" /><div className="h-2 w-1/2 bg-muted" /></div></div>)}</div> : <><div className="mb-3 flex items-center justify-between text-sm text-muted-foreground"><span>{search.data?.total ?? 0} {includeDrafts ? "catalog" : "approved"} record{(search.data?.total ?? 0) === 1 ? "" : "s"} found</span><span>Results {searchOffset + 1}–{Math.min(searchOffset + (search.data?.items.length ?? 0), search.data?.total ?? 0)}</span></div><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{(search.data?.items ?? []).map(record => <Link key={record.id} href={`/records/${record.id}`} className="group overflow-hidden rounded-lg border border-border bg-card transition-colors hover:border-primary/50"><div className="aspect-[4/3] bg-slate-100 dark:bg-slate-900">{record.asset?.thumbnailUrl ? <img src={record.asset.thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <div className="flex h-full items-center justify-center"><LibraryBig className="h-8 w-8 text-muted-foreground" /></div>}</div><div className="p-3"><div className="truncate font-medium group-hover:text-primary">{record.title}</div><div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground"><span className="capitalize">{record.recordType}</span>{record.localIdentifier && <><span>·</span><span className="truncate">{record.localIdentifier}</span></>}</div>{record.matchReasons.length > 0 && <p className="mt-2 truncate text-[11px] text-primary">{record.matchReasons.join(" · ")}</p>}</div></Link>)}{(search.data?.items ?? []).length === 0 && <div className="col-span-full"><VisualEmptyState icon={Search} title="No approved catalog records match" description="Review and approve catalog records before they appear in Discover, or broaden the search and filters." /></div>}</div>{(search.data?.total ?? 0) > 48 && <div className="mt-5 flex items-center justify-between border-t border-border pt-4 text-sm"><Button variant="outline" onClick={() => setSearchOffset(Math.max(0, searchOffset - 48))} disabled={searchOffset === 0}>Previous</Button><span className="text-xs text-muted-foreground">Page {Math.floor(searchOffset / 48) + 1}</span><Button variant="outline" onClick={() => setSearchOffset(search.data?.nextOffset ?? searchOffset)} disabled={!search.data?.nextOffset}>Next</Button></div>}</>}</section>
+        <section>{search.isLoading ? <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">{Array.from({ length: 6 }, (_, index) => <div key={index} className="animate-pulse overflow-hidden rounded-lg border border-border bg-card"><div className="aspect-[4/3] bg-muted" /><div className="space-y-2 p-3"><div className="h-3 w-2/3 bg-muted" /><div className="h-2 w-1/2 bg-muted" /></div></div>)}</div> : <><div className="mb-3 flex items-center justify-between text-sm text-muted-foreground"><span className="flex items-center gap-2">{search.isFetching && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{search.data?.total ?? 0} {includeDrafts ? "catalog" : "approved"} record{(search.data?.total ?? 0) === 1 ? "" : "s"} found</span><span>{(search.data?.total ?? 0) === 0 ? "No results" : `Results ${searchOffset + 1}–${Math.min(searchOffset + (search.data?.items.length ?? 0), search.data?.total ?? 0)}`}</span></div><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{(search.data?.items ?? []).map(record => <Link key={record.id} href={`/records/${record.id}`} className="group overflow-hidden rounded-lg border border-border bg-card transition-colors hover:border-primary/50"><div className="aspect-[4/3] bg-slate-100 dark:bg-slate-900">{record.asset?.thumbnailUrl ? <img src={record.asset.thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <div className="flex h-full items-center justify-center"><LibraryBig className="h-8 w-8 text-muted-foreground" /></div>}</div><div className="p-3"><div className="truncate font-medium group-hover:text-primary">{record.title}</div><div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground"><span className="capitalize">{record.recordType}</span>{record.localIdentifier && <><span>·</span><span className="truncate">{record.localIdentifier}</span></>}</div>{record.matchReasons.length > 0 && <p className="mt-2 truncate text-[11px] text-primary">{record.matchReasons.join(" · ")}</p>}</div></Link>)}{(search.data?.items ?? []).length === 0 && <div className="col-span-full"><VisualEmptyState icon={Search} title="No approved catalog records match" description="Review and approve catalog records before they appear in Discover, or broaden the search and filters." /></div>}</div>{(search.data?.total ?? 0) > 48 && <div className="mt-5 flex items-center justify-between border-t border-border pt-4 text-sm"><Button variant="outline" onClick={() => setSearchOffset(Math.max(0, searchOffset - 48))} disabled={searchOffset === 0}>Previous</Button><span className="text-xs text-muted-foreground">Page {Math.floor(searchOffset / 48) + 1}</span><Button variant="outline" onClick={() => setSearchOffset(search.data?.nextOffset ?? searchOffset)} disabled={!search.data?.nextOffset}>Next</Button></div>}</>}</section>
       </div>
     </div>
   );
@@ -627,18 +769,49 @@ function VisualSearchPage({ projectId, canEdit }: { projectId: number; canEdit: 
 type VisualChatSource = { index: number; recordId: string; title: string; recordType: string; excerpt: string; matchedFields: string[]; reviewedJson: unknown; thumbnailUrl: string | null };
 type VisualChatMessage = { role: "user" | "assistant"; content: string; sources?: VisualChatSource[]; insufficientEvidence?: boolean };
 
+function storedVisualChatMessages(value: unknown): VisualChatMessage[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(item => {
+    if (!item || typeof item !== "object") return [];
+    const message = item as Record<string, unknown>;
+    if ((message.role !== "user" && message.role !== "assistant") || typeof message.content !== "string") return [];
+    const sources = Array.isArray(message.sources) ? message.sources.filter((source): source is VisualChatSource => {
+      if (!source || typeof source !== "object") return false;
+      const evidence = source as Record<string, unknown>;
+      return typeof evidence.index === "number"
+        && typeof evidence.recordId === "string"
+        && typeof evidence.title === "string"
+        && typeof evidence.recordType === "string"
+        && typeof evidence.excerpt === "string"
+        && Array.isArray(evidence.matchedFields)
+        && evidence.matchedFields.every(field => typeof field === "string")
+        && (evidence.thumbnailUrl === null || typeof evidence.thumbnailUrl === "string");
+    }) : undefined;
+    return [{
+      role: message.role,
+      content: message.content.slice(0, 20_000),
+      ...(sources?.length ? { sources } : {}),
+      ...(message.insufficientEvidence === true ? { insufficientEvidence: true } : {}),
+    } satisfies VisualChatMessage];
+  }).slice(-24);
+}
+
 function VisualAskArchivePage({ projectId }: { projectId: number }) {
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<VisualChatMessage[]>([]);
   const [activeEvidence, setActiveEvidence] = useState<VisualChatSource | null>(null);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const conversationEndRef = useRef<HTMLDivElement>(null);
+  const activeProjectIdRef = useRef(projectId);
   const historyKey = `turath.visual-archive.${projectId}.conversation.v1`;
   useEffect(() => {
+    activeProjectIdRef.current = projectId;
     setHistoryLoaded(false);
+    setActiveEvidence(null);
     try {
       const saved = window.localStorage.getItem(historyKey);
       const parsed = saved ? JSON.parse(saved) : [];
-      setMessages(Array.isArray(parsed) ? parsed.slice(-24) : []);
+      setMessages(storedVisualChatMessages(parsed));
     } catch {
       setMessages([]);
     } finally {
@@ -654,22 +827,33 @@ function VisualAskArchivePage({ projectId }: { projectId: number }) {
     }
   }, [historyKey, historyLoaded, messages]);
   const ask = trpc.visualArchives.askArchive.useMutation({
-    onSuccess: result => setMessages(current => [...current, { role: "assistant", content: result.answer, sources: result.sources, insufficientEvidence: result.insufficientEvidence }]),
-    onError: error => { toast.error(error.message); setMessages(current => current.slice(0, -1)); },
+    onSuccess: (result, variables) => {
+      if (variables.projectId !== activeProjectIdRef.current) return;
+      setMessages(current => [...current, { role: "assistant", content: result.answer, sources: result.sources, insufficientEvidence: result.insufficientEvidence } satisfies VisualChatMessage].slice(-24));
+    },
+    onError: (error, variables) => {
+      if (variables.projectId !== activeProjectIdRef.current) return;
+      toast.error(error.message);
+      setMessages(current => current.slice(0, -1));
+    },
   });
+  useEffect(() => {
+    if (!historyLoaded) return;
+    conversationEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [ask.isPending, historyLoaded, messages.length]);
   const submit = () => {
     const content = question.trim();
     if (!content || ask.isPending) return;
-    const history = messages.map(message => ({ role: message.role, content: message.content }));
-    setMessages(current => [...current, { role: "user", content }]);
+    const history = messages.slice(-8).map(message => ({ role: message.role, content: message.content.slice(0, 2000) }));
+    setMessages(current => [...current, { role: "user", content } satisfies VisualChatMessage].slice(-24));
     setQuestion("");
     ask.mutate({ projectId, question: content, history });
   };
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <VisualPageHeading eyebrow="Evidence-linked Q&A" title="Ask this Visual Archive" description="Answers are grounded in human-approved VRA records and cite the exact Images, Works, or Collections used. Drafts and unreviewed identifications are excluded." actions={messages.length ? <Button size="sm" variant="outline" onClick={() => { setMessages([]); window.localStorage.removeItem(historyKey); }}>Clear conversation</Button> : undefined} />
+      <VisualPageHeading eyebrow="Evidence-linked Q&A" title="Ask this Visual Archive" description="Answers are grounded in human-approved VRA records and cite the exact Images, Works, or Collections used. Drafts and unreviewed identifications are excluded." actions={messages.length ? <Button size="sm" variant="outline" onClick={() => { setMessages([]); setActiveEvidence(null); window.localStorage.removeItem(historyKey); }} disabled={ask.isPending}>Clear conversation</Button> : undefined} />
       <div className="flex flex-wrap gap-2"><Badge variant="outline" className="rounded-full">Approved evidence only</Badge><Badge variant="outline" className="rounded-full">This Visual Archive</Badge><Badge variant="outline" className="rounded-full">{messages.length ? `${messages.length} messages saved on this device` : "Private device history"}</Badge></div>
-      <div className="min-h-[420px] rounded-lg border border-border bg-card p-4 sm:p-6"><div className="space-y-6">{messages.length === 0 && <div className="py-16 text-center"><MessageSquare className="mx-auto mb-4 h-10 w-10 text-primary" /><p className="font-serif text-xl">Begin with a question grounded in the catalog</p><p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-muted-foreground">Ask about approved Images, Works, places, materials, or patterns. TURATH will cite the evidence it used—or say when evidence is insufficient.</p><div className="mx-auto mt-6 grid max-w-2xl gap-2 text-left sm:grid-cols-2">{["Which approved Images depict religious architecture?", "What materials recur in this collection?", "Which records are associated with this Work or site?", "What places appear in the approved catalog?"].map(example => <button key={example} type="button" className="rounded-md border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground hover:border-primary/60 hover:text-foreground" onClick={() => setQuestion(example)}>{example}</button>)}</div></div>}{messages.map((message, index) => <div key={`${message.role}-${index}`} className={message.role === "user" ? "ml-auto max-w-2xl rounded-lg bg-primary px-4 py-3 text-primary-foreground" : "max-w-4xl border-l-2 border-primary py-1 pl-4"}><p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] opacity-70">{message.role === "user" ? "You" : "TURATH"}</p><p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>{message.insufficientEvidence && <p className="mt-3 text-xs font-medium text-amber-700 dark:text-amber-300">No answer was inferred beyond the approved evidence currently available.</p>}{message.sources && message.sources.length > 0 && <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{message.sources.map(source => <button key={source.recordId} type="button" onClick={() => setActiveEvidence(source)} className="grid grid-cols-[48px_1fr] gap-2 rounded-md border border-border bg-background p-2 text-left text-foreground hover:border-primary/50"><div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded bg-slate-100 dark:bg-slate-900">{source.thumbnailUrl ? <img src={source.thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <LibraryBig className="h-4 w-4 text-muted-foreground" />}</div><div className="min-w-0"><p className="truncate text-xs font-medium">[Record {source.index}] {source.title}</p><p className="mt-1 truncate text-[11px] text-muted-foreground capitalize">{source.recordType}{source.matchedFields.length ? ` · ${source.matchedFields.join(", ")}` : ""}</p></div></button>)}</div>}</div>)}{ask.isPending && <div className="flex items-center gap-2 border-l-2 border-primary py-2 pl-4 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Reading approved visual evidence…</div>}</div></div>
+      <div className="min-h-[420px] rounded-lg border border-border bg-card p-4 sm:p-6"><div className="space-y-6">{messages.length === 0 && <div className="py-16 text-center"><MessageSquare className="mx-auto mb-4 h-10 w-10 text-primary" /><p className="font-serif text-xl">Begin with a question grounded in the catalog</p><p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-muted-foreground">Ask about approved Images, Works, places, materials, or patterns. TURATH will cite the evidence it used—or say when evidence is insufficient.</p><div className="mx-auto mt-6 grid max-w-2xl gap-2 text-left sm:grid-cols-2">{["Which approved Images depict religious architecture?", "What materials recur in this collection?", "Which records are associated with this Work or site?", "What places appear in the approved catalog?"].map(example => <button key={example} type="button" className="rounded-md border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground hover:border-primary/60 hover:text-foreground" onClick={() => setQuestion(example)}>{example}</button>)}</div></div>}{messages.map((message, index) => <div key={`${message.role}-${index}`} className={message.role === "user" ? "ml-auto max-w-2xl rounded-lg bg-primary px-4 py-3 text-primary-foreground" : "max-w-4xl border-l-2 border-primary py-1 pl-4"}><p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] opacity-70">{message.role === "user" ? "You" : "TURATH"}</p><p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>{message.insufficientEvidence && <p className="mt-3 text-xs font-medium text-amber-700 dark:text-amber-300">No answer was inferred beyond the approved evidence currently available.</p>}{message.sources && message.sources.length > 0 && <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{message.sources.map(source => <button key={source.recordId} type="button" onClick={() => setActiveEvidence(source)} className="grid grid-cols-[48px_1fr] gap-2 rounded-md border border-border bg-background p-2 text-left text-foreground hover:border-primary/50"><div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded bg-slate-100 dark:bg-slate-900">{source.thumbnailUrl ? <img src={source.thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <LibraryBig className="h-4 w-4 text-muted-foreground" />}</div><div className="min-w-0"><p className="truncate text-xs font-medium">[Record {source.index}] {source.title}</p><p className="mt-1 truncate text-[11px] text-muted-foreground capitalize">{source.recordType}{source.matchedFields.length ? ` · ${source.matchedFields.join(", ")}` : ""}</p></div></button>)}</div>}</div>)}{ask.isPending && <div className="flex items-center gap-2 border-l-2 border-primary py-2 pl-4 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Reading approved visual evidence…</div>}<div ref={conversationEndRef} /></div></div>
       <div className="rounded-lg border border-border bg-card p-3"><Textarea value={question} onChange={event => setQuestion(event.target.value)} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") submit(); }} placeholder="Ask a question about approved records in this Visual Archive…" rows={3} disabled={ask.isPending} /><div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-muted-foreground">Use ⌘/Ctrl + Enter to send. Follow-up questions include this conversation’s prior answers.</p><Button onClick={submit} disabled={!question.trim() || ask.isPending}>{ask.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Ask archive</Button></div></div>
       <Dialog open={Boolean(activeEvidence)} onOpenChange={open => { if (!open) setActiveEvidence(null); }}><DialogContent><DialogHeader><DialogTitle className="font-serif">[Record {activeEvidence?.index}] {activeEvidence?.title}</DialogTitle></DialogHeader>{activeEvidence && <div className="space-y-4"><div className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-md bg-slate-100 dark:bg-slate-900">{activeEvidence.thumbnailUrl ? <img src={activeEvidence.thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <LibraryBig className="h-8 w-8 text-muted-foreground" />}</div><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Matched approved fields</p><p className="mt-1 text-sm">{activeEvidence.matchedFields.length ? activeEvidence.matchedFields.join(", ") : "Included as approved archive context"}</p></div><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Reviewed metadata</p><pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-muted p-3 text-xs">{JSON.stringify(activeEvidence.reviewedJson, null, 2)}</pre></div><Link href={`/records/${activeEvidence.recordId}`} target="_blank" rel="noreferrer" className="inline-flex text-sm font-medium text-primary">Open full record in a new tab →</Link></div>}</DialogContent></Dialog>
     </div>
@@ -682,6 +866,10 @@ function VisualExportsPage({ projectId }: { projectId: number }) {
   const [downloadingFormat, setDownloadingFormat] = useState<"csv" | "json" | "xml" | null>(null);
   const [zipState, setZipState] = useState<"idle" | "started">("idle");
   const assets = trpc.visualArchives.listAssetsPage.useQuery({ projectId, status: "ready", limit: 100 });
+  useEffect(() => {
+    setSelectedAssetIds([]);
+    setZipState("idle");
+  }, [projectId]);
   const exportText = async (format: "csv" | "json" | "xml") => {
     setDownloadingFormat(format);
     try {
@@ -708,7 +896,10 @@ function VisualExportsPage({ projectId }: { projectId: number }) {
       setDownloadingFormat(null);
     }
   };
-  const toggleAsset = (assetId: string) => setSelectedAssetIds(current => current.includes(assetId) ? current.filter(id => id !== assetId) : [...current, assetId]);
+  const toggleAsset = (assetId: string) => {
+    setZipState("idle");
+    setSelectedAssetIds(current => current.includes(assetId) ? current.filter(id => id !== assetId) : [...current, assetId]);
+  };
   const downloadZip = () => {
     if (selectedAssetIds.length === 0) return;
     const query = new URLSearchParams({ assetIds: selectedAssetIds.join(",") });
@@ -741,54 +932,152 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
   const { data: reviewSequence = [] } = trpc.visualArchives.listRecordIds.useQuery({ projectId, recordType: "image", limit: 500 });
   const [title, setTitle] = useState("");
   const [fields, setFields] = useState<Record<string, string>>({});
+  const [dirtyFields, setDirtyFields] = useState<Set<string>>(new Set());
+  const [recordConflict, setRecordConflict] = useState(false);
+  const [activeOperation, setActiveOperation] = useState<string | null>(null);
+  const operationLocked = useRef(false);
+  const loadedRecordId = useRef<string | null>(null);
   useEffect(() => {
+    if (!record) return;
+    const changedRecord = loadedRecordId.current !== record.id;
+    const reviewed = record.reviewedJson as Record<string, unknown>;
+    const serverFields = Object.fromEntries(CATALOG_FIELDS.map(([key]) => [key, formatFieldValue(reviewed[key])]));
+    setTitle(current => changedRecord || !dirtyFields.has("title") ? record.title : current);
+    setFields(current => Object.fromEntries(CATALOG_FIELDS.map(([key]) => [
+      key,
+      changedRecord || !dirtyFields.has(key) ? serverFields[key] : current[key] ?? "",
+    ])));
+    if (changedRecord) {
+      setDirtyFields(new Set());
+      setRecordConflict(false);
+    }
+    loadedRecordId.current = record.id;
+  }, [record?.id, record?.revision]);
+  const update = trpc.visualArchives.updateRecord.useMutation();
+  const suggest = trpc.visualArchives.generateSuggestions.useMutation();
+  const accept = trpc.visualArchives.acceptSuggestionFields.useMutation();
+  const reject = trpc.visualArchives.rejectSuggestionFields.useMutation();
+  const suggestions = (record?.aiSuggestedJson ?? {}) as Record<string, unknown>;
+  const acceptedFields = suggestionReviewFields(record?.suggestionProvenance, "acceptedFields");
+  const rejectedFields = suggestionReviewFields(record?.suggestionProvenance, "rejectedFields");
+  const reviewableSuggestionFields = (["title", ...CATALOG_FIELDS.map(([key]) => key)] as SuggestionField[])
+    .filter(field => !acceptedFields.has(field) && !rejectedFields.has(field) && suggestions[field] !== undefined && formatFieldValue(suggestions[field]) !== "");
+  const reviewMutationBusy = Boolean(activeOperation) || accept.isPending || reject.isPending || update.isPending || suggest.isPending;
+  const hasUnsavedChanges = dirtyFields.size > 0;
+  const candidates = identificationCandidates(suggestions.identificationCandidates);
+  const updateCachedRecord = (updated: NonNullable<typeof record>) => {
+    utils.visualArchives.getRecord.setData({ projectId, recordId: updated.id }, updated);
+  };
+  const refreshRecordLists = async () => {
+    await Promise.allSettled([
+      utils.visualArchives.getRecord.invalidate({ projectId, recordId: record?.id }),
+      utils.visualArchives.listRecords.invalidate({ projectId }),
+      utils.visualArchives.listRecordsPage.invalidate(),
+      utils.visualArchives.searchReviewedCatalog.invalidate(),
+      utils.visualArchives.stats.invalidate({ projectId }),
+    ]);
+  };
+  const runLockedOperation = async (label: string, operation: () => Promise<void>) => {
+    if (operationLocked.current) return;
+    operationLocked.current = true;
+    setActiveOperation(label);
+    try {
+      await operation();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The record could not be updated";
+      if (/changed in another session/i.test(message)) {
+        await utils.visualArchives.getRecord.invalidate({ projectId, recordId: record?.id }).catch(() => undefined);
+        setRecordConflict(true);
+      }
+      toast.error(message);
+    } finally {
+      operationLocked.current = false;
+      setActiveOperation(null);
+    }
+  };
+  const save = (status?: "draft" | "needs_review" | "approved" | "archived") => {
+    if (!record) return;
+    if (recordConflict) {
+      toast.info("Load the latest record before saving");
+      return;
+    }
+    const nextStatus = status ?? (record.status === "approved" ? "needs_review" : record.status);
+    void runLockedOperation(nextStatus === "approved" ? "Approving record" : nextStatus === "archived" ? "Archiving record" : "Saving changes", async () => {
+      const updated = await update.mutateAsync({
+        projectId,
+        recordId: record.id,
+        title,
+        reviewedJson: Object.fromEntries(CATALOG_FIELDS.map(([key]) => [key, parseFieldValue(key, fields[key] ?? "")])),
+        status: nextStatus,
+        expectedRevision: record.revision,
+        changeSummary: nextStatus === "approved" ? "Record approved" : nextStatus === "archived" ? "Record rejected from active review" : "Catalog fields updated",
+      });
+      setDirtyFields(new Set());
+      updateCachedRecord(updated);
+      toast.success(nextStatus === "approved" ? "Record approved" : nextStatus === "archived" ? "Record archived" : "Changes saved");
+      await refreshRecordLists();
+    });
+  };
+  const reviewSuggestions = (action: "accept" | "reject", fieldsToReview: SuggestionField[]) => {
+    if (!record || fieldsToReview.length === 0) return;
+    if (recordConflict) {
+      toast.info("Load the latest record before reviewing suggestions");
+      return;
+    }
+    if (hasUnsavedChanges) {
+      toast.info("Save or discard your manual edits before reviewing AI suggestions");
+      return;
+    }
+    const label = action === "accept"
+      ? `Applying ${fieldsToReview.length === 1 ? "suggestion" : `${fieldsToReview.length} suggestions`}`
+      : `Rejecting ${fieldsToReview.length === 1 ? "suggestion" : `${fieldsToReview.length} suggestions`}`;
+    void runLockedOperation(label, async () => {
+      const updated = action === "accept"
+        ? await accept.mutateAsync({ projectId, recordId: record.id, acceptedFields: fieldsToReview })
+        : await reject.mutateAsync({ projectId, recordId: record.id, rejectedFields: fieldsToReview });
+      updateCachedRecord(updated);
+      toast.success(action === "accept"
+        ? `${fieldsToReview.length} suggestion${fieldsToReview.length === 1 ? "" : "s"} applied in one revision`
+        : `${fieldsToReview.length} suggestion${fieldsToReview.length === 1 ? "" : "s"} rejected`);
+      await refreshRecordLists();
+    });
+  };
+  const generateSuggestions = () => {
+    if (!record) return;
+    if (recordConflict) {
+      toast.info("Load the latest record before generating suggestions");
+      return;
+    }
+    if (hasUnsavedChanges) {
+      toast.info("Save or discard your manual edits before generating a new suggestion set");
+      return;
+    }
+    void runLockedOperation("Generating suggestions", async () => {
+      const updated = await suggest.mutateAsync({ projectId, recordId: record.id });
+      updateCachedRecord(updated);
+      toast.success("New suggestions are ready for review");
+      await refreshRecordLists();
+    });
+  };
+  const discardChanges = () => {
     if (!record) return;
     setTitle(record.title);
     const reviewed = record.reviewedJson as Record<string, unknown>;
     setFields(Object.fromEntries(CATALOG_FIELDS.map(([key]) => [key, formatFieldValue(reviewed[key])])));
-  }, [record?.id, record?.revision]);
-  const update = trpc.visualArchives.updateRecord.useMutation({
-    onSuccess: async () => { toast.success("Record saved"); await Promise.all([utils.visualArchives.getRecord.invalidate(), utils.visualArchives.listRecords.invalidate(), utils.visualArchives.listRecordsPage.invalidate(), utils.visualArchives.searchReviewedCatalog.invalidate(), utils.visualArchives.stats.invalidate({ projectId })]); },
-    onError: error => toast.error(error.message),
-  });
-  const suggest = trpc.visualArchives.generateSuggestions.useMutation({
-    onSuccess: async () => { toast.success("Suggestions ready for review"); await Promise.all([utils.visualArchives.getRecord.invalidate(), utils.visualArchives.listRecords.invalidate(), utils.visualArchives.listRecordsPage.invalidate()]); },
-    onError: error => toast.error(error.message),
-  });
-  const accept = trpc.visualArchives.acceptSuggestionFields.useMutation({
-    onSuccess: async () => { toast.success("Suggestion accepted into reviewed data"); await Promise.all([utils.visualArchives.getRecord.invalidate(), utils.visualArchives.listRecords.invalidate(), utils.visualArchives.listRecordsPage.invalidate()]); },
-    onError: error => toast.error(error.message),
-  });
-  const reject = trpc.visualArchives.rejectSuggestionFields.useMutation({
-    onSuccess: async () => { toast.success("Suggestion rejected and preserved in review provenance"); await Promise.all([utils.visualArchives.getRecord.invalidate(), utils.visualArchives.listRecords.invalidate(), utils.visualArchives.listRecordsPage.invalidate()]); },
-    onError: error => toast.error(error.message),
-  });
-  const suggestions = (record?.aiSuggestedJson ?? {}) as Record<string, unknown>;
-  const rejectedFields = new Set(
-    Array.isArray((record?.suggestionProvenance as Record<string, unknown> | null)?.rejectedFields)
-      ? ((record?.suggestionProvenance as Record<string, unknown>).rejectedFields as unknown[]).filter((field): field is string => typeof field === "string")
-      : [],
-  );
-  const reviewableSuggestionFields = (["title", ...CATALOG_FIELDS.map(([key]) => key)] as string[])
-    .filter(field => !rejectedFields.has(field) && suggestions[field] !== undefined && formatFieldValue(suggestions[field]) !== "");
-  const reviewMutationBusy = accept.isPending || reject.isPending || update.isPending;
-  const candidates = identificationCandidates(suggestions.identificationCandidates);
-  const save = (status: "draft" | "needs_review" | "approved" | "archived" = "draft") => {
-    if (!record) return;
-    update.mutate({
-      projectId,
-      recordId: record.id,
-      title,
-      reviewedJson: Object.fromEntries(CATALOG_FIELDS.map(([key]) => [key, parseFieldValue(key, fields[key] ?? "")])),
-      status,
-      changeSummary: status === "approved" ? "Record approved" : status === "archived" ? "Record rejected from active review" : "Catalog fields updated",
-    });
+    setDirtyFields(new Set());
+    setRecordConflict(false);
+    toast.success(recordConflict ? "Latest record loaded" : "Unsaved changes discarded");
   };
   const currentSequenceIndex = reviewSequence.findIndex(item => item.id === record?.id);
   const previousRecordId = currentSequenceIndex > 0 ? reviewSequence[currentSequenceIndex - 1]?.id : undefined;
   const nextRecordId = currentSequenceIndex >= 0 ? reviewSequence[currentSequenceIndex + 1]?.id : undefined;
   const moveToRecord = (nextId: string | undefined) => {
-    if (nextId) navigate(`/records/${nextId}`);
+    if (!nextId) return;
+    if (hasUnsavedChanges) {
+      toast.info("Save or discard your changes before leaving this record");
+      return;
+    }
+    navigate(`/records/${nextId}`);
   };
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -801,23 +1090,47 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canEdit, nextRecordId, previousRecordId, reviewMutationBusy, record?.id, title, fields]);
+  }, [canEdit, nextRecordId, previousRecordId, reviewMutationBusy, record?.id, title, fields, hasUnsavedChanges]);
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    const blockLinkNavigation = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (!target || target.getAttribute("target") === "_blank" || target.hasAttribute("download")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      toast.info("Save or discard your changes before leaving this record");
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    document.addEventListener("click", blockLinkNavigation, true);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      document.removeEventListener("click", blockLinkNavigation, true);
+    };
+  }, [hasUnsavedChanges]);
   if (isLoading) return <Loader2 className="h-6 w-6 animate-spin text-primary" />;
   if (!record) return <div className="text-sm text-muted-foreground">Record not found.</div>;
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <button onClick={() => navigate("/catalog")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Catalog</button>
-      <div className="flex flex-col gap-4 border-b border-border pb-5 md:flex-row md:items-end md:justify-between"><div><div className="mb-2 flex items-center gap-2"><Badge variant="outline" className="capitalize">{record.recordType}</Badge>{statusBadge(record.status)}<span className="text-xs text-muted-foreground">Revision {record.revision}</span></div><Input className="h-auto border-0 bg-transparent p-0 font-serif text-3xl font-semibold shadow-none focus-visible:ring-0" value={title} onChange={event => setTitle(event.target.value)} disabled={!canEdit || reviewMutationBusy} /></div><div className="flex flex-wrap items-center gap-2"><Button size="sm" variant="outline" onClick={() => moveToRecord(previousRecordId)} disabled={!previousRecordId || reviewMutationBusy}>← Previous</Button><Button size="sm" variant="outline" onClick={() => moveToRecord(nextRecordId)} disabled={!nextRecordId || reviewMutationBusy}>Next →</Button>{canEdit && <><Button variant="outline" onClick={() => save()} disabled={reviewMutationBusy}><Save className="mr-2 h-4 w-4" />Save</Button><Button variant="outline" onClick={() => save("archived")} disabled={reviewMutationBusy}>Reject / archive</Button><Button onClick={() => save("approved")} disabled={reviewMutationBusy}><Check className="mr-2 h-4 w-4" />Approve</Button></>}</div></div>
+      <button onClick={() => hasUnsavedChanges ? toast.info("Save or discard your changes before leaving this record") : navigate("/catalog")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Catalog</button>
+      <div className="flex flex-col gap-4 border-b border-border pb-5 md:flex-row md:items-end md:justify-between"><div><div className="mb-2 flex items-center gap-2"><Badge variant="outline" className="capitalize">{record.recordType}</Badge>{statusBadge(record.status)}<span className="text-xs text-muted-foreground">Revision {record.revision}</span>{hasUnsavedChanges && <Badge variant="secondary" className="rounded-full">Unsaved changes</Badge>}</div><Input className="h-auto border-0 bg-transparent p-0 font-serif text-3xl font-semibold shadow-none focus-visible:ring-0" value={title} onChange={event => { setTitle(event.target.value); setDirtyFields(current => new Set(current).add("title")); }} disabled={!canEdit || reviewMutationBusy || recordConflict} /></div><div className="flex flex-wrap items-center gap-2"><Button size="sm" variant="outline" onClick={() => moveToRecord(previousRecordId)} disabled={!previousRecordId || reviewMutationBusy}>← Previous</Button><Button size="sm" variant="outline" onClick={() => moveToRecord(nextRecordId)} disabled={!nextRecordId || reviewMutationBusy}>Next →</Button>{canEdit && <><Button variant="outline" onClick={() => save()} disabled={reviewMutationBusy || !hasUnsavedChanges || recordConflict}><Save className="mr-2 h-4 w-4" />Save changes</Button>{hasUnsavedChanges && <Button variant="ghost" onClick={discardChanges} disabled={reviewMutationBusy}>Discard</Button>}<Button variant="outline" onClick={() => save("archived")} disabled={reviewMutationBusy || recordConflict}>Reject / archive</Button><Button onClick={() => save("approved")} disabled={reviewMutationBusy || recordConflict}><Check className="mr-2 h-4 w-4" />Approve</Button></>}</div></div>
       <p className="-mt-3 text-xs text-muted-foreground">Shortcuts outside a field: <kbd>←</kbd>/<kbd>→</kbd> previous/next · <kbd>A</kbd> approve · <kbd>R</kbd> reject/archive. Suggestions are saved one action at a time.</p>
+      {activeOperation && <div role="status" aria-live="polite" className="flex items-center gap-2 rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin text-primary" />{activeOperation}…</div>}
+      {recordConflict && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-3 text-sm"><div><p className="font-medium">A newer revision is available</p><p className="mt-1 text-xs text-muted-foreground">Your local edits were not saved, so newer reviewed data remains intact.</p></div><Button size="sm" variant="outline" onClick={discardChanges} disabled={Boolean(activeOperation)}>Discard local edits and load latest</Button></div>}
+      {hasUnsavedChanges && <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-muted-foreground">Manual edits are preserved while the record refreshes. Save or discard them before accepting or rejecting AI suggestions.</div>}
       <div className="grid gap-8 lg:grid-cols-[0.8fr_1.2fr]">
         <aside className="space-y-4">{asset ? <div className="sticky top-24 border border-border bg-slate-100 dark:bg-slate-900"><img src={asset.displayUrl ?? asset.originalUrl} alt="" className="max-h-[70vh] w-full object-contain" /></div> : <div className="flex aspect-[4/3] items-center justify-center border border-dashed border-border text-sm text-muted-foreground">No image attached</div>}{asset && <section className="border-y border-border py-4"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Visual neighborhood</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Image-only similarity signals. They do not change catalog data, create links, or prove identity.</p>{neighbors.isLoading && <Loader2 className="mt-3 h-4 w-4 animate-spin text-primary" />}{neighbors.data?.unavailable && <p className="mt-3 text-xs text-muted-foreground">{neighbors.data.unavailable}</p>}{neighbors.data?.items.length ? <div className="mt-3 grid grid-cols-3 gap-2">{neighbors.data.items.map(item => <Link key={item.asset.id} href={item.record ? `/records/${item.record.id}` : "/assets"} className="group border border-border bg-card p-1 hover:border-primary/60"><div className="aspect-square bg-slate-100 dark:bg-slate-900">{item.asset.thumbnailUrl ? <img src={item.asset.thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <div className="flex h-full items-center justify-center"><Images className="h-3.5 w-3.5 text-muted-foreground" /></div>}</div><p className="mt-1 truncate text-[10px] font-medium capitalize group-hover:text-primary">{item.classification}</p><p className="text-[10px] text-muted-foreground">{Math.round(item.score * 100)}% visual signal</p></Link>)}</div> : neighbors.data && !neighbors.data.unavailable ? <p className="mt-3 text-xs text-muted-foreground">No close visual neighbors were found in this project.</p> : null}</section>}</aside>
         <section className="space-y-5">
-          {reviewableSuggestionFields.length > 0 && canEdit && <div className="flex flex-wrap items-center justify-between gap-3 border-y border-primary/30 bg-primary/5 px-4 py-3"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">AI review batch</p><p className="mt-1 text-xs text-muted-foreground">Apply all {reviewableSuggestionFields.length} remaining suggested catalog fields in one revision, or review each field below.</p></div><Button size="sm" onClick={() => accept.mutate({ projectId, recordId: record.id, acceptedFields: reviewableSuggestionFields as Array<"title" | "description" | "workType" | "agents" | "dates" | "locations" | "subjects" | "culturalContext" | "materials" | "techniques" | "inscriptions" | "stylePeriod"> })} disabled={reviewMutationBusy}>{accept.isPending ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1 h-3.5 w-3.5" />}Accept all remaining</Button></div>}
+          {reviewableSuggestionFields.length > 0 && canEdit && <div className="flex flex-wrap items-center justify-between gap-3 border-y border-primary/30 bg-primary/5 px-4 py-3"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">AI review batch</p><p className="mt-1 text-xs text-muted-foreground">Apply all {reviewableSuggestionFields.length} remaining suggested catalog fields in one revision, or review each field below.</p></div><Button size="sm" onClick={() => reviewSuggestions("accept", reviewableSuggestionFields)} disabled={reviewMutationBusy || hasUnsavedChanges || recordConflict}>{activeOperation?.startsWith("Applying") ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1 h-3.5 w-3.5" />}Accept all remaining</Button></div>}
+          {reviewableSuggestionFields.length === 0 && acceptedFields.size + rejectedFields.size > 0 && <div className="flex flex-wrap items-center justify-between gap-3 border-y border-emerald-700/20 bg-emerald-50 px-4 py-3 text-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-200"><div><p className="text-xs font-semibold uppercase tracking-[0.16em]">Suggestion review complete</p><p className="mt-1 text-xs opacity-80">{acceptedFields.size} accepted · {rejectedFields.size} rejected. Approve the record when the reviewed catalog data is ready.</p></div>{canEdit && record.status !== "approved" && <Button size="sm" onClick={() => save("approved")} disabled={reviewMutationBusy}>Approve record</Button>}</div>}
           {typeof suggestions.title === "string" && suggestions.title.trim() && (
             <div className="border-y border-primary/30 bg-primary/5 px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Suggested catalog title</p><p className="mt-1 font-medium">{suggestions.title}</p>{rejectedFields.has("title") && <p className="mt-1 text-xs text-muted-foreground">Rejected for this suggestion round.</p>}</div>
-                {canEdit && !rejectedFields.has("title") && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => accept.mutate({ projectId, recordId: record.id, acceptedFields: ["title"] })} disabled={reviewMutationBusy}><Check className="mr-1 h-3.5 w-3.5" /> Accept</Button><Button size="sm" variant="ghost" onClick={() => reject.mutate({ projectId, recordId: record.id, rejectedFields: ["title"] })} disabled={reviewMutationBusy}>Reject</Button></div>}
+                <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Suggested catalog title</p><p className="mt-1 font-medium">{suggestions.title}</p>{acceptedFields.has("title") && <p className="mt-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">Accepted into reviewed catalog data.</p>}{rejectedFields.has("title") && <p className="mt-1 text-xs text-muted-foreground">Rejected for this suggestion round.</p>}</div>
+                {canEdit && !acceptedFields.has("title") && !rejectedFields.has("title") && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => reviewSuggestions("accept", ["title"])} disabled={reviewMutationBusy || hasUnsavedChanges || recordConflict}><Check className="mr-1 h-3.5 w-3.5" /> Accept</Button><Button size="sm" variant="ghost" onClick={() => reviewSuggestions("reject", ["title"])} disabled={reviewMutationBusy || hasUnsavedChanges || recordConflict}>Reject</Button></div>}
               </div>
             </div>
           )}
@@ -825,7 +1138,7 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
             <div className="border-y border-amber-500/30 bg-amber-500/5 px-4 py-4">
               <div className="mb-3"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800 dark:text-amber-300">Candidate identification</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">AI hypotheses only. Verify against authoritative sources before saving as catalog fact.</p></div>
               <div className="space-y-4">
-                {candidates.map((candidate, index) => <article key={`${candidate.name}-${index}`} className="border-t border-amber-500/20 pt-3 first:border-t-0 first:pt-0"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-medium">{candidate.name}</p><p className="text-xs text-muted-foreground">{candidate.classification}{candidate.location ? ` · ${candidate.location}` : ""}</p></div><Badge variant="outline" className="capitalize">{candidate.confidence} confidence</Badge></div><p className="mt-2 text-sm leading-relaxed">{candidate.rationale}</p><p className="mt-2 text-xs leading-relaxed text-muted-foreground"><span className="font-medium text-foreground">Verify:</span> {candidate.verificationNote}</p>{canEdit && <Button size="sm" variant="ghost" className="mt-2 h-7 px-0 text-xs text-primary hover:bg-transparent hover:text-primary" onClick={() => setTitle(candidate.name)}>Use as title, then save</Button>}</article>)}
+                {candidates.map((candidate, index) => <article key={`${candidate.name}-${index}`} className="border-t border-amber-500/20 pt-3 first:border-t-0 first:pt-0"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-medium">{candidate.name}</p><p className="text-xs text-muted-foreground">{candidate.classification}{candidate.location ? ` · ${candidate.location}` : ""}</p></div><Badge variant="outline" className="capitalize">{candidate.confidence} confidence</Badge></div><p className="mt-2 text-sm leading-relaxed">{candidate.rationale}</p><p className="mt-2 text-xs leading-relaxed text-muted-foreground"><span className="font-medium text-foreground">Verify:</span> {candidate.verificationNote}</p>{canEdit && <Button size="sm" variant="ghost" className="mt-2 h-7 px-0 text-xs text-primary hover:bg-transparent hover:text-primary" onClick={() => { setTitle(candidate.name); setDirtyFields(current => new Set(current).add("title")); }} disabled={recordConflict}>Use as title, then save</Button>}</article>)}
               </div>
             </div>
           )}
@@ -833,9 +1146,10 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
             const suggestion = suggestions[key];
             const hasSuggestion = suggestion !== undefined && formatFieldValue(suggestion) !== "";
             const isRejected = rejectedFields.has(key);
-            return <div key={key} className="border-b border-border pb-5"><div className="mb-2 flex items-center justify-between gap-3"><Label htmlFor={key}>{label}</Label>{canEdit && hasSuggestion && !isRejected && <div className="flex gap-2"><Button size="sm" variant="ghost" className="h-7 text-xs text-primary" onClick={() => accept.mutate({ projectId, recordId: record.id, acceptedFields: [key] })} disabled={reviewMutationBusy}><Check className="mr-1 h-3 w-3" /> Accept</Button><Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={() => reject.mutate({ projectId, recordId: record.id, rejectedFields: [key] })} disabled={reviewMutationBusy}>Reject</Button></div>}</div>{key === "description" ? <Textarea id={key} rows={4} value={fields[key] ?? ""} onChange={event => setFields(current => ({ ...current, [key]: event.target.value }))} disabled={!canEdit || reviewMutationBusy} /> : <Input id={key} value={fields[key] ?? ""} onChange={event => setFields(current => ({ ...current, [key]: event.target.value }))} placeholder={ARRAY_FIELDS.has(key) ? "Comma-separated values" : undefined} disabled={!canEdit || reviewMutationBusy} />}{hasSuggestion && <div className="mt-2 bg-primary/5 px-3 py-2 text-xs leading-relaxed"><span className="font-semibold text-primary">AI suggestion:</span> {formatFieldValue(suggestion)}{isRejected && <span className="ml-2 text-muted-foreground">— rejected for this suggestion round</span>}</div>}</div>;
+            const isAccepted = acceptedFields.has(key);
+            return <div key={key} className="border-b border-border pb-5"><div className="mb-2 flex items-center justify-between gap-3"><Label htmlFor={key}>{label}</Label>{canEdit && hasSuggestion && !isRejected && !isAccepted && <div className="flex gap-2"><Button size="sm" variant="ghost" className="h-7 text-xs text-primary" onClick={() => reviewSuggestions("accept", [key])} disabled={reviewMutationBusy || hasUnsavedChanges}><Check className="mr-1 h-3 w-3" /> Accept</Button><Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={() => reviewSuggestions("reject", [key])} disabled={reviewMutationBusy || hasUnsavedChanges}>Reject</Button></div>}</div>{key === "description" ? <Textarea id={key} rows={4} value={fields[key] ?? ""} onChange={event => { setFields(current => ({ ...current, [key]: event.target.value })); setDirtyFields(current => new Set(current).add(key)); }} disabled={!canEdit || reviewMutationBusy} /> : <Input id={key} value={fields[key] ?? ""} onChange={event => { setFields(current => ({ ...current, [key]: event.target.value })); setDirtyFields(current => new Set(current).add(key)); }} placeholder={ARRAY_FIELDS.has(key) ? "Comma-separated values" : undefined} disabled={!canEdit || reviewMutationBusy} />}{hasSuggestion && <div className="mt-2 bg-primary/5 px-3 py-2 text-xs leading-relaxed"><span className="font-semibold text-primary">AI suggestion:</span> {formatFieldValue(suggestion)}{isAccepted && <span className="ml-2 font-medium text-emerald-700 dark:text-emerald-300">— accepted</span>}{isRejected && <span className="ml-2 text-muted-foreground">— rejected</span>}</div>}</div>;
           })}
-          {canEdit && asset && <div className="border-y border-border py-5"><div className="flex items-center justify-between gap-4"><div><div className="font-medium">Generate catalog suggestions</div><p className="text-xs text-muted-foreground">Gemini proposes detailed descriptions and clearly labeled identification candidates. Nothing enters reviewed data automatically.</p></div><Button variant="outline" onClick={() => suggest.mutate({ projectId, recordId: record.id })} disabled={suggest.isPending}>{suggest.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}Suggest fields</Button></div></div>}
+          {canEdit && asset && <div className="border-y border-border py-5"><div className="flex items-center justify-between gap-4"><div><div className="font-medium">Generate catalog suggestions</div><p className="text-xs text-muted-foreground">Gemini proposes detailed descriptions and clearly labeled identification candidates. A new suggestion set resets the field-review decisions above.</p></div><Button variant="outline" onClick={generateSuggestions} disabled={reviewMutationBusy || hasUnsavedChanges}>{suggest.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}Suggest fields</Button></div></div>}
         </section>
       </div>
     </div>
@@ -859,6 +1173,10 @@ function RelationshipsPage({ projectId, canEdit }: { projectId: number; canEdit:
     },
     onError: error => toast.error(error.message),
   });
+  useEffect(() => {
+    setSourceRecordId("");
+    setTargetRecordId("");
+  }, [projectId]);
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div>

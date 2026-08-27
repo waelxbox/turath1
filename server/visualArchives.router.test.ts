@@ -16,6 +16,7 @@ const {
   unlinkImageRecordsFromWork,
   createVraRecord,
   acceptVraSuggestionFields,
+  bulkSetVraRecordStatus,
   rejectVraSuggestionFields,
   updateVraRecord,
   updateVraSuggestions,
@@ -43,6 +44,7 @@ const {
   unlinkImageRecordsFromWork: vi.fn(),
   createVraRecord: vi.fn(),
   acceptVraSuggestionFields: vi.fn(),
+  bulkSetVraRecordStatus: vi.fn(),
   rejectVraSuggestionFields: vi.fn(),
   updateVraRecord: vi.fn(),
   updateVraSuggestions: vi.fn(),
@@ -71,6 +73,7 @@ vi.mock("./visualArchives/db", () => ({
   createVisualProject: vi.fn(),
   createVraRecord,
   acceptVraSuggestionFields,
+  bulkSetVraRecordStatus,
   createVraRelation: vi.fn(),
   findVisualAssetByHash,
   getVisualArchiveStats: vi.fn(),
@@ -104,6 +107,7 @@ vi.mock("./storage", () => ({
 vi.mock("./_core/llm", () => ({ invokeLLM }));
 
 import { visualArchivesRouter } from "./visualArchives/router";
+import { VraRevisionConflictError } from "./visualArchives/recordConcurrency";
 
 function caller(userId = 7, email = "adamamin2027@gmail.com") {
   return visualArchivesRouter.createCaller({
@@ -243,6 +247,30 @@ describe("Visual Archives router boundaries", () => {
     expect(result.facets.locations).toEqual([{ value: "Cairo", count: 1 }]);
     expect(result.items[0]).not.toHaveProperty("aiSuggestedJson");
     expect(result.items[0]).not.toHaveProperty("suggestionProvenance");
+  });
+
+  it("handles natural plural search phrases without treating filler words as required metadata", async () => {
+    listVraRecords.mockResolvedValue([{
+      id: "123e4567-e89b-12d3-a456-426614174006",
+      projectId: 12,
+      recordType: "image",
+      status: "approved",
+      title: "Urban view",
+      localIdentifier: null,
+      assetId: null,
+      reviewedJson: { subjects: ["street scene", "balconies", "tram lines"] },
+      aiSuggestedJson: {},
+      suggestionProvenance: {},
+    }]);
+
+    const result = await caller().searchReviewedCatalog({
+      projectId: 12,
+      query: "street scenes with balconies and tram lines",
+      limit: 48,
+    });
+
+    expect(result.total).toBe(1);
+    expect(result.items[0]?.matchReasons).toContain("matched subjects");
   });
 
   it("answers visual archive questions only from approved records and returns cited protected evidence", async () => {
@@ -399,14 +427,33 @@ describe("Visual Archives router boundaries", () => {
     expect(createVraRecord).not.toHaveBeenCalled();
   });
 
-  it("keeps bulk record state changes project-scoped and writes each record through the revision path", async () => {
+  it("routes bulk record state changes through one project-scoped transaction", async () => {
     const recordIds = ["123e4567-e89b-12d3-a456-426614174031", "123e4567-e89b-12d3-a456-426614174032"];
-    getVraRecordsByIds.mockResolvedValue(recordIds.map(id => ({ id, projectId: 12, recordType: "image" })));
-    updateVraRecord.mockResolvedValue({});
+    bulkSetVraRecordStatus.mockResolvedValue({ updated: 2 });
 
     await expect(caller().bulkSetRecordStatus({ projectId: 12, recordIds, status: "approved" })).resolves.toEqual({ updated: 2 });
-    expect(updateVraRecord).toHaveBeenCalledTimes(2);
-    expect(updateVraRecord).toHaveBeenCalledWith(expect.objectContaining({ projectId: 12, status: "approved", changeSummary: "Bulk status change to approved" }));
+    expect(bulkSetVraRecordStatus).toHaveBeenCalledWith({ projectId: 12, recordIds, status: "approved", userId: 7 });
+  });
+
+  it("returns a conflict instead of overwriting a newer reviewed record", async () => {
+    const recordId = "123e4567-e89b-12d3-a456-426614174031";
+    updateVraRecord.mockRejectedValueOnce(new VraRevisionConflictError(4));
+
+    await expect(caller().updateRecord({
+      projectId: 12,
+      recordId,
+      title: "Stale editor title",
+      expectedRevision: 3,
+    })).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: expect.stringContaining("changed in another session"),
+    });
+    expect(updateVraRecord).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 12,
+      recordId,
+      expectedRevision: 3,
+      userId: 7,
+    }));
   });
 
   it("routes explicitly accepted VRA fields through the atomic locked revision helper", async () => {

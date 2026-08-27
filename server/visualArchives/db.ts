@@ -10,6 +10,12 @@ import {
   type InsertVraRecord,
   type InsertVraRecordRelation,
 } from "../../drizzle/schema";
+import {
+  acceptSuggestedFields,
+  rejectSuggestedFields,
+  type SuggestionField,
+} from "./suggestionReview";
+import { VraRevisionConflictError } from "./recordConcurrency";
 import { getDb } from "../db";
 
 export async function getVisualProjectMode(projectId: number) {
@@ -295,6 +301,7 @@ export async function updateVraRecord(input: {
   reviewedJson?: Record<string, unknown>;
   status?: "draft" | "needs_review" | "approved" | "archived";
   changeSummary?: string;
+  expectedRevision?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -306,6 +313,9 @@ export async function updateVraRecord(input: {
       .for("update")
       .limit(1);
     if (!current) return undefined;
+    if (input.expectedRevision !== undefined && current.revision !== input.expectedRevision) {
+      throw new VraRevisionConflictError(current.revision);
+    }
     const nextRevision = current.revision + 1;
     const approved = input.status === "approved";
     const [updated] = await tx
@@ -334,14 +344,59 @@ export async function updateVraRecord(input: {
   });
 }
 
+export async function bulkSetVraRecordStatus(input: {
+  projectId: number;
+  recordIds: string[];
+  userId: number;
+  status: "draft" | "needs_review" | "approved" | "archived";
+}) {
+  const uniqueRecordIds = Array.from(new Set(input.recordIds));
+  if (uniqueRecordIds.length !== input.recordIds.length) return undefined;
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.transaction(async tx => {
+    const currentRecords = await tx
+      .select()
+      .from(vraRecords)
+      .where(and(
+        eq(vraRecords.projectId, input.projectId),
+        inArray(vraRecords.id, uniqueRecordIds),
+      ))
+      .for("update");
+    if (currentRecords.length !== uniqueRecordIds.length) return undefined;
+
+    const changedAt = new Date();
+    for (const current of currentRecords) {
+      const nextRevision = current.revision + 1;
+      const [updated] = await tx
+        .update(vraRecords)
+        .set({
+          status: input.status,
+          revision: nextRevision,
+          updatedByUserId: input.userId,
+          ...(input.status === "approved" ? { approvedByUserId: input.userId, approvedAt: changedAt } : {}),
+          updatedAt: changedAt,
+        })
+        .where(and(eq(vraRecords.projectId, input.projectId), eq(vraRecords.id, current.id)))
+        .returning();
+      await tx.insert(vraRecordRevisions).values({
+        projectId: updated.projectId,
+        recordId: updated.id,
+        revision: updated.revision,
+        snapshotJson: updated.reviewedJson,
+        changeSummary: `Bulk status change to ${input.status}`,
+        createdByUserId: input.userId,
+      });
+    }
+    return { updated: currentRecords.length };
+  });
+}
+
 export async function acceptVraSuggestionFields(input: {
   projectId: number;
   recordId: string;
   userId: number;
-  acceptedFields: Array<
-    "title" | "description" | "workType" | "agents" | "dates" | "locations" |
-    "subjects" | "culturalContext" | "materials" | "techniques" | "inscriptions" | "stylePeriod"
-  >;
+  acceptedFields: SuggestionField[];
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -354,24 +409,25 @@ export async function acceptVraSuggestionFields(input: {
       .limit(1);
     if (!current) return undefined;
 
-    const reviewed = { ...(current.reviewedJson as Record<string, unknown>) };
-    const suggestions = current.aiSuggestedJson as Record<string, unknown>;
-    let acceptedTitle: string | undefined;
-    for (const field of input.acceptedFields) {
-      if (field === "title" && typeof suggestions.title === "string" && suggestions.title.trim()) {
-        acceptedTitle = suggestions.title.trim();
-      } else if (Object.prototype.hasOwnProperty.call(suggestions, field)) {
-        reviewed[field] = suggestions[field];
-      }
-    }
+    const review = acceptSuggestedFields({
+      title: current.title,
+      reviewedJson: current.reviewedJson,
+      suggestions: current.aiSuggestedJson,
+      provenance: current.suggestionProvenance,
+      acceptedFields: input.acceptedFields,
+      userId: input.userId,
+      reviewedAt: new Date().toISOString(),
+    });
+    if (review.appliedFields.length === 0) return current;
 
     const nextRevision = current.revision + 1;
     const [updated] = await tx
       .update(vraRecords)
       .set({
-        ...(acceptedTitle ? { title: acceptedTitle } : {}),
-        reviewedJson: reviewed,
-        status: "draft",
+        title: review.title,
+        reviewedJson: review.reviewedJson,
+        suggestionProvenance: review.suggestionProvenance,
+        status: current.status === "archived" ? "archived" : "needs_review",
         revision: nextRevision,
         updatedByUserId: input.userId,
         updatedAt: new Date(),
@@ -383,7 +439,7 @@ export async function acceptVraSuggestionFields(input: {
       recordId: updated.id,
       revision: updated.revision,
       snapshotJson: updated.reviewedJson,
-      changeSummary: `Accepted AI suggestions: ${input.acceptedFields.join(", ")}`,
+      changeSummary: `Accepted AI suggestions: ${review.appliedFields.join(", ")}`,
       createdByUserId: input.userId,
     });
     return updated;
@@ -394,10 +450,7 @@ export async function rejectVraSuggestionFields(input: {
   projectId: number;
   recordId: string;
   userId: number;
-  rejectedFields: Array<
-    "title" | "description" | "workType" | "agents" | "dates" | "locations" |
-    "subjects" | "culturalContext" | "materials" | "techniques" | "inscriptions" | "stylePeriod"
-  >;
+  rejectedFields: SuggestionField[];
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -410,21 +463,18 @@ export async function rejectVraSuggestionFields(input: {
       .limit(1);
     if (!current) return undefined;
 
-    const previousProvenance = (current.suggestionProvenance ?? {}) as Record<string, unknown>;
-    const existing = Array.isArray(previousProvenance.rejectedFields)
-      ? previousProvenance.rejectedFields.filter((field): field is string => typeof field === "string")
-      : [];
-    const rejectedFields = Array.from(new Set([...existing, ...input.rejectedFields]));
+    const review = rejectSuggestedFields({
+      provenance: current.suggestionProvenance,
+      rejectedFields: input.rejectedFields,
+      userId: input.userId,
+      reviewedAt: new Date().toISOString(),
+    });
+    if (review.appliedFields.length === 0) return current;
     const nextRevision = current.revision + 1;
     const [updated] = await tx
       .update(vraRecords)
       .set({
-        suggestionProvenance: {
-          ...previousProvenance,
-          rejectedFields,
-          lastReviewedAt: new Date().toISOString(),
-          lastReviewedByUserId: input.userId,
-        },
+        suggestionProvenance: review.suggestionProvenance,
         revision: nextRevision,
         updatedByUserId: input.userId,
         updatedAt: new Date(),
@@ -436,7 +486,7 @@ export async function rejectVraSuggestionFields(input: {
       recordId: updated.id,
       revision: updated.revision,
       snapshotJson: updated.reviewedJson,
-      changeSummary: `Rejected AI suggestions: ${input.rejectedFields.join(", ")}`,
+      changeSummary: `Rejected AI suggestions: ${review.appliedFields.join(", ")}`,
       createdByUserId: input.userId,
     });
     return updated;
