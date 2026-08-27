@@ -8,4 +8,11 @@ describe("VisualWorkspace Projects navigation", () => {
     expect(source).toContain('<a href="/dashboard" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">');
     expect(source).not.toContain('<Link href="/dashboard"');
   });
+
+  it("keeps the visual workspace self-contained with persistent evidence chat, explicit export feedback, and no simulated vector search", () => {
+    expect(source).toContain("turath.visual-archive.${projectId}.conversation.v1");
+    expect(source).toContain("ZIP download started. Your browser will show streaming progress.");
+    expect(source).toContain("Semantic visual memory is not enabled");
+    expect(source).toContain("findSimilarToUploadedImage");
+  });
 });

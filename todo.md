@@ -807,3 +807,9 @@
 - [ ] Apply `0013_visual_archives_memory.sql`, then activate project-scoped reviewed-record embeddings and hybrid semantic ranking; do not auto-merge images
 - [x] Add project-scoped perceptual visual-neighborhood, duplicate, and variant suggestions with score explanations and explicit human confirmation
 - [x] Improve Visual Archives Ask Archive with evidence drawer, highlighted approved fields, conversation history, follow-ups, and insufficient-evidence behavior
+- [x] Unify all Visual Archives routes into a polished image-first workspace with responsive states, consistent controls, and contextual next actions
+- [x] Add non-vector upload-image similarity and visual-neighborhood discovery with explainable scores, approved-only defaults, and no auto-merge
+- [x] Persist Visual Archives-only conversation continuity locally while preserving approved-evidence-only citations and direct record actions
+- [x] Add visible Visual Archives export start, success, and failure feedback plus navigation-continuity regression coverage
+- [x] Complete documented authenticated desktop Visual Archives QA and full document-mode regression testing
+- [ ] Manually complete authenticated tablet/mobile Visual Archives QA; automated mobile capture cannot carry the temporary staging owner session

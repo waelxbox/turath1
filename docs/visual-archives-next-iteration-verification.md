@@ -23,3 +23,25 @@ Desktop QA was completed on the authenticated staging preview for the image-firs
 ## Unapplied visual-memory migration
 
 `0013_visual_archives_memory.sql` is forward-only and intentionally **has not been applied**. It creates a project-scoped `visual_record_embeddings` table for vectors generated only from approved VRA metadata, with composite project/record and project/asset foreign keys. Existing perceptual neighborhood matching is available now from derivative fingerprints, is project-scoped, shows a score explanation, and cannot create a relation or merge records. Apply the migration in the Supabase SQL Editor only after reviewing it; then the next isolated increment can turn on text-vector and hybrid ranking.
+
+## Productization desktop audit
+
+Authenticated desktop review of the Visual Archives Catalog confirmed that the project-scoped workspace renders the dark archive navigation, visual-mode label, image-first thumbnail cards, selected-state checkboxes, consistent status chips, bounded selection controls, filters, and direct record navigation in one coherent layout. The refined heading and sticky-control treatments are present in the running preview. This evidence uses an internal short-lived owner session only.
+
+## Productization discovery audit
+
+Authenticated desktop review of Discover confirmed the approved-only default, explicit draft-record toggle, typed metadata search, thumbnail-led result cards, facet counts, and a temporary-reference image control. The page visibly identifies the reference-image flow as in-memory and non-persistent. It also truthfully reports that semantic visual memory is unavailable pending the unapplied `0013` migration and explicit flag; no semantic results are presented as if they exist.
+
+## Productization evidence-chat audit
+
+Authenticated desktop review confirmed the refined Ask Archive workspace shows its approved-evidence scope, device-local history scope, intentionally worded suggested questions, and a stable composer. Selecting a suggested question populated the composer without navigating away or altering the active Visual Archive context. The next response check will verify cited evidence and local conversation continuity.
+
+The selected question returned a grounded **insufficient-evidence** answer rather than inventing a religious-architecture conclusion from synthetic courtyard records. The response retained the question in device-local conversation history and displayed three clickable citation cards with matched approved fields. The result did not display AI drafts. This confirms that the productized chat retains a truthful evidence boundary under an unsupported question.
+
+Reloading the Ask Archive route preserved the two-message conversation and its citation cards, confirming device-local continuity within the same project without changing the server-side evidence scope.
+
+## Productization export audit
+
+Authenticated desktop review confirmed the Export page renders consistent workspace navigation, clearly separated catalog versus selected-original export scopes, concise format explanations, protected thumbnail selection cards, an approved-only default, and a disabled ZIP action before an image is chosen. The UI now reports that a catalog attachment or streaming ZIP has **started**, rather than falsely claiming that a browser-streamed ZIP has finished.
+
+Clicking the CSV control in the authenticated desktop preview successfully produced a visible toast naming `turath-visual-catalog-2026-08-27.csv` and stating that the download started. This verifies the browser-facing feedback together with the earlier protected attachment-header checks. The standalone mobile capture session remains unauthenticated and could not capture the protected catalog route; no responsive issue was observed in authenticated desktop QA, but manual mobile QA remains required.

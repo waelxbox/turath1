@@ -9,6 +9,7 @@ const {
   getVraRecord,
   getVraRecordsByIds,
   linkImageRecordsToWork,
+  listVisualAssets,
   listVisualAssetsPage,
   listVraRecords,
   listVraRecordsPage,
@@ -35,6 +36,7 @@ const {
   getVraRecord: vi.fn(),
   getVraRecordsByIds: vi.fn(),
   linkImageRecordsToWork: vi.fn(),
+  listVisualAssets: vi.fn(),
   listVisualAssetsPage: vi.fn(),
   listVraRecords: vi.fn(),
   listVraRecordsPage: vi.fn(),
@@ -56,6 +58,7 @@ const {
 
 vi.mock("./visualArchives/config", () => ({
   isVisualArchivesEnabled: () => true,
+  isVisualArchivesMemoryEnabled: () => false,
   isVisualArchivesPreviewUser: (user: { email?: string | null } | null | undefined) => user?.email === "adamamin2027@gmail.com",
 }));
 
@@ -78,7 +81,7 @@ vi.mock("./visualArchives/db", () => ({
   getVraRecord,
   getVraRecordsByIds,
   linkImageRecordsToWork,
-  listVisualAssets: vi.fn(),
+  listVisualAssets,
   listVisualAssetsPage,
   listVraRecords,
   listVraRecordsPage,
@@ -119,6 +122,7 @@ describe("Visual Archives router boundaries", () => {
     listVraRecords.mockResolvedValue([]);
     listVraRecordsPage.mockResolvedValue({ items: [], total: 0, nextCursor: null });
     listVisualAssetsPage.mockResolvedValue({ items: [], total: 0, nextCursor: null });
+    listVisualAssets.mockResolvedValue([]);
     acceptVraSuggestionFields.mockImplementation(async (input: Record<string, unknown>) => input);
     rejectVraSuggestionFields.mockImplementation(async (input: Record<string, unknown>) => input);
   });
@@ -172,7 +176,7 @@ describe("Visual Archives router boundaries", () => {
   it("hides the controlled preview and rejects every visual operation for a non-allowlisted account", async () => {
     const outsideCaller = caller(8, "researcher@example.org");
 
-    await expect(outsideCaller.availability()).resolves.toEqual({ enabled: false });
+    await expect(outsideCaller.availability()).resolves.toEqual({ enabled: false, memoryEnabled: false });
     await expect(outsideCaller.createProject({ name: "Not allowed" })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(outsideCaller.listRecords({ projectId: 12 })).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(getProjectRole).not.toHaveBeenCalled();
@@ -527,5 +531,29 @@ describe("Visual Archives router boundaries", () => {
       acceptedFields: ["confidenceNotes" as any],
     })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(getVraRecord).not.toHaveBeenCalled();
+  });
+
+  it("compares a temporary reference image only against approved project Images without persisting it", async () => {
+    createVisualDerivatives.mockResolvedValue({ perceptualHash: "0000000000000000" });
+    listVisualAssets.mockResolvedValue([
+      { id: "123e4567-e89b-12d3-a456-426614174001", projectId: 12, status: "ready", technicalMetadata: { perceptualHash: "0000000000000000" } },
+      { id: "123e4567-e89b-12d3-a456-426614174002", projectId: 12, status: "ready", technicalMetadata: { perceptualHash: "ffffffffffffffff" } },
+    ]);
+    listVraRecords.mockResolvedValue([
+      { id: "123e4567-e89b-12d3-a456-426614174003", projectId: 12, assetId: "123e4567-e89b-12d3-a456-426614174001", status: "approved", title: "Approved courtyard", recordType: "image", reviewedJson: {}, aiSuggestedJson: { private: "draft" }, suggestionProvenance: {} },
+      { id: "123e4567-e89b-12d3-a456-426614174004", projectId: 12, assetId: "123e4567-e89b-12d3-a456-426614174002", status: "needs_review", title: "Unreviewed courtyard", recordType: "image", reviewedJson: {}, aiSuggestedJson: { private: "draft" }, suggestionProvenance: {} },
+    ]);
+
+    const result = await caller().findSimilarToUploadedImage({
+      projectId: 12,
+      mimeType: "image/png",
+      fileBase64: Buffer.from("synthetic reference").toString("base64"),
+    });
+
+    expect(result.referenceStored).toBe(false);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({ score: 1, record: { title: "Approved courtyard" } });
+    expect(JSON.stringify(result.items)).not.toContain("private");
+    expect(createVisualAsset).not.toHaveBeenCalled();
   });
 });

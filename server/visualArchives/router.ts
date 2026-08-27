@@ -11,7 +11,7 @@ import {
   storagePut,
   visualAssetAccessUrl,
 } from "../storage";
-import { isVisualArchivesEnabled, isVisualArchivesPreviewUser } from "./config";
+import { isVisualArchivesEnabled, isVisualArchivesMemoryEnabled, isVisualArchivesPreviewUser } from "./config";
 import {
   acceptVraSuggestionFields,
   createVisualAsset,
@@ -316,6 +316,7 @@ function buildVisualFacets(records: Array<{ reviewedJson: unknown }>) {
 export const visualArchivesRouter = router({
   availability: publicProcedure.query(({ ctx }) => ({
     enabled: isVisualArchivesEnabled() && isVisualArchivesPreviewUser(ctx.user),
+    memoryEnabled: isVisualArchivesMemoryEnabled() && isVisualArchivesPreviewUser(ctx.user),
   })),
 
   createProject: protectedProcedure
@@ -400,6 +401,49 @@ export const visualArchivesRouter = router({
           explanation: `Perceptual fingerprint distance ${item.distance}/64. This is visual comparison only; confirm before grouping or treating images as duplicates.`,
         }));
       return { sourceAssetId: source.id, items, unavailable: null };
+    }),
+
+  findSimilarToUploadedImage: protectedProcedure
+    .input(z.object({
+      projectId: z.number().int().positive(),
+      mimeType: z.enum(["image/jpeg", "image/png"]),
+      fileBase64: z.string().min(1).max(21_000_000),
+      limit: z.number().int().min(1).max(48).default(24),
+      includeDrafts: z.boolean().default(false),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await requireVisualRole(input.projectId, ctx.user);
+      const source = Buffer.from(input.fileBase64, "base64");
+      if (source.length === 0 || source.length > MAX_VISUAL_ASSET_BYTES) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Reference image must be a JPEG or PNG of 15 MB or smaller" });
+      }
+      const reference = await createVisualDerivatives(source);
+      const [assets, records] = await Promise.all([
+        listVisualAssets(input.projectId),
+        listVraRecords({ projectId: input.projectId, recordType: "image" }),
+      ]);
+      const recordsByAssetId = new Map(records
+        .filter(record => record.assetId && (input.includeDrafts || record.status === "approved"))
+        .map(record => [record.assetId!, record]));
+      const items = assets
+        .filter(asset => asset.status === "ready" && recordsByAssetId.has(asset.id))
+        .map(asset => ({ asset, fingerprint: perceptualHash(asset) }))
+        .filter((entry): entry is { asset: typeof assets[number]; fingerprint: string } => Boolean(entry.fingerprint))
+        .map(({ asset, fingerprint }) => {
+          const distance = perceptualDistance(reference.perceptualHash, fingerprint);
+          const score = Number((1 - distance / 64).toFixed(3));
+          return {
+            asset: safeAssetResponse(asset),
+            record: recordsByAssetId.get(asset.id) ? safeReviewedSearchRecord(recordsByAssetId.get(asset.id)!) : null,
+            score,
+            classification: score >= 0.97 ? "possible duplicate" : score >= 0.84 ? "possible variant" : "visual neighborhood",
+            explanation: `Compared a temporary reference image to this project’s stored perceptual fingerprints (${distance}/64 difference). The reference image was not saved. Confirm any relationship manually.`,
+          };
+        })
+        .filter(item => item.score >= 0.62)
+        .sort((left, right) => right.score - left.score || left.asset.id.localeCompare(right.asset.id))
+        .slice(0, input.limit);
+      return { items, unavailable: null, referenceStored: false };
     }),
 
   uploadAsset: protectedProcedure
@@ -598,6 +642,7 @@ export const visualArchivesRouter = router({
       }).default({}),
       includeDrafts: z.boolean().default(false),
       limit: z.number().int().min(1).max(100).default(48),
+      offset: z.number().int().min(0).max(10_000).default(0),
     }))
     .query(async ({ ctx, input }) => {
       await requireVisualRole(input.projectId, ctx.user);
@@ -605,7 +650,7 @@ export const visualArchivesRouter = router({
       const catalogRecords = await listVraRecords({ projectId: input.projectId, recordType: input.recordType, status: input.includeDrafts ? undefined : "approved" });
       const facets = buildVisualFacets(catalogRecords);
       const terms = input.query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
-      const results = catalogRecords.filter(record => {
+      const matchingRecords = catalogRecords.filter(record => {
         const text = reviewedSearchText(record);
         if (!terms.every(term => text.includes(term))) return false;
         return visualFacetFields.every(field => {
@@ -614,15 +659,21 @@ export const visualArchivesRouter = router({
           const values = reviewedFieldValues(record, field).map(value => value.toLocaleLowerCase());
           return selected.some(value => values.includes(value.toLocaleLowerCase()));
         });
-      }).slice(0, input.limit);
+      });
+      const results = matchingRecords.slice(input.offset, input.offset + input.limit);
       const assets = await getVisualAssetsByIds(input.projectId, results.flatMap(record => record.assetId ? [record.assetId] : []));
       const byId = new Map(assets.map(asset => [asset.id, asset]));
       return {
-        total: results.length,
+        total: matchingRecords.length,
+        nextOffset: input.offset + results.length < matchingRecords.length ? input.offset + results.length : null,
         facets,
         items: results.map(record => ({
           ...safeReviewedSearchRecord(record),
           asset: record.assetId && byId.has(record.assetId) ? safeAssetResponse(byId.get(record.assetId)!) : null,
+          matchReasons: [
+            ...matchedReviewedFields(record, terms).map(field => `matched ${field === "localIdentifier" ? "identifier" : field}`),
+            ...visualFacetFields.flatMap(field => (input.facets[field] ?? []).some(value => reviewedFieldValues(record, field).some(recordValue => recordValue.toLocaleLowerCase() === value.toLocaleLowerCase())) ? [`filtered by ${field}`] : []),
+          ],
         })),
       };
     }),

@@ -9,4 +9,5 @@ export const ENV = {
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
   googleAiApiKey: process.env.GOOGLE_AI_API_KEY ?? "",
   visualArchivesEnabled: process.env.TURATH_VISUAL_ARCHIVES_ENABLED === "true",
+  visualArchivesMemoryEnabled: process.env.TURATH_VISUAL_ARCHIVES_MEMORY_ENABLED === "true",
 };
