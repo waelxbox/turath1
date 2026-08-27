@@ -624,6 +624,7 @@ export const visualAssets = pgTable("visual_assets", {
 }, (t) => [
   index("visual_assets_projectId_idx").on(t.projectId),
   index("visual_assets_projectId_status_idx").on(t.projectId, t.status),
+  index("visual_assets_project_status_created_id_idx").on(t.projectId, t.status, t.createdAt, t.id),
   index("visual_assets_projectId_sha256_idx").on(t.projectId, t.sha256),
   uniqueIndex("visual_assets_projectId_id_uq").on(t.projectId, t.id),
 ]);
@@ -653,6 +654,8 @@ export const vraRecords = pgTable("vra_records", {
   index("vra_records_projectId_idx").on(t.projectId),
   index("vra_records_projectId_type_idx").on(t.projectId, t.recordType),
   index("vra_records_projectId_status_idx").on(t.projectId, t.status),
+  index("vra_records_project_status_updated_id_idx").on(t.projectId, t.status, t.updatedAt, t.id),
+  index("vra_records_project_type_status_updated_id_idx").on(t.projectId, t.recordType, t.status, t.updatedAt, t.id),
   index("vra_records_projectId_assetId_idx").on(t.projectId, t.assetId),
   uniqueIndex("vra_records_projectId_id_uq").on(t.projectId, t.id),
   foreignKey({

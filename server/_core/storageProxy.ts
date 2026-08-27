@@ -10,6 +10,8 @@ import {
   verifyValidationStorageToken,
   type ValidationStorageToken,
 } from "../storage";
+import { ZipArchive } from "archiver";
+import { Readable } from "node:stream";
 import { authenticateRequestUser } from "./context";
 import { ENV } from "./env";
 import { getVisualAsset } from "../visualArchives/db";
@@ -20,6 +22,8 @@ type StoredDocument = { storagePath: string; storageUrl: string | null };
 type StoredSample = { imagePath: string };
 type ValidationSession = { projectId: number; documentIds: unknown; status: string };
 type StoredVisualAsset = {
+  id: string;
+  filename: string;
   originalKey: string;
   displayKey: string | null;
   thumbnailKey: string | null;
@@ -97,6 +101,11 @@ function validUuid(value: string): string | null {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
     ? value
     : null;
+}
+
+function safeExportFilename(value: string): string {
+  const basename = value.split(/[\\/]/).pop() ?? "image";
+  return basename.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 180) || "image";
 }
 
 function trustedDemoUrl(document: StoredDocument): string | null {
@@ -276,6 +285,63 @@ export function registerStorageProxy(
       );
     } catch (error) {
       storageFailure(res, error);
+    }
+  });
+
+  app.get("/api/storage/projects/:projectId/visual-exports/selected.zip", async (req, res) => {
+    if (!dependencies.visualArchivesEnabled()) {
+      res.status(404).send("Not found");
+      return;
+    }
+    const projectId = positiveInteger(req.params.projectId);
+    const requestedIds = typeof req.query.assetIds === "string"
+      ? Array.from(new Set(req.query.assetIds.split(",").map(validUuid).filter((value): value is string => Boolean(value))))
+      : [];
+    if (!projectId || requestedIds.length === 0 || requestedIds.length > 100) {
+      res.status(404).send("Not found");
+      return;
+    }
+    try {
+      if (!(await authorizeVisualArchiveRequest(req, res, projectId, dependencies))) return;
+      const assets = await Promise.all(requestedIds.map(assetId => dependencies.getVisualAsset?.(projectId, assetId)));
+      if (assets.some(asset => !asset || asset.status !== "ready")) {
+        res.status(404).send("Not found");
+        return;
+      }
+      res.set("Content-Type", "application/zip");
+      res.set("Content-Disposition", `attachment; filename="turath-visual-export-project-${projectId}.zip"`);
+      res.set("Cache-Control", "private, no-store");
+      res.set("Referrer-Policy", "no-referrer");
+      const archive = new ZipArchive({ zlib: { level: 6 } });
+      archive.on("error", (error: Error) => {
+        console.error("[VisualExport] ZIP generation failed:", error);
+        if (!res.headersSent) res.status(502).send("Export generation failed");
+        else res.destroy(error);
+      });
+      archive.pipe(res);
+      archive.append(JSON.stringify({
+        profile: "TURATH Visual Archives selected-image manifest",
+        projectId,
+        exportedAt: new Date().toISOString(),
+        assets: assets.map((asset, index) => ({
+          id: asset!.id,
+          filename: asset!.filename,
+          original: `images/${String(index + 1).padStart(3, "0")}-${safeExportFilename(asset!.filename)}`,
+        })),
+      }, null, 2), { name: "turath-visual-manifest.json" });
+      for (let index = 0; index < assets.length; index += 1) {
+        const asset = assets[index]!;
+        const upstream = await fetch(await dependencies.getDownloadUrl(asset.originalKey), { signal: AbortSignal.timeout(STORAGE_OBJECT_TIMEOUT_MS) });
+        if (!upstream.ok || !upstream.body) throw new Error(`Storage object fetch failed with HTTP ${upstream.status}`);
+        archive.append(Readable.fromWeb(upstream.body as never), { name: `images/${String(index + 1).padStart(3, "0")}-${safeExportFilename(asset.filename)}` });
+      }
+      await archive.finalize();
+    } catch (error) {
+      if (!res.headersSent) storageFailure(res, error);
+      else {
+        console.error("[VisualExport] backend request failed:", error);
+        res.destroy(error instanceof Error ? error : undefined);
+      }
     }
   });
 

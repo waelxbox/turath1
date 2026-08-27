@@ -792,3 +792,11 @@
 - [x] Fix the Visual Archives workspace Projects control so it returns to the main dashboard
 - [x] Automatically create an Image record and generate review-required AI metadata for every successful Visual Archives upload, including batch uploads
 - [x] Add clear per-image progress and review-queue feedback for automated Visual Archives batch intake
+- [x] Add project-scoped Visual Archives pagination, filters, and bulk review operations suitable for hundreds of images
+- [x] Add a first-class reviewed Work/Site grouping workflow so many Image records can be organized under one work or site without destructive merging
+- [x] Add review-required AI suggestions for potential same-work, same-site, and duplicate-image grouping with rationale and confidence
+- [x] Improve Visual Archives batch intake resilience, queue feedback, and bounded high-volume processing guidance
+- [ ] Apply forward-only Supabase index migration `0012_visual_archives_controlled_beta.sql` and validate it with a live project before treating the high-volume indexes as active
+- [x] Add Visual Archives-only metadata and faceted search over reviewed VRA records without exposing draft AI suggestions by default
+- [x] Add evidence-linked Visual Archives Q&A that cites reviewed records and protected derivative images
+- [x] Add human-authorized Visual Archives CSV, JSON, VRA Core, and selected-image ZIP/manifest exports

@@ -20,11 +20,17 @@ import {
   findVisualAssetByHash,
   getVisualArchiveStats,
   getVisualAsset,
+  getVisualAssetsByIds,
   getVisualProjectMode,
   getVraRecord,
+  getVraRecordsByIds,
+  linkImageRecordsToWork,
   listVisualAssets,
+  listVisualAssetsPage,
   listVraRecords,
+  listVraRecordsPage,
   listVraRelations,
+  unlinkImageRecordsFromWork,
   updateVisualAsset,
   updateVraRecord,
   updateVraSuggestions,
@@ -36,6 +42,8 @@ const SUPPORTED_MIME_TYPES = new Set(["image/jpeg", "image/png"]);
 const recordTypeSchema = z.enum(["collection", "work", "image"]);
 const recordStatusSchema = z.enum(["draft", "needs_review", "approved", "archived"]);
 const reviewedJsonSchema = z.record(z.string(), z.unknown());
+const pageCursorSchema = z.object({ createdAt: z.string().datetime(), id: z.string().uuid() });
+const pageLimitSchema = z.number().int().min(12).max(100).default(48);
 const suggestionFieldSchema = z.enum([
   "title", "description", "workType", "agents", "dates", "locations", "subjects",
   "culturalContext", "materials", "techniques", "inscriptions", "stylePeriod",
@@ -78,6 +86,11 @@ function safeAssetResponse<T extends {
     displayUrl: asset.displayKey ? visualAssetAccessUrl(asset.projectId, asset.id, "display") : null,
     thumbnailUrl: asset.thumbnailKey ? visualAssetAccessUrl(asset.projectId, asset.id, "thumbnail") : null,
   };
+}
+
+function safeReviewedSearchRecord<T extends { aiSuggestedJson: unknown; suggestionProvenance: unknown }>(record: T) {
+  const { aiSuggestedJson: _aiSuggestedJson, suggestionProvenance: _suggestionProvenance, ...reviewedRecord } = record;
+  return reviewedRecord;
 }
 
 function cleanFilename(filename: string): string {
@@ -139,6 +152,72 @@ type CatalogSuggestionTarget = {
   };
 };
 
+const groupingSuggestionSchema = {
+  type: "object",
+  properties: {
+    relationship: { type: "string", enum: ["same_work", "same_site", "same_image", "related", "uncertain"] },
+    proposedWorkTitle: { type: "string" },
+    classification: { type: "string" },
+    location: { type: "string" },
+    rationale: { type: "string" },
+    confidence: { type: "string", enum: ["high", "medium", "low"] },
+    verificationNote: { type: "string" },
+  },
+  required: ["relationship", "proposedWorkTitle", "classification", "location", "rationale", "confidence", "verificationNote"],
+  additionalProperties: false,
+} as const;
+
+async function generateGroupingSuggestion(input: {
+  records: Array<{ id: string; title: string; reviewedJson: Record<string, unknown>; aiSuggestedJson: Record<string, unknown> }>;
+  assets: Array<{ displayKey: string | null; originalKey: string }>;
+}) {
+  const imageParts = await Promise.all(input.assets.slice(0, 4).map(async asset => ({
+    type: "image_url" as const,
+    image_url: { url: (await storageGet(asset.displayKey ?? asset.originalKey)).url, detail: "high" as const },
+  })));
+  const recordContext = input.records.map((record, index) => ({
+    image: index + 1,
+    title: record.title,
+    reviewed: record.reviewedJson,
+    aiDraft: record.aiSuggestedJson,
+  }));
+  const response = await invokeLLM({
+    model: "gemini-3.1-pro-preview",
+    messages: [{
+      role: "system",
+      content: "You compare a selected set of visual-archive Images for a human cataloger. Assess whether they plausibly depict the same Work, the same site, the same exact image, a related subject, or are uncertain. Use visual and supplied metadata evidence only. Never merge records, create relationships, or present an inference as an established fact. Propose a concise neutral Work title only when the selection plausibly represents one Work or site. Explain the evidence, calibrate confidence, and say exactly what an archivist should verify.",
+    }, {
+      role: "user",
+      content: [
+        { type: "text", text: `Compare this selected Image set. The first ${imageParts.length} images are provided visually. Metadata context for all selected Images: ${JSON.stringify(recordContext)}` },
+        ...imageParts,
+      ],
+    }],
+    response_format: {
+      type: "json_schema",
+      json_schema: { name: "visual_archive_grouping_suggestion", strict: true, schema: groupingSuggestionSchema },
+    },
+    maxTokens: 2200,
+  });
+  const raw = response.choices[0]?.message?.content;
+  if (!raw || typeof raw !== "string") {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The model returned no grouping suggestion" });
+  }
+  try {
+    return JSON.parse(raw) as {
+      relationship: "same_work" | "same_site" | "same_image" | "related" | "uncertain";
+      proposedWorkTitle: string;
+      classification: string;
+      location: string;
+      rationale: string;
+      confidence: "high" | "medium" | "low";
+      verificationNote: string;
+    };
+  } catch {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The model returned an invalid grouping suggestion" });
+  }
+}
+
 async function generateVisualCatalogSuggestions(target: CatalogSuggestionTarget) {
   const imageUrl = (await storageGet(target.asset.displayKey ?? target.asset.originalKey)).url;
   const response = await invokeLLM({
@@ -182,6 +261,31 @@ function imageRecordTitle(filename: string): string {
   return filename.replace(/\.[^.]+$/, "") || "Untitled image";
 }
 
+const visualFacetFields = ["workType", "locations", "subjects", "materials", "techniques", "stylePeriod"] as const;
+type VisualFacetField = (typeof visualFacetFields)[number];
+
+function reviewedFieldValues(record: { reviewedJson: unknown }, field: VisualFacetField): string[] {
+  const value = (record.reviewedJson as Record<string, unknown>)[field];
+  if (Array.isArray(value)) return value.map(item => String(item).trim()).filter(Boolean);
+  if (typeof value === "string" && value.trim()) return [value.trim()];
+  return [];
+}
+
+function reviewedSearchText(record: { title: string; localIdentifier?: string | null; reviewedJson: unknown }) {
+  const reviewed = record.reviewedJson as Record<string, unknown>;
+  return [record.title, record.localIdentifier ?? "", ...Object.values(reviewed).flatMap(value => Array.isArray(value) ? value : [value]).map(value => String(value))]
+    .join(" ")
+    .toLocaleLowerCase();
+}
+
+function buildVisualFacets(records: Array<{ reviewedJson: unknown }>) {
+  return Object.fromEntries(visualFacetFields.map(field => {
+    const counts = new Map<string, number>();
+    records.forEach(record => reviewedFieldValues(record, field).forEach(value => counts.set(value, (counts.get(value) ?? 0) + 1)));
+    return [field, Array.from(counts.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 24).map(([value, count]) => ({ value, count }))];
+  }));
+}
+
 export const visualArchivesRouter = router({
   availability: publicProcedure.query(({ ctx }) => ({
     enabled: isVisualArchivesEnabled() && isVisualArchivesPreviewUser(ctx.user),
@@ -206,6 +310,28 @@ export const visualArchivesRouter = router({
     .query(async ({ ctx, input }) => {
       await requireVisualRole(input.projectId, ctx.user);
       return (await listVisualAssets(input.projectId)).map(safeAssetResponse);
+    }),
+
+  listAssetsPage: protectedProcedure
+    .input(z.object({
+      projectId: z.number().int().positive(),
+      status: z.enum(["uploaded", "ready", "failed", "deletion_pending"]).optional(),
+      cursor: pageCursorSchema.optional(),
+      limit: pageLimitSchema,
+    }))
+    .query(async ({ ctx, input }) => {
+      await requireVisualRole(input.projectId, ctx.user);
+      const page = await listVisualAssetsPage(input);
+      return { ...page, items: page.items.map(safeAssetResponse) };
+    }),
+
+  getAsset: protectedProcedure
+    .input(z.object({ projectId: z.number().int().positive(), assetId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await requireVisualRole(input.projectId, ctx.user);
+      const asset = await getVisualAsset(input.projectId, input.assetId);
+      if (!asset) throw new TRPCError({ code: "NOT_FOUND", message: "Visual asset not found" });
+      return safeAssetResponse(asset);
     }),
 
   uploadAsset: protectedProcedure
@@ -333,6 +459,157 @@ export const visualArchivesRouter = router({
       return listVraRecords(input);
     }),
 
+  listRecordsPage: protectedProcedure
+    .input(z.object({
+      projectId: z.number().int().positive(),
+      recordType: recordTypeSchema.optional(),
+      status: recordStatusSchema.optional(),
+      search: z.string().trim().max(160).optional(),
+      cursor: pageCursorSchema.optional(),
+      limit: pageLimitSchema,
+    }))
+    .query(async ({ ctx, input }) => {
+      await requireVisualRole(input.projectId, ctx.user);
+      return listVraRecordsPage(input);
+    }),
+
+  getRecord: protectedProcedure
+    .input(z.object({ projectId: z.number().int().positive(), recordId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await requireVisualRole(input.projectId, ctx.user);
+      const record = await getVraRecord(input.projectId, input.recordId);
+      if (!record) throw new TRPCError({ code: "NOT_FOUND", message: "Record not found" });
+      return record;
+    }),
+
+  searchReviewedCatalog: protectedProcedure
+    .input(z.object({
+      projectId: z.number().int().positive(),
+      query: z.string().trim().max(200).default(""),
+      recordType: recordTypeSchema.optional(),
+      facets: z.object({
+        workType: z.array(z.string().min(1).max(160)).max(12).optional(),
+        locations: z.array(z.string().min(1).max(160)).max(12).optional(),
+        subjects: z.array(z.string().min(1).max(160)).max(12).optional(),
+        materials: z.array(z.string().min(1).max(160)).max(12).optional(),
+        techniques: z.array(z.string().min(1).max(160)).max(12).optional(),
+        stylePeriod: z.array(z.string().min(1).max(160)).max(12).optional(),
+      }).default({}),
+      limit: z.number().int().min(1).max(100).default(48),
+    }))
+    .query(async ({ ctx, input }) => {
+      await requireVisualRole(input.projectId, ctx.user);
+      const approved = await listVraRecords({ projectId: input.projectId, recordType: input.recordType, status: "approved" });
+      const facets = buildVisualFacets(approved);
+      const terms = input.query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
+      const results = approved.filter(record => {
+        const text = reviewedSearchText(record);
+        if (!terms.every(term => text.includes(term))) return false;
+        return visualFacetFields.every(field => {
+          const selected = input.facets[field] ?? [];
+          if (selected.length === 0) return true;
+          const values = reviewedFieldValues(record, field).map(value => value.toLocaleLowerCase());
+          return selected.some(value => values.includes(value.toLocaleLowerCase()));
+        });
+      }).slice(0, input.limit);
+      const assets = await getVisualAssetsByIds(input.projectId, results.flatMap(record => record.assetId ? [record.assetId] : []));
+      const byId = new Map(assets.map(asset => [asset.id, asset]));
+      return {
+        total: results.length,
+        facets,
+        items: results.map(record => ({
+          ...safeReviewedSearchRecord(record),
+          asset: record.assetId && byId.has(record.assetId) ? safeAssetResponse(byId.get(record.assetId)!) : null,
+        })),
+      };
+    }),
+
+  askArchive: protectedProcedure
+    .input(z.object({
+      projectId: z.number().int().positive(),
+      question: z.string().trim().min(1).max(2000),
+      history: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(2000) })).max(8).default([]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await requireVisualRole(input.projectId, ctx.user);
+      const approved = await listVraRecords({ projectId: input.projectId, status: "approved" });
+      if (approved.length === 0) {
+        return { answer: "No approved catalog records are available yet. Review and approve Image, Work, or Collection records before asking questions about this Visual Archive.", sources: [] };
+      }
+      const terms = input.question.toLocaleLowerCase().split(/[^A-Za-z0-9\u0600-\u06FF]+/).filter(term => term.length >= 2);
+      const ranked = approved.map(record => {
+        const title = `${record.title} ${record.localIdentifier ?? ""}`.toLocaleLowerCase();
+        const reviewed = reviewedSearchText(record);
+        const score = terms.reduce((total, term) => total + (title.includes(term) ? 5 : 0) + (reviewed.includes(term) ? 1 : 0), 0);
+        return { record, score };
+      }).sort((a, b) => b.score - a.score || b.record.updatedAt.getTime() - a.record.updatedAt.getTime()).slice(0, 5).map(item => item.record);
+      const assets = await getVisualAssetsByIds(input.projectId, ranked.flatMap(record => record.assetId ? [record.assetId] : []));
+      const assetsById = new Map(assets.map(asset => [asset.id, asset]));
+      const visualSources = ranked.map((record, index) => ({
+        index: index + 1,
+        record,
+        asset: record.assetId ? assetsById.get(record.assetId) ?? null : null,
+        excerpt: JSON.stringify(record.reviewedJson).slice(0, 700),
+      }));
+      const imageParts = await Promise.all(visualSources.filter(source => source.asset?.status === "ready").slice(0, 3).map(async source => ({
+        type: "image_url" as const,
+        image_url: { url: (await storageGet(source.asset!.displayKey ?? source.asset!.originalKey)).url, detail: "high" as const },
+      })));
+      const contextBlock = visualSources.map(source => `[Record ${source.index}]\nTitle: ${source.record.title}\nType: ${source.record.recordType}\nReviewed catalog metadata: ${source.excerpt}`).join("\n\n---\n\n");
+      const response = await invokeLLM({
+        model: "gemini-3.1-pro-preview",
+        messages: [{
+          role: "system",
+          content: `You are a careful research assistant for a Visual Archive. Answer only from the approved catalog records and provided images below. Treat catalog metadata as human-reviewed evidence. You may make a narrowly visual observation from a supplied image only when it is plainly visible, and must cite its record. Do not use or mention AI drafts, hidden metadata, or external knowledge. If the evidence is insufficient, say so. Cite every substantive claim as [Record N].\n\n=== APPROVED VISUAL EVIDENCE ===\n${contextBlock}\n=== END EVIDENCE ===`,
+        }, ...input.history.map(item => ({ role: item.role, content: item.content })), {
+          role: "user",
+          content: [{ type: "text", text: input.question }, ...imageParts],
+        }],
+        maxTokens: 2200,
+      });
+      return {
+        answer: typeof response.choices[0]?.message?.content === "string" ? response.choices[0].message.content : "I could not generate an evidence-linked response.",
+        sources: visualSources.map(source => ({
+          index: source.index,
+          recordId: source.record.id,
+          title: source.record.title,
+          recordType: source.record.recordType,
+          excerpt: source.excerpt,
+          thumbnailUrl: source.asset?.thumbnailKey ? visualAssetAccessUrl(input.projectId, source.asset.id, "thumbnail") : null,
+        })),
+      };
+    }),
+
+  exportCatalog: protectedProcedure
+    .input(z.object({
+      projectId: z.number().int().positive(),
+      recordIds: z.array(z.string().uuid()).max(250).optional(),
+      includeUnapproved: z.boolean().default(false),
+    }))
+    .query(async ({ ctx, input }) => {
+      await requireVisualRole(input.projectId, ctx.user);
+      const allRecords = await listVraRecords({ projectId: input.projectId });
+      const selectedIds = input.recordIds ? new Set(input.recordIds) : null;
+      const records = allRecords.filter(record => (!selectedIds || selectedIds.has(record.id)) && (input.includeUnapproved || record.status === "approved"));
+      const recordIds = new Set(records.map(record => record.id));
+      const [relations, assets] = await Promise.all([
+        listVraRelations(input.projectId),
+        getVisualAssetsByIds(input.projectId, records.flatMap(record => record.assetId ? [record.assetId] : [])),
+      ]);
+      const assetsById = new Map(assets.map(asset => [asset.id, asset]));
+      return {
+        profile: "VRA Core 4-aligned reviewed catalog export",
+        exportedAt: new Date().toISOString(),
+        projectId: input.projectId,
+        includeUnapproved: input.includeUnapproved,
+        records: records.map(record => ({
+          ...safeReviewedSearchRecord(record),
+          asset: record.assetId && assetsById.has(record.assetId) ? safeAssetResponse(assetsById.get(record.assetId)!) : null,
+        })),
+        relations: relations.filter(relation => recordIds.has(relation.sourceRecordId) && recordIds.has(relation.targetRecordId)),
+      };
+    }),
+
   createRecord: protectedProcedure
     .input(z.object({
       projectId: z.number().int().positive(),
@@ -405,6 +682,99 @@ export const visualArchivesRouter = router({
         createdByUserId: ctx.user.id,
         approvedByUserId: ctx.user.id,
       });
+    }),
+
+  linkImagesToWork: protectedProcedure
+    .input(z.object({
+      projectId: z.number().int().positive(),
+      workRecordId: z.string().uuid(),
+      imageRecordIds: z.array(z.string().uuid()).min(1).max(100),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await requireVisualEditor(input.projectId, ctx.user);
+      const work = await getVraRecord(input.projectId, input.workRecordId);
+      if (!work || work.recordType !== "work") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a Work record in this Visual Archive" });
+      }
+      try {
+        return await linkImageRecordsToWork({
+          ...input,
+          userId: ctx.user.id,
+          evidenceJson: { source: "human_bulk_grouping", groupedAt: new Date().toISOString() },
+        });
+      } catch (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Could not group Images" });
+      }
+    }),
+
+  suggestImageGrouping: protectedProcedure
+    .input(z.object({
+      projectId: z.number().int().positive(),
+      imageRecordIds: z.array(z.string().uuid()).min(2).max(20),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await requireVisualEditor(input.projectId, ctx.user);
+      const records = await getVraRecordsByIds(input.projectId, input.imageRecordIds);
+      if (records.length !== input.imageRecordIds.length || records.some(record => record.recordType !== "image" || !record.assetId)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Choose two to twenty Image records with attached assets in this project" });
+      }
+      const assets = await Promise.all(records.map(record => getVisualAsset(input.projectId, record.assetId!)));
+      if (assets.some(asset => !asset || asset.status !== "ready")) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Every selected Image must have a ready visual asset" });
+      }
+      const suggestion = await generateGroupingSuggestion({
+        records: records.map(record => ({
+          id: record.id,
+          title: record.title,
+          reviewedJson: record.reviewedJson as Record<string, unknown>,
+          aiSuggestedJson: record.aiSuggestedJson as Record<string, unknown>,
+        })),
+        assets: assets.map(asset => asset!),
+      });
+      return {
+        ...suggestion,
+        reviewedByHuman: false,
+        evaluatedRecordIds: input.imageRecordIds,
+      };
+    }),
+
+  unlinkImagesFromWork: protectedProcedure
+    .input(z.object({
+      projectId: z.number().int().positive(),
+      workRecordId: z.string().uuid(),
+      imageRecordIds: z.array(z.string().uuid()).min(1).max(100),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await requireVisualEditor(input.projectId, ctx.user);
+      const work = await getVraRecord(input.projectId, input.workRecordId);
+      if (!work || work.recordType !== "work") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a Work record in this Visual Archive" });
+      }
+      return unlinkImageRecordsFromWork(input);
+    }),
+
+  bulkSetRecordStatus: protectedProcedure
+    .input(z.object({
+      projectId: z.number().int().positive(),
+      recordIds: z.array(z.string().uuid()).min(1).max(100),
+      status: recordStatusSchema,
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await requireVisualEditor(input.projectId, ctx.user);
+      const records = await getVraRecordsByIds(input.projectId, input.recordIds);
+      if (records.length !== input.recordIds.length) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "One or more catalog records were not found" });
+      }
+      for (const record of records) {
+        await updateVraRecord({
+          projectId: input.projectId,
+          recordId: record.id,
+          userId: ctx.user.id,
+          status: input.status,
+          changeSummary: `Bulk status change to ${input.status}`,
+        });
+      }
+      return { updated: records.length };
     }),
 
   listRelations: protectedProcedure

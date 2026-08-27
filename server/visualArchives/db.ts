@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, ilike, inArray, lt, or } from "drizzle-orm";
 import {
   projects,
   visualAssets,
@@ -94,6 +94,16 @@ export async function getVisualAsset(projectId: number, assetId: string) {
   return rows[0];
 }
 
+export async function getVisualAssetsByIds(projectId: number, assetIds: string[]) {
+  if (assetIds.length === 0) return [];
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(visualAssets).where(and(
+    eq(visualAssets.projectId, projectId),
+    inArray(visualAssets.id, assetIds),
+  ));
+}
+
 export async function listVisualAssets(projectId: number) {
   const db = await getDb();
   if (!db) return [];
@@ -102,6 +112,39 @@ export async function listVisualAssets(projectId: number) {
     .from(visualAssets)
     .where(eq(visualAssets.projectId, projectId))
     .orderBy(desc(visualAssets.createdAt));
+}
+
+type PageCursor = { createdAt: string; id: string };
+
+export async function listVisualAssetsPage(input: {
+  projectId: number;
+  status?: "uploaded" | "ready" | "failed" | "deletion_pending";
+  cursor?: PageCursor;
+  limit: number;
+}) {
+  const db = await getDb();
+  if (!db) return { items: [], nextCursor: null, total: 0 };
+  const conditions = [eq(visualAssets.projectId, input.projectId)];
+  if (input.status) conditions.push(eq(visualAssets.status, input.status));
+  if (input.cursor) {
+    const cursorDate = new Date(input.cursor.createdAt);
+    conditions.push(or(
+      lt(visualAssets.createdAt, cursorDate),
+      and(eq(visualAssets.createdAt, cursorDate), lt(visualAssets.id, input.cursor.id)),
+    )!);
+  }
+  const [rows, totals] = await Promise.all([
+    db.select().from(visualAssets).where(and(...conditions)).orderBy(desc(visualAssets.createdAt), desc(visualAssets.id)).limit(input.limit + 1),
+    db.select({ value: count() }).from(visualAssets).where(eq(visualAssets.projectId, input.projectId)),
+  ]);
+  const hasMore = rows.length > input.limit;
+  const items = hasMore ? rows.slice(0, input.limit) : rows;
+  const last = items.at(-1);
+  return {
+    items,
+    total: Number(totals[0]?.value ?? 0),
+    nextCursor: hasMore && last ? { createdAt: last.createdAt.toISOString(), id: last.id } : null,
+  };
 }
 
 export async function findVisualAssetByHash(projectId: number, sha256: string) {
@@ -158,6 +201,52 @@ export async function listVraRecords(input: {
     .from(vraRecords)
     .where(and(...conditions))
     .orderBy(desc(vraRecords.updatedAt));
+}
+
+export async function listVraRecordsPage(input: {
+  projectId: number;
+  recordType?: "collection" | "work" | "image";
+  status?: "draft" | "needs_review" | "approved" | "archived";
+  search?: string;
+  cursor?: PageCursor;
+  limit: number;
+}) {
+  const db = await getDb();
+  if (!db) return { items: [], nextCursor: null, total: 0 };
+  const baseConditions = [eq(vraRecords.projectId, input.projectId)];
+  if (input.recordType) baseConditions.push(eq(vraRecords.recordType, input.recordType));
+  if (input.status) baseConditions.push(eq(vraRecords.status, input.status));
+  if (input.search?.trim()) baseConditions.push(ilike(vraRecords.title, `%${input.search.trim().replace(/[%_]/g, "")}%`));
+  const pageConditions = [...baseConditions];
+  if (input.cursor) {
+    const cursorDate = new Date(input.cursor.createdAt);
+    pageConditions.push(or(
+      lt(vraRecords.updatedAt, cursorDate),
+      and(eq(vraRecords.updatedAt, cursorDate), lt(vraRecords.id, input.cursor.id)),
+    )!);
+  }
+  const [rows, totals] = await Promise.all([
+    db.select().from(vraRecords).where(and(...pageConditions)).orderBy(desc(vraRecords.updatedAt), desc(vraRecords.id)).limit(input.limit + 1),
+    db.select({ value: count() }).from(vraRecords).where(and(...baseConditions)),
+  ]);
+  const hasMore = rows.length > input.limit;
+  const items = hasMore ? rows.slice(0, input.limit) : rows;
+  const last = items.at(-1);
+  return {
+    items,
+    total: Number(totals[0]?.value ?? 0),
+    nextCursor: hasMore && last ? { createdAt: last.updatedAt.toISOString(), id: last.id } : null,
+  };
+}
+
+export async function getVraRecordsByIds(projectId: number, recordIds: string[]) {
+  if (recordIds.length === 0) return [];
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(vraRecords).where(and(
+    eq(vraRecords.projectId, projectId),
+    inArray(vraRecords.id, recordIds),
+  ));
 }
 
 export async function updateVraRecord(input: {
@@ -243,6 +332,54 @@ export async function listVraRelations(projectId: number) {
     .from(vraRecordRelations)
     .where(eq(vraRecordRelations.projectId, projectId))
     .orderBy(desc(vraRecordRelations.createdAt));
+}
+
+export async function linkImageRecordsToWork(input: {
+  projectId: number;
+  workRecordId: string;
+  imageRecordIds: string[];
+  userId: number;
+  evidenceJson?: Record<string, unknown>;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (input.imageRecordIds.length === 0) return { linked: 0 };
+  const images = await getVraRecordsByIds(input.projectId, input.imageRecordIds);
+  if (images.length !== input.imageRecordIds.length || images.some(record => record.recordType !== "image")) {
+    throw new Error("Every selected record must be an Image record in this project");
+  }
+  await db.transaction(async tx => {
+    for (const image of images) {
+      await tx.insert(vraRecordRelations).values({
+        projectId: input.projectId,
+        sourceRecordId: input.workRecordId,
+        targetRecordId: image.id,
+        relationType: "has visual representation",
+        status: "approved",
+        evidenceJson: input.evidenceJson ?? {},
+        createdByUserId: input.userId,
+        approvedByUserId: input.userId,
+      }).onConflictDoNothing();
+    }
+  });
+  return { linked: images.length };
+}
+
+export async function unlinkImageRecordsFromWork(input: {
+  projectId: number;
+  workRecordId: string;
+  imageRecordIds: string[];
+}) {
+  if (input.imageRecordIds.length === 0) return { unlinked: 0 };
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const deleted = await db.delete(vraRecordRelations).where(and(
+    eq(vraRecordRelations.projectId, input.projectId),
+    eq(vraRecordRelations.sourceRecordId, input.workRecordId),
+    eq(vraRecordRelations.relationType, "has visual representation"),
+    inArray(vraRecordRelations.targetRecordId, input.imageRecordIds),
+  )).returning({ id: vraRecordRelations.id });
+  return { unlinked: deleted.length };
 }
 
 export async function getVisualArchiveStats(projectId: number) {

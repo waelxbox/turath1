@@ -6,6 +6,10 @@ const migration = readFileSync(
   new URL("../drizzle/migrations/0011_visual_archives_mvp.sql", import.meta.url),
   "utf8",
 );
+const betaMigration = readFileSync(
+  new URL("../drizzle/migrations/0012_visual_archives_controlled_beta.sql", import.meta.url),
+  "utf8",
+);
 
 describe("Visual Archives forward migration", () => {
   it("does not alter the live projects table", () => {
@@ -63,6 +67,34 @@ describe("Visual Archives forward migration", () => {
       "vra_record_relations",
       "vra_record_revisions",
       "vra_records",
+    ]);
+    await database.close();
+  });
+
+  it("adds only visual-mode cursor indexes after the MVP migration", async () => {
+    expect(betaMigration).not.toMatch(/ALTER\s+TABLE|DROP\s+/i);
+    const database = new PGlite();
+    await database.exec(`
+      CREATE TABLE "users" ("id" serial PRIMARY KEY);
+      CREATE TABLE "projects" ("id" serial PRIMARY KEY, "userId" integer NOT NULL REFERENCES "users"("id") ON DELETE CASCADE, "name" varchar(255) NOT NULL);
+      INSERT INTO "users" ("id") VALUES (1);
+    `);
+    await database.exec(migration);
+    await database.exec(betaMigration);
+    const rows = await database.query<{ indexname: string }>(`
+      SELECT indexname FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND indexname IN (
+          'visual_assets_project_status_created_id_idx',
+          'vra_records_project_status_updated_id_idx',
+          'vra_records_project_type_status_updated_id_idx'
+        )
+      ORDER BY indexname
+    `);
+    expect(rows.rows.map(row => row.indexname)).toEqual([
+      "visual_assets_project_status_created_id_idx",
+      "vra_records_project_status_updated_id_idx",
+      "vra_records_project_type_status_updated_id_idx",
     ]);
     await database.close();
   });

@@ -238,6 +238,30 @@ describe("private storage resource routes", () => {
     expect(backendFetch).not.toHaveBeenCalled();
   });
 
+  it("does not create a selected-image ZIP for a user outside the controlled preview allowlist", async () => {
+    const deps = dependencies({
+      authenticateUser: vi.fn().mockResolvedValue({ id: 8, email: "researcher@example.org" }),
+      visualArchivesUserAllowed: vi.fn().mockReturnValue(false),
+    });
+    const backendFetch = vi.spyOn(globalThis, "fetch");
+    const routes = captureRoutes(deps);
+    const { response, state } = fakeResponse();
+
+    await routes.get("/api/storage/projects/:projectId/visual-exports/selected.zip")!(
+      {
+        params: { projectId: "12" },
+        query: { assetIds: "123e4567-e89b-12d3-a456-426614174000" },
+        headers: {},
+      },
+      response,
+    );
+
+    expect(state.status).toBe(404);
+    expect(deps.getProjectRole).not.toHaveBeenCalled();
+    expect(deps.getVisualAsset).not.toHaveBeenCalled();
+    expect(backendFetch).not.toHaveBeenCalled();
+  });
+
   it("rejects unknown visual asset variants before authorization or storage access", async () => {
     const deps = dependencies();
     const backendFetch = vi.spyOn(globalThis, "fetch");

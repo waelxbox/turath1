@@ -4,8 +4,14 @@ const {
   getProjectRole,
   getVisualProjectMode,
   getVisualAsset,
+  getVisualAssetsByIds,
   getVraRecord,
+  getVraRecordsByIds,
+  linkImageRecordsToWork,
+  listVisualAssetsPage,
   listVraRecords,
+  listVraRecordsPage,
+  unlinkImageRecordsFromWork,
   createVraRecord,
   updateVraRecord,
   updateVraSuggestions,
@@ -21,8 +27,14 @@ const {
   getProjectRole: vi.fn(),
   getVisualProjectMode: vi.fn(),
   getVisualAsset: vi.fn(),
+  getVisualAssetsByIds: vi.fn(),
   getVraRecord: vi.fn(),
+  getVraRecordsByIds: vi.fn(),
+  linkImageRecordsToWork: vi.fn(),
+  listVisualAssetsPage: vi.fn(),
   listVraRecords: vi.fn(),
+  listVraRecordsPage: vi.fn(),
+  unlinkImageRecordsFromWork: vi.fn(),
   createVraRecord: vi.fn(),
   updateVraRecord: vi.fn(),
   updateVraSuggestions: vi.fn(),
@@ -53,11 +65,17 @@ vi.mock("./visualArchives/db", () => ({
   findVisualAssetByHash,
   getVisualArchiveStats: vi.fn(),
   getVisualAsset,
+  getVisualAssetsByIds,
   getVisualProjectMode,
   getVraRecord,
+  getVraRecordsByIds,
+  linkImageRecordsToWork,
   listVisualAssets: vi.fn(),
+  listVisualAssetsPage,
   listVraRecords,
+  listVraRecordsPage,
   listVraRelations: vi.fn(),
+  unlinkImageRecordsFromWork,
   updateVisualAsset,
   updateVraRecord,
   updateVraSuggestions,
@@ -89,6 +107,8 @@ describe("Visual Archives router boundaries", () => {
     getProjectRole.mockResolvedValue("owner");
     getVisualProjectMode.mockResolvedValue({ projectId: 12, archiveMode: "visual_vra" });
     listVraRecords.mockResolvedValue([]);
+    listVraRecordsPage.mockResolvedValue({ items: [], total: 0, nextCursor: null });
+    listVisualAssetsPage.mockResolvedValue({ items: [], total: 0, nextCursor: null });
   });
 
   function configureUploadPipeline() {
@@ -173,6 +193,72 @@ describe("Visual Archives router boundaries", () => {
     expect(createVraRecord).not.toHaveBeenCalled();
   });
 
+  it("pages Visual Archive records inside the authorized project only", async () => {
+    listVraRecordsPage.mockResolvedValue({
+      items: [{ id: "123e4567-e89b-12d3-a456-426614174000", title: "Courtyard", updatedAt: new Date("2026-08-27T00:00:00.000Z") }],
+      total: 101,
+      nextCursor: { createdAt: "2026-08-27T00:00:00.000Z", id: "123e4567-e89b-12d3-a456-426614174000" },
+    });
+
+    const result = await caller().listRecordsPage({ projectId: 12, recordType: "image", status: "needs_review", limit: 48 });
+
+    expect(result.total).toBe(101);
+    expect(listVraRecordsPage).toHaveBeenCalledWith(expect.objectContaining({ projectId: 12, recordType: "image", status: "needs_review", limit: 48 }));
+  });
+
+  it("searches only human-reviewed catalog evidence and omits AI drafts from discovery results", async () => {
+    listVraRecords.mockResolvedValue([{
+      id: "123e4567-e89b-12d3-a456-426614174006",
+      projectId: 12,
+      recordType: "image",
+      status: "approved",
+      title: "Courtyard photograph",
+      localIdentifier: null,
+      assetId: "123e4567-e89b-12d3-a456-426614174007",
+      reviewedJson: { locations: ["Cairo"], subjects: ["courtyards"] },
+      aiSuggestedJson: { locations: ["Shiraz"] },
+      suggestionProvenance: { model: "gemini" },
+    }]);
+    getVisualAssetsByIds.mockResolvedValue([]);
+
+    const result = await caller().searchReviewedCatalog({ projectId: 12, query: "Cairo", limit: 48 });
+
+    expect(result.total).toBe(1);
+    expect(result.facets.locations).toEqual([{ value: "Cairo", count: 1 }]);
+    expect(result.items[0]).not.toHaveProperty("aiSuggestedJson");
+    expect(result.items[0]).not.toHaveProperty("suggestionProvenance");
+  });
+
+  it("answers visual archive questions only from approved records and returns cited protected evidence", async () => {
+    const recordId = "123e4567-e89b-12d3-a456-426614174011";
+    const assetId = "123e4567-e89b-12d3-a456-426614174012";
+    listVraRecords.mockResolvedValue([{
+      id: recordId, projectId: 12, recordType: "image", status: "approved", title: "Courtyard photograph", localIdentifier: null, assetId,
+      reviewedJson: { locations: ["Cairo"], materials: ["limestone"] }, aiSuggestedJson: { locations: ["Secret AI draft place"] }, suggestionProvenance: {}, updatedAt: new Date(),
+    }]);
+    getVisualAssetsByIds.mockResolvedValue([{ id: assetId, status: "ready", originalKey: "visual/original.jpg", displayKey: "visual/display.jpg", thumbnailKey: "visual/thumbnail.jpg" }]);
+    storageGet.mockResolvedValue({ url: "https://objects.example.test/display.jpg" });
+    invokeLLM.mockResolvedValue({ choices: [{ message: { content: "The reviewed catalog identifies a Cairo location. [Record 1]" } }] });
+
+    const result = await caller().askArchive({ projectId: 12, question: "What is in Cairo?" });
+
+    expect(result.answer).toContain("[Record 1]");
+    expect(result.sources).toEqual([expect.objectContaining({ index: 1, recordId, title: "Courtyard photograph", thumbnailUrl: undefined })]);
+    const call = invokeLLM.mock.calls[0]?.[0];
+    expect(JSON.stringify(call)).toContain("Cairo");
+    expect(JSON.stringify(call)).not.toContain("Secret AI draft place");
+  });
+
+  it("does not invoke Gemini when a Visual Archive has no approved records", async () => {
+    listVraRecords.mockResolvedValue([]);
+
+    const result = await caller().askArchive({ projectId: 12, question: "What is pictured?" });
+
+    expect(result.sources).toEqual([]);
+    expect(result.answer).toContain("No approved catalog records");
+    expect(invokeLLM).not.toHaveBeenCalled();
+  });
+
   it("automatically creates an Image record and separate AI draft after a successful upload", async () => {
     configureUploadPipeline();
     invokeLLM.mockResolvedValue({ choices: [{ message: { content: JSON.stringify({ title: "Courtyard", description: "Stone courtyard", workType: [], agents: [], dates: [], locations: [], subjects: [], culturalContext: [], materials: [], techniques: [], inscriptions: [], stylePeriod: [], identificationCandidates: [], confidenceNotes: "" }) } }] });
@@ -218,6 +304,53 @@ describe("Visual Archives router boundaries", () => {
       suggestionStatus: "pending_review",
       suggestionError: "temporary model outage",
     });
+  });
+
+  it("bulk-links selected Image records to a human-chosen Work without merging them", async () => {
+    const workId = "123e4567-e89b-12d3-a456-426614174020";
+    const imageIds = ["123e4567-e89b-12d3-a456-426614174021", "123e4567-e89b-12d3-a456-426614174022"];
+    getVraRecord.mockResolvedValue({ id: workId, projectId: 12, recordType: "work" });
+    linkImageRecordsToWork.mockResolvedValue({ linked: 2 });
+
+    await expect(caller().linkImagesToWork({ projectId: 12, workRecordId: workId, imageRecordIds: imageIds })).resolves.toEqual({ linked: 2 });
+    expect(linkImageRecordsToWork).toHaveBeenCalledWith(expect.objectContaining({ projectId: 12, workRecordId: workId, imageRecordIds: imageIds, userId: 7, evidenceJson: expect.objectContaining({ source: "human_bulk_grouping" }) }));
+  });
+
+  it("returns a review-only same-site hypothesis without creating a Work or relation", async () => {
+    const imageIds = ["123e4567-e89b-12d3-a456-426614174041", "123e4567-e89b-12d3-a456-426614174042"];
+    getVraRecordsByIds.mockResolvedValue(imageIds.map((id, index) => ({
+      id,
+      projectId: 12,
+      recordType: "image",
+      title: `Mosque view ${index + 1}`,
+      assetId: `123e4567-e89b-12d3-a456-42661417405${index}`,
+      reviewedJson: {},
+      aiSuggestedJson: {},
+    })));
+    getVisualAsset.mockResolvedValue({ status: "ready", originalKey: "visual/original.jpg", displayKey: "visual/display.jpg" });
+    storageGet.mockResolvedValue({ url: "https://objects.example.test/display.jpg" });
+    invokeLLM.mockResolvedValue({ choices: [{ message: { content: JSON.stringify({
+      relationship: "same_site", proposedWorkTitle: "Nasir al-Mulk Mosque, Shiraz", classification: "mosque", location: "Shiraz, Iran",
+      rationale: "Both Images show the same tiled interior and colored-glass windows.", confidence: "medium",
+      verificationNote: "Confirm against an institutional record before creating a Work link.",
+    }) } }] });
+
+    const result = await caller().suggestImageGrouping({ projectId: 12, imageRecordIds: imageIds });
+
+    expect(result).toMatchObject({ relationship: "same_site", proposedWorkTitle: "Nasir al-Mulk Mosque, Shiraz", reviewedByHuman: false, evaluatedRecordIds: imageIds });
+    expect(invokeLLM).toHaveBeenCalledWith(expect.objectContaining({ model: "gemini-3.1-pro-preview" }));
+    expect(linkImageRecordsToWork).not.toHaveBeenCalled();
+    expect(createVraRecord).not.toHaveBeenCalled();
+  });
+
+  it("keeps bulk record state changes project-scoped and writes each record through the revision path", async () => {
+    const recordIds = ["123e4567-e89b-12d3-a456-426614174031", "123e4567-e89b-12d3-a456-426614174032"];
+    getVraRecordsByIds.mockResolvedValue(recordIds.map(id => ({ id, projectId: 12, recordType: "image" })));
+    updateVraRecord.mockResolvedValue({});
+
+    await expect(caller().bulkSetRecordStatus({ projectId: 12, recordIds, status: "approved" })).resolves.toEqual({ updated: 2 });
+    expect(updateVraRecord).toHaveBeenCalledTimes(2);
+    expect(updateVraRecord).toHaveBeenCalledWith(expect.objectContaining({ projectId: 12, status: "approved", changeSummary: "Bulk status change to approved" }));
   });
 
   it("copies only explicitly accepted VRA fields into reviewed data", async () => {
