@@ -763,27 +763,28 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
     onSuccess: async () => { toast.success("Suggestion rejected and preserved in review provenance"); await Promise.all([utils.visualArchives.getRecord.invalidate(), utils.visualArchives.listRecords.invalidate(), utils.visualArchives.listRecordsPage.invalidate()]); },
     onError: error => toast.error(error.message),
   });
-  if (isLoading) return <Loader2 className="h-6 w-6 animate-spin text-primary" />;
-  if (!record) return <div className="text-sm text-muted-foreground">Record not found.</div>;
-  const suggestions = record.aiSuggestedJson as Record<string, unknown>;
+  const suggestions = (record?.aiSuggestedJson ?? {}) as Record<string, unknown>;
   const rejectedFields = new Set(
-    Array.isArray((record.suggestionProvenance as Record<string, unknown> | null)?.rejectedFields)
-      ? ((record.suggestionProvenance as Record<string, unknown>).rejectedFields as unknown[]).filter((field): field is string => typeof field === "string")
+    Array.isArray((record?.suggestionProvenance as Record<string, unknown> | null)?.rejectedFields)
+      ? ((record?.suggestionProvenance as Record<string, unknown>).rejectedFields as unknown[]).filter((field): field is string => typeof field === "string")
       : [],
   );
   const reviewableSuggestionFields = (["title", ...CATALOG_FIELDS.map(([key]) => key)] as string[])
     .filter(field => !rejectedFields.has(field) && suggestions[field] !== undefined && formatFieldValue(suggestions[field]) !== "");
   const reviewMutationBusy = accept.isPending || reject.isPending || update.isPending;
   const candidates = identificationCandidates(suggestions.identificationCandidates);
-  const save = (status: "draft" | "needs_review" | "approved" | "archived" = "draft") => update.mutate({
-    projectId,
-    recordId: record.id,
-    title,
-    reviewedJson: Object.fromEntries(CATALOG_FIELDS.map(([key]) => [key, parseFieldValue(key, fields[key] ?? "")])),
-    status,
-    changeSummary: status === "approved" ? "Record approved" : status === "archived" ? "Record rejected from active review" : "Catalog fields updated",
-  });
-  const currentSequenceIndex = reviewSequence.findIndex(item => item.id === record.id);
+  const save = (status: "draft" | "needs_review" | "approved" | "archived" = "draft") => {
+    if (!record) return;
+    update.mutate({
+      projectId,
+      recordId: record.id,
+      title,
+      reviewedJson: Object.fromEntries(CATALOG_FIELDS.map(([key]) => [key, parseFieldValue(key, fields[key] ?? "")])),
+      status,
+      changeSummary: status === "approved" ? "Record approved" : status === "archived" ? "Record rejected from active review" : "Catalog fields updated",
+    });
+  };
+  const currentSequenceIndex = reviewSequence.findIndex(item => item.id === record?.id);
   const previousRecordId = currentSequenceIndex > 0 ? reviewSequence[currentSequenceIndex - 1]?.id : undefined;
   const nextRecordId = currentSequenceIndex >= 0 ? reviewSequence[currentSequenceIndex + 1]?.id : undefined;
   const moveToRecord = (nextId: string | undefined) => {
@@ -800,7 +801,9 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canEdit, nextRecordId, previousRecordId, reviewMutationBusy, record.id, title, fields]);
+  }, [canEdit, nextRecordId, previousRecordId, reviewMutationBusy, record?.id, title, fields]);
+  if (isLoading) return <Loader2 className="h-6 w-6 animate-spin text-primary" />;
+  if (!record) return <div className="text-sm text-muted-foreground">Record not found.</div>;
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <button onClick={() => navigate("/catalog")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Catalog</button>

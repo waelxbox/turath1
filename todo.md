@@ -813,3 +813,4 @@
 - [x] Add visible Visual Archives export start, success, and failure feedback plus navigation-continuity regression coverage
 - [x] Complete documented authenticated desktop Visual Archives QA and full document-mode regression testing
 - [ ] Manually complete authenticated tablet/mobile Visual Archives QA; automated mobile capture cannot carry the temporary staging owner session
+- [x] Fix the Visual Archives record-route React hooks-order crash that prevents opening Image, Work, and Collection records

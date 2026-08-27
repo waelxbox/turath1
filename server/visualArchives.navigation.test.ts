@@ -15,4 +15,14 @@ describe("VisualWorkspace Projects navigation", () => {
     expect(source).toContain("Semantic visual memory is not enabled");
     expect(source).toContain("findSimilarToUploadedImage");
   });
+
+  it("declares record-review hooks before loading or missing-record returns", () => {
+    const recordEditor = source.slice(source.indexOf("function RecordEditor"), source.indexOf("function RelationshipsPage"));
+    const keyboardEffect = recordEditor.indexOf('useEffect(() => {\n    const onKeyDown');
+    const loadingReturn = recordEditor.indexOf('if (isLoading) return');
+    const missingReturn = recordEditor.indexOf('if (!record) return <div className="text-sm text-muted-foreground">Record not found.</div>');
+    expect(keyboardEffect).toBeGreaterThan(-1);
+    expect(loadingReturn).toBeGreaterThan(keyboardEffect);
+    expect(missingReturn).toBeGreaterThan(keyboardEffect);
+  });
 });
