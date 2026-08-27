@@ -790,3 +790,5 @@
 - [x] Improve visual AI suggestions with review-required candidate identification, location, and contextual detail instead of generic-only descriptions
 - [x] Restrict Visual Archives discovery, creation, access, and protected asset delivery to Adam Amin’s allowlisted account during controlled development
 - [x] Fix the Visual Archives workspace Projects control so it returns to the main dashboard
+- [x] Automatically create an Image record and generate review-required AI metadata for every successful Visual Archives upload, including batch uploads
+- [x] Add clear per-image progress and review-queue feedback for automated Visual Archives batch intake

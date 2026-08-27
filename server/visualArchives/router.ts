@@ -127,6 +127,61 @@ const catalogSuggestionSchema = {
   additionalProperties: false,
 } as const;
 
+type CatalogSuggestionTarget = {
+  projectId: number;
+  recordId: string;
+  recordType: "collection" | "work" | "image";
+  title: string;
+  asset: {
+    id: string;
+    originalKey: string;
+    displayKey: string | null;
+  };
+};
+
+async function generateVisualCatalogSuggestions(target: CatalogSuggestionTarget) {
+  const imageUrl = (await storageGet(target.asset.displayKey ?? target.asset.originalKey)).url;
+  const response = await invokeLLM({
+    model: "gemini-3.1-pro-preview",
+    messages: [{
+      role: "system",
+      content: "You are a rigorous visual-resources cataloging assistant. Produce useful VRA Core-aligned suggestions, not merely generic scene descriptions. Describe visually grounded architectural, artistic, material, inscriptional, and contextual details with precision. When a distinctive building, monument, work, person, place, or collection appears recognizable from its visual features, use your visual knowledge to propose up to three specific identification candidates. Put every inferential or recognition-based claim in identificationCandidates, explain the visual rationale, assign calibrated high/medium/low confidence, and state what a human cataloger should verify. Do not present a candidate as established fact. Keep uncertain normal fields empty; when a candidate is high confidence, you may also propose a concise, neutral catalog title and location. Do not put labels such as '[Review Required]', confidence qualifiers, or instructions in the title field. Every response is a draft for human review and no suggestion is approved catalog data.",
+    }, {
+      role: "user",
+      content: [
+        { type: "text", text: `Suggest catalog metadata for this ${target.recordType} record. Existing title: ${target.title}` },
+        { type: "image_url", image_url: { url: imageUrl, detail: "high" } },
+      ],
+    }],
+    response_format: {
+      type: "json_schema",
+      json_schema: { name: "vra_catalog_suggestions", strict: true, schema: catalogSuggestionSchema },
+    },
+    maxTokens: 4096,
+  });
+  const raw = response.choices[0]?.message?.content;
+  if (!raw || typeof raw !== "string") {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The model returned no suggestions" });
+  }
+  try {
+    return {
+      aiSuggestedJson: JSON.parse(raw) as Record<string, unknown>,
+      suggestionProvenance: {
+        model: "gemini-3.1-pro-preview",
+        generatedAt: new Date().toISOString(),
+        assetId: target.asset.id,
+        source: "visual-evidence-with-review-required-identification-candidates",
+      },
+    };
+  } catch {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The model returned invalid suggestions" });
+  }
+}
+
+function imageRecordTitle(filename: string): string {
+  return filename.replace(/\.[^.]+$/, "") || "Untitled image";
+}
+
 export const visualArchivesRouter = router({
   availability: publicProcedure.query(({ ctx }) => ({
     enabled: isVisualArchivesEnabled() && isVisualArchivesPreviewUser(ctx.user),
@@ -218,7 +273,46 @@ export const visualArchivesRouter = router({
           status: "ready",
           errorMessage: null,
         });
-        return safeAssetResponse(ready ?? asset);
+        const readyAsset = ready ?? asset;
+        const record = await createVraRecord({
+          projectId: input.projectId,
+          recordType: "image",
+          title: imageRecordTitle(readyAsset.filename),
+          assetId,
+          status: "needs_review",
+          reviewedJson: {},
+          aiSuggestedJson: {},
+          suggestionProvenance: {},
+          createdByUserId: ctx.user.id,
+          updatedByUserId: ctx.user.id,
+        });
+        try {
+          const generated = await generateVisualCatalogSuggestions({
+            projectId: input.projectId,
+            recordId: record.id,
+            recordType: record.recordType,
+            title: record.title,
+            asset: readyAsset,
+          });
+          await updateVraSuggestions({
+            projectId: input.projectId,
+            recordId: record.id,
+            ...generated,
+          });
+          return {
+            ...safeAssetResponse(readyAsset),
+            autoCatalog: { recordId: record.id, suggestionStatus: "generated" as const },
+          };
+        } catch (error) {
+          return {
+            ...safeAssetResponse(readyAsset),
+            autoCatalog: {
+              recordId: record.id,
+              suggestionStatus: "pending_review" as const,
+              suggestionError: error instanceof Error ? error.message.slice(0, 300) : "AI suggestions are unavailable",
+            },
+          };
+        }
       } catch (error) {
         await updateVisualAsset(input.projectId, assetId, {
           status: "failed",
@@ -331,45 +425,17 @@ export const visualArchivesRouter = router({
       if (!asset || asset.status !== "ready") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "The attached image is not ready" });
       }
-      const imageUrl = (await storageGet(asset.displayKey ?? asset.originalKey)).url;
-      const response = await invokeLLM({
-        model: "gemini-3.1-pro-preview",
-        messages: [{
-          role: "system",
-          content: "You are a rigorous visual-resources cataloging assistant. Produce useful VRA Core-aligned suggestions, not merely generic scene descriptions. Describe visually grounded architectural, artistic, material, inscriptional, and contextual details with precision. When a distinctive building, monument, work, person, place, or collection appears recognizable from its visual features, use your visual knowledge to propose up to three specific identification candidates. Put every inferential or recognition-based claim in identificationCandidates, explain the visual rationale, assign calibrated high/medium/low confidence, and state what a human cataloger should verify. Do not present a candidate as established fact. Keep uncertain normal fields empty; when a candidate is high confidence, you may also propose a concise, neutral catalog title and location. Do not put labels such as '[Review Required]', confidence qualifiers, or instructions in the title field. Every response is a draft for human review and no suggestion is approved catalog data.",
-        }, {
-          role: "user",
-          content: [
-            { type: "text", text: `Suggest catalog metadata for this ${record.recordType} record. Existing title: ${record.title}` },
-            { type: "image_url", image_url: { url: imageUrl, detail: "high" } },
-          ],
-        }],
-        response_format: {
-          type: "json_schema",
-          json_schema: { name: "vra_catalog_suggestions", strict: true, schema: catalogSuggestionSchema },
-        },
-        maxTokens: 4096,
+      const generated = await generateVisualCatalogSuggestions({
+        projectId: input.projectId,
+        recordId: record.id,
+        recordType: record.recordType,
+        title: record.title,
+        asset,
       });
-      const raw = response.choices[0]?.message?.content;
-      if (!raw || typeof raw !== "string") {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The model returned no suggestions" });
-      }
-      let suggestions: Record<string, unknown>;
-      try {
-        suggestions = JSON.parse(raw) as Record<string, unknown>;
-      } catch {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The model returned invalid suggestions" });
-      }
       return updateVraSuggestions({
         projectId: input.projectId,
         recordId: input.recordId,
-        aiSuggestedJson: suggestions,
-        suggestionProvenance: {
-          model: "gemini-3.1-pro-preview",
-          generatedAt: new Date().toISOString(),
-          assetId: asset.id,
-          source: "visual-evidence-with-review-required-identification-candidates",
-        },
+        ...generated,
       });
     }),
 

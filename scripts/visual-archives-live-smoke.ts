@@ -63,6 +63,7 @@ async function main() {
     fileBase64: image.toString("base64"),
   });
   assert(asset.status === "ready", "The uploaded visual asset did not reach ready status.");
+  assert(asset.autoCatalog.suggestionStatus === "generated", "The upload did not generate an AI catalog draft.");
   assert(!("originalKey" in asset), "The asset response exposed a raw original storage key.");
   assert(!("displayKey" in asset), "The asset response exposed a raw display storage key.");
   assert(!("thumbnailKey" in asset), "The asset response exposed a raw thumbnail storage key.");
@@ -85,6 +86,14 @@ async function main() {
     assert((await response.arrayBuffer()).byteLength > 0, `${variant} delivery returned an empty body.`);
   }
 
+  const automaticImageRecords = await caller.listRecords({ projectId: project.id, recordType: "image" });
+  assert(automaticImageRecords.length === 1, "The upload did not create exactly one Image record.");
+  const imageRecord = automaticImageRecords[0];
+  assert(imageRecord.assetId === asset.id, "The automatic Image record was not attached to its uploaded asset.");
+  assert(imageRecord.status === "needs_review", "The automatic Image record was not placed in the review queue.");
+  assert(Object.keys(imageRecord.aiSuggestedJson as Record<string, unknown>).length > 0, "The automatic Image record has no separate AI suggestion payload.");
+  assert(Object.keys(imageRecord.reviewedJson as Record<string, unknown>).length === 0, "The automatic AI draft changed reviewed metadata before acceptance.");
+
   const collection = await caller.createRecord({
     projectId: project.id,
     recordType: "collection",
@@ -97,13 +106,6 @@ async function main() {
     title: "Synthetic VRA Work",
     reviewedJson: { description: "Human-created staging work." },
   });
-  const imageRecord = await caller.createRecord({
-    projectId: project.id,
-    recordType: "image",
-    title: "Synthetic Visual Asset",
-    assetId: asset.id,
-    reviewedJson: { description: "Human-reviewed baseline description." },
-  });
   const relation = await caller.createRelation({
     projectId: project.id,
     sourceRecordId: work.id,
@@ -111,12 +113,6 @@ async function main() {
     relationType: "has visual representation",
   });
   assert(relation.status === "approved", "The deliberate Work–Image relation was not approved.");
-
-  const suggestions = await caller.generateSuggestions({ projectId: project.id, recordId: imageRecord.id });
-  assert(suggestions.status === "needs_review", "AI suggestions did not move the record to needs_review.");
-  assert(typeof suggestions.aiSuggestedJson === "object" && suggestions.aiSuggestedJson !== null, "AI suggestions were not stored separately.");
-  assert((suggestions.reviewedJson as Record<string, unknown>).description === "Human-reviewed baseline description.", "AI suggestions modified reviewed data before explicit acceptance.");
-  assert((suggestions.suggestionProvenance as Record<string, unknown>).source === "visual-evidence-only", "Suggestion provenance did not retain the evidence-only marker.");
 
   await caller.acceptSuggestionFields({
     projectId: project.id,
@@ -173,6 +169,8 @@ async function main() {
       authenticatedOriginalDisplayThumbnailDelivery: true,
       vraCollectionWorkImageCatalog: true,
       approvedWorkImageRelation: true,
+      automaticImageRecordCreation: true,
+      automaticAiDraftGeneration: true,
       aiSuggestionsSeparatedFromReviewedData: true,
       explicitAllowedFieldAcceptance: true,
       confidenceNotesRejection: true,

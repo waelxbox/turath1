@@ -10,6 +10,12 @@ const {
   updateVraRecord,
   updateVraSuggestions,
   storageGet,
+  storagePut,
+  buildVisualAssetKey,
+  createVisualDerivatives,
+  createVisualAsset,
+  updateVisualAsset,
+  findVisualAssetByHash,
   invokeLLM,
 } = vi.hoisted(() => ({
   getProjectRole: vi.fn(),
@@ -21,6 +27,12 @@ const {
   updateVraRecord: vi.fn(),
   updateVraSuggestions: vi.fn(),
   storageGet: vi.fn(),
+  storagePut: vi.fn(),
+  buildVisualAssetKey: vi.fn(),
+  createVisualDerivatives: vi.fn(),
+  createVisualAsset: vi.fn(),
+  updateVisualAsset: vi.fn(),
+  findVisualAssetByHash: vi.fn(),
   invokeLLM: vi.fn(),
 }));
 
@@ -34,11 +46,11 @@ vi.mock("./db", () => ({
 }));
 
 vi.mock("./visualArchives/db", () => ({
-  createVisualAsset: vi.fn(),
+  createVisualAsset,
   createVisualProject: vi.fn(),
   createVraRecord,
   createVraRelation: vi.fn(),
-  findVisualAssetByHash: vi.fn(),
+  findVisualAssetByHash,
   getVisualArchiveStats: vi.fn(),
   getVisualAsset,
   getVisualProjectMode,
@@ -46,16 +58,16 @@ vi.mock("./visualArchives/db", () => ({
   listVisualAssets: vi.fn(),
   listVraRecords,
   listVraRelations: vi.fn(),
-  updateVisualAsset: vi.fn(),
+  updateVisualAsset,
   updateVraRecord,
   updateVraSuggestions,
 }));
 
 vi.mock("./storage", () => ({
-  buildVisualAssetKey: vi.fn(),
-  createVisualDerivatives: vi.fn(),
+  buildVisualAssetKey,
+  createVisualDerivatives,
   storageGet,
-  storagePut: vi.fn(),
+  storagePut,
   visualAssetAccessUrl: vi.fn(),
 }));
 
@@ -78,6 +90,42 @@ describe("Visual Archives router boundaries", () => {
     getVisualProjectMode.mockResolvedValue({ projectId: 12, archiveMode: "visual_vra" });
     listVraRecords.mockResolvedValue([]);
   });
+
+  function configureUploadPipeline() {
+    findVisualAssetByHash.mockResolvedValue(null);
+    createVisualDerivatives.mockResolvedValue({
+      format: "png",
+      width: 960,
+      height: 640,
+      display: Buffer.from("display"),
+      thumbnail: Buffer.from("thumbnail"),
+      displayMimeType: "image/jpeg",
+      orientation: 1,
+      density: 72,
+      space: "srgb",
+      hasAlpha: false,
+    });
+    buildVisualAssetKey.mockImplementation((_projectId: number, _assetId: string, variant: string) => `visual/${variant}.jpg`);
+    storagePut.mockResolvedValue({ url: "https://objects.example.test/asset" });
+    createVisualAsset.mockImplementation(async (input: Record<string, unknown>) => input);
+    updateVisualAsset.mockImplementation(async (projectId: number, assetId: string, changes: Record<string, unknown>) => ({
+      id: assetId,
+      projectId,
+      filename: "courtyard.png",
+      originalKey: "visual/original.jpg",
+      displayKey: changes.displayKey ?? null,
+      thumbnailKey: changes.thumbnailKey ?? null,
+      status: changes.status ?? "uploaded",
+      ...changes,
+    }));
+    createVraRecord.mockResolvedValue({
+      id: "123e4567-e89b-12d3-a456-426614174010",
+      projectId: 12,
+      recordType: "image",
+      title: "courtyard",
+    });
+    storageGet.mockResolvedValue({ url: "https://objects.example.test/display.jpg" });
+  }
 
   it("hides a visual project from users outside its tenant boundary", async () => {
     getProjectRole.mockResolvedValue(null);
@@ -123,6 +171,53 @@ describe("Visual Archives router boundaries", () => {
     })).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(getVisualAsset).toHaveBeenCalledWith(12, "123e4567-e89b-12d3-a456-426614174000");
     expect(createVraRecord).not.toHaveBeenCalled();
+  });
+
+  it("automatically creates an Image record and separate AI draft after a successful upload", async () => {
+    configureUploadPipeline();
+    invokeLLM.mockResolvedValue({ choices: [{ message: { content: JSON.stringify({ title: "Courtyard", description: "Stone courtyard", workType: [], agents: [], dates: [], locations: [], subjects: [], culturalContext: [], materials: [], techniques: [], inscriptions: [], stylePeriod: [], identificationCandidates: [], confidenceNotes: "" }) } }] });
+
+    const result = await caller().uploadAsset({
+      projectId: 12,
+      filename: "courtyard.png",
+      mimeType: "image/png",
+      fileBase64: Buffer.from("synthetic image bytes").toString("base64"),
+    });
+
+    expect(createVraRecord).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 12,
+      recordType: "image",
+      title: "courtyard",
+      status: "needs_review",
+      reviewedJson: {},
+      aiSuggestedJson: {},
+    }));
+    expect(updateVraSuggestions).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 12,
+      recordId: "123e4567-e89b-12d3-a456-426614174010",
+      aiSuggestedJson: expect.objectContaining({ title: "Courtyard" }),
+    }));
+    expect(result.autoCatalog).toEqual({ recordId: "123e4567-e89b-12d3-a456-426614174010", suggestionStatus: "generated" });
+  });
+
+  it("keeps the created Image record in the review queue if Gemini suggestions fail", async () => {
+    configureUploadPipeline();
+    invokeLLM.mockRejectedValue(new Error("temporary model outage"));
+
+    const result = await caller().uploadAsset({
+      projectId: 12,
+      filename: "courtyard.png",
+      mimeType: "image/png",
+      fileBase64: Buffer.from("synthetic image bytes").toString("base64"),
+    });
+
+    expect(createVraRecord).toHaveBeenCalledWith(expect.objectContaining({ status: "needs_review" }));
+    expect(updateVraSuggestions).not.toHaveBeenCalled();
+    expect(result.autoCatalog).toMatchObject({
+      recordId: "123e4567-e89b-12d3-a456-426614174010",
+      suggestionStatus: "pending_review",
+      suggestionError: "temporary model outage",
+    });
   });
 
   it("copies only explicitly accepted VRA fields into reviewed data", async () => {

@@ -203,46 +203,59 @@ function OverviewPage({ projectId }: { projectId: number }) {
 
 function AssetsPage({ projectId, canEdit }: { projectId: number; canEdit: boolean }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState<string | null>(null);
+  const [batch, setBatch] = useState({ total: 0, completed: 0, failed: 0, active: false });
   const utils = trpc.useUtils();
   const { data: assets, isLoading } = trpc.visualArchives.listAssets.useQuery({ projectId });
   const upload = trpc.visualArchives.uploadAsset.useMutation();
-  const createRecord = trpc.visualArchives.createRecord.useMutation({
-    onSuccess: () => {
-      toast.success("Image record created");
-      utils.visualArchives.listRecords.invalidate({ projectId });
-      utils.visualArchives.stats.invalidate({ projectId });
-    },
-    onError: error => toast.error(error.message),
-  });
 
   const handleFiles = async (files: FileList | null) => {
     if (!files) return;
-    for (const file of Array.from(files)) {
+    const selectedFiles = Array.from(files);
+    if (selectedFiles.length === 0) return;
+    setBatch({ total: selectedFiles.length, completed: 0, failed: 0, active: true });
+    const uploadOne = async (file: File) => {
+      let succeeded = false;
       if (!["image/jpeg", "image/png"].includes(file.type)) {
         toast.error(`${file.name}: only JPEG and PNG are supported`);
-        continue;
-      }
-      if (file.size > 15 * 1024 * 1024) {
+      } else if (file.size > 15 * 1024 * 1024) {
         toast.error(`${file.name}: file must be 15 MB or smaller`);
-        continue;
+      } else {
+        try {
+          const result = await upload.mutateAsync({
+            projectId,
+            filename: file.name,
+            mimeType: file.type as "image/jpeg" | "image/png",
+            fileBase64: await fileToBase64(file),
+          });
+          succeeded = true;
+          toast.success(
+            result.autoCatalog.suggestionStatus === "generated"
+              ? `${file.name}: Image record and AI draft ready for review`
+              : `${file.name}: Image record ready for review; AI suggestions can be retried`,
+          );
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : `Could not upload ${file.name}`);
+        }
       }
-      try {
-        setUploading(file.name);
-        await upload.mutateAsync({
-          projectId,
-          filename: file.name,
-          mimeType: file.type as "image/jpeg" | "image/png",
-          fileBase64: await fileToBase64(file),
-        });
-        toast.success(`${file.name} uploaded`);
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : `Could not upload ${file.name}`);
+      setBatch(current => ({
+        ...current,
+        completed: current.completed + 1,
+        failed: current.failed + (succeeded ? 0 : 1),
+      }));
+    };
+    let nextIndex = 0;
+    const worker = async () => {
+      while (nextIndex < selectedFiles.length) {
+        const file = selectedFiles[nextIndex++];
+        await uploadOne(file);
       }
-    }
-    setUploading(null);
+    };
+    // Two concurrent image+Gemini operations keep the preview responsive and avoid a burst of premium model calls.
+    await Promise.all(Array.from({ length: Math.min(2, selectedFiles.length) }, worker));
+    setBatch(current => ({ ...current, active: false }));
     await Promise.all([
       utils.visualArchives.listAssets.invalidate({ projectId }),
+      utils.visualArchives.listRecords.invalidate({ projectId }),
       utils.visualArchives.stats.invalidate({ projectId }),
     ]);
     if (inputRef.current) inputRef.current.value = "";
@@ -251,9 +264,10 @@ function AssetsPage({ projectId, canEdit }: { projectId: number; canEdit: boolea
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div><p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">Ingestion</p><h1 className="font-serif text-3xl font-semibold">Visual assets</h1><p className="mt-2 text-sm text-muted-foreground">JPEG and PNG · 15 MB maximum · immutable original plus display derivatives</p></div>
-        {canEdit && <><input ref={inputRef} type="file" accept="image/jpeg,image/png" multiple className="hidden" onChange={event => handleFiles(event.target.files)} /><Button onClick={() => inputRef.current?.click()} disabled={!!uploading} className="gap-2">{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}{uploading ? `Uploading ${uploading}` : "Upload images"}</Button></>}
+        <div><p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">Ingestion</p><h1 className="font-serif text-3xl font-semibold">Visual assets</h1><p className="mt-2 text-sm text-muted-foreground">JPEG and PNG · 15 MB maximum · each upload creates an Image record and Gemini review draft automatically</p></div>
+        {canEdit && <><input ref={inputRef} type="file" accept="image/jpeg,image/png" multiple className="hidden" onChange={event => handleFiles(event.target.files)} /><Button onClick={() => inputRef.current?.click()} disabled={batch.active} className="gap-2">{batch.active ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}{batch.active ? `Processing ${batch.completed}/${batch.total}` : "Upload images"}</Button></>}
       </div>
+      {batch.total > 0 && <div className="border-y border-primary/30 bg-primary/5 px-4 py-3 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium">{batch.active ? "Batch cataloging in progress" : "Batch cataloging complete"}</span><span className="text-muted-foreground">{batch.completed} of {batch.total} complete{batch.failed > 0 ? ` · ${batch.failed} failed` : ""}</span></div><p className="mt-1 text-xs text-muted-foreground">Each image receives its immutable derivatives, an Image record, and a separate Gemini draft. You can leave this page open while the batch completes.</p></div>}
       {isLoading ? <Loader2 className="h-6 w-6 animate-spin text-primary" /> : (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
           {(assets ?? []).map(asset => (
@@ -266,7 +280,7 @@ function AssetsPage({ projectId, canEdit }: { projectId: number; canEdit: boolea
                 <div className="mt-1 text-xs text-muted-foreground">{asset.width} × {asset.height} · {(asset.byteSize / 1024 / 1024).toFixed(1)} MB</div>
                 <div className="mt-3 flex items-center justify-between">
                   <Badge variant={asset.status === "ready" ? "outline" : "secondary"}>{asset.status}</Badge>
-                  {canEdit && asset.status === "ready" && <Button size="sm" variant="ghost" onClick={() => createRecord.mutate({ projectId, recordType: "image", title: asset.filename.replace(/\.[^.]+$/, ""), assetId: asset.id, reviewedJson: {} })}>Create record</Button>}
+                  {asset.status === "ready" && <span className="text-xs text-muted-foreground">Image record created automatically</span>}
                 </div>
               </div>
             </article>
