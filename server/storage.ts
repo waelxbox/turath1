@@ -29,14 +29,32 @@ export type VisualDerivatives = {
   density: number | null;
   space: string | null;
   hasAlpha: boolean;
+  perceptualHash: string;
 };
+
+async function differenceHash(source: Buffer): Promise<string> {
+  const pixels = await sharp(source, { limitInputPixels: MAX_VISUAL_INPUT_PIXELS })
+    .rotate()
+    .resize({ width: 9, height: 8, fit: "fill" })
+    .grayscale()
+    .raw()
+    .toBuffer();
+  let bits = "";
+  for (let row = 0; row < 8; row += 1) {
+    for (let column = 0; column < 8; column += 1) {
+      const offset = row * 9 + column;
+      bits += pixels[offset] > pixels[offset + 1] ? "1" : "0";
+    }
+  }
+  return BigInt(`0b${bits}`).toString(16).padStart(16, "0");
+}
 
 export async function createVisualDerivatives(source: Buffer): Promise<VisualDerivatives> {
   const metadata = await sharp(source, { limitInputPixels: MAX_VISUAL_INPUT_PIXELS }).metadata();
   if (!metadata.width || !metadata.height || !["jpeg", "png"].includes(metadata.format ?? "")) {
     throw new Error("The uploaded file is not a supported JPEG or PNG image");
   }
-  const [display, thumbnail] = await Promise.all([
+  const [display, thumbnail, perceptualHash] = await Promise.all([
     sharp(source, { limitInputPixels: MAX_VISUAL_INPUT_PIXELS })
       .rotate()
       .resize({ width: 2200, height: 2200, fit: "inside", withoutEnlargement: true })
@@ -47,6 +65,7 @@ export async function createVisualDerivatives(source: Buffer): Promise<VisualDer
       .resize({ width: 640, height: 640, fit: "inside", withoutEnlargement: true })
       .jpeg({ quality: 82, mozjpeg: true })
       .toBuffer(),
+    differenceHash(source),
   ]);
   return {
     display,
@@ -59,6 +78,7 @@ export async function createVisualDerivatives(source: Buffer): Promise<VisualDer
     density: metadata.density ?? null,
     space: metadata.space ?? null,
     hasAlpha: metadata.hasAlpha ?? false,
+    perceptualHash,
   };
 }
 

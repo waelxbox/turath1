@@ -14,8 +14,9 @@ import { ZipArchive } from "archiver";
 import { Readable } from "node:stream";
 import { authenticateRequestUser } from "./context";
 import { ENV } from "./env";
-import { getVisualAsset } from "../visualArchives/db";
+import { getVisualAsset, listVraRecords, listVraRelations } from "../visualArchives/db";
 import { isVisualArchivesEnabled, isVisualArchivesPreviewUser } from "../visualArchives/config";
+import { buildVisualCatalogCsv, buildVraCoreXml, type VisualCatalogExport } from "../../shared/visualExports";
 
 type AuthenticatedUser = { id: number; email?: string | null };
 type StoredDocument = { storagePath: string; storageUrl: string | null };
@@ -50,6 +51,10 @@ export type StorageProxyDependencies = {
     projectId: number,
     assetId: string
   ) => Promise<StoredVisualAsset | undefined>;
+  getVisualCatalogExport?: (
+    projectId: number,
+    includeUnapproved: boolean
+  ) => Promise<VisualCatalogExport>;
   getValidationSession: (
     token: string
   ) => Promise<ValidationSession | null | undefined>;
@@ -58,6 +63,31 @@ export type StorageProxyDependencies = {
 };
 
 const STORAGE_OBJECT_TIMEOUT_MS = 30_000;
+
+async function buildVisualCatalogExport(projectId: number, includeUnapproved: boolean): Promise<VisualCatalogExport> {
+  const allRecords = await listVraRecords({ projectId });
+  const records = allRecords.filter(record => includeUnapproved || record.status === "approved");
+  const selectedRecordIds = new Set(records.map(record => record.id));
+  const relations = await listVraRelations(projectId);
+  return {
+    profile: "VRA Core 4-aligned reviewed catalog export",
+    exportedAt: new Date().toISOString(),
+    projectId,
+    includeUnapproved,
+    records: records.map(record => ({
+      id: record.id,
+      recordType: record.recordType,
+      title: record.title,
+      localIdentifier: record.localIdentifier,
+      status: record.status,
+      reviewedJson: record.reviewedJson as Record<string, unknown>,
+      assetId: record.assetId,
+    })),
+    relations: relations
+      .filter(relation => selectedRecordIds.has(relation.sourceRecordId) && selectedRecordIds.has(relation.targetRecordId))
+      .map(relation => ({ sourceRecordId: relation.sourceRecordId, targetRecordId: relation.targetRecordId, relationType: relation.relationType })),
+  };
+}
 
 async function heroDownloadUrl(): Promise<string> {
   if (!ENV.forgeApiUrl || !ENV.forgeApiKey) {
@@ -86,6 +116,7 @@ const defaultDependencies: StorageProxyDependencies = {
   getDocument: getDocumentById,
   getSample: getOnboardingSampleById,
   getVisualAsset,
+  getVisualCatalogExport: buildVisualCatalogExport,
   getValidationSession: getValidationSessionByToken,
   verifyValidationToken: verifyValidationStorageToken,
   getDownloadUrl: async key => (await storageGet(key)).url,
@@ -342,6 +373,37 @@ export function registerStorageProxy(
         console.error("[VisualExport] backend request failed:", error);
         res.destroy(error instanceof Error ? error : undefined);
       }
+    }
+  });
+
+  app.get("/api/storage/projects/:projectId/visual-exports/catalog.:format", async (req, res) => {
+    if (!dependencies.visualArchivesEnabled()) {
+      res.status(404).send("Not found");
+      return;
+    }
+    const projectId = positiveInteger(req.params.projectId);
+    const format = req.params.format;
+    if (!projectId || !["csv", "json", "xml"].includes(format)) {
+      res.status(404).send("Not found");
+      return;
+    }
+    try {
+      if (!(await authorizeVisualArchiveRequest(req, res, projectId, dependencies))) return;
+      const data = await (dependencies.getVisualCatalogExport ?? buildVisualCatalogExport)(projectId, req.query.includeUnapproved === "true");
+      const stamp = new Date().toISOString().slice(0, 10);
+      const formats = {
+        csv: { body: buildVisualCatalogCsv(data), type: "text/csv; charset=utf-8", extension: "csv" },
+        json: { body: JSON.stringify(data, null, 2), type: "application/json; charset=utf-8", extension: "json" },
+        xml: { body: buildVraCoreXml(data), type: "application/xml; charset=utf-8", extension: "xml" },
+      } as const;
+      const output = formats[format as "csv" | "json" | "xml"];
+      res.set("Content-Type", output.type);
+      res.set("Content-Disposition", `attachment; filename="turath-visual-catalog-${stamp}.${output.extension}"`);
+      res.set("Cache-Control", "private, no-store");
+      res.set("Referrer-Policy", "no-referrer");
+      res.send(output.body);
+    } catch (error) {
+      storageFailure(res, error);
     }
   });
 

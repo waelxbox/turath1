@@ -13,6 +13,7 @@ import {
 } from "../storage";
 import { isVisualArchivesEnabled, isVisualArchivesPreviewUser } from "./config";
 import {
+  acceptVraSuggestionFields,
   createVisualAsset,
   createVisualProject,
   createVraRecord,
@@ -22,14 +23,17 @@ import {
   getVisualAsset,
   getVisualAssetsByIds,
   getVisualProjectMode,
+  getImageRecordByAssetId,
   getVraRecord,
   getVraRecordsByIds,
   linkImageRecordsToWork,
+  listVraRecordIds,
   listVisualAssets,
   listVisualAssetsPage,
   listVraRecords,
   listVraRecordsPage,
   listVraRelations,
+  rejectVraSuggestionFields,
   unlinkImageRecordsFromWork,
   updateVisualAsset,
   updateVraRecord,
@@ -97,6 +101,29 @@ function cleanFilename(filename: string): string {
   const basename = filename.split(/[\\/]/).pop() ?? "image";
   const cleaned = basename.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
   return cleaned.slice(0, 180) || "image";
+}
+
+function perceptualHash(asset: { technicalMetadata: unknown }): string | null {
+  const value = (asset.technicalMetadata as Record<string, unknown> | null)?.perceptualHash;
+  return typeof value === "string" && /^[0-9a-f]{16}$/i.test(value) ? value.toLowerCase() : null;
+}
+
+function perceptualDistance(left: string, right: string): number {
+  let distance = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    const xor = Number.parseInt(left[index], 16) ^ Number.parseInt(right[index], 16);
+    distance += xor.toString(2).split("1").length - 1;
+  }
+  return distance;
+}
+
+function matchedReviewedFields(record: { title: string; localIdentifier: string | null; reviewedJson: unknown }, terms: string[]) {
+  const reviewed = (record.reviewedJson ?? {}) as Record<string, unknown>;
+  return ["title", "localIdentifier", ...Object.keys(reviewed)].filter(field => {
+    const value = field === "title" ? record.title : field === "localIdentifier" ? record.localIdentifier : reviewed[field];
+    const text = Array.isArray(value) ? value.join(" ") : typeof value === "string" ? value : "";
+    return terms.some(term => text.toLocaleLowerCase().includes(term));
+  });
 }
 
 const catalogSuggestionSchema = {
@@ -334,6 +361,47 @@ export const visualArchivesRouter = router({
       return safeAssetResponse(asset);
     }),
 
+  findVisualNeighbors: protectedProcedure
+    .input(z.object({ projectId: z.number().int().positive(), assetId: z.string().uuid(), limit: z.number().int().min(1).max(48).default(24) }))
+    .query(async ({ ctx, input }) => {
+      await requireVisualRole(input.projectId, ctx.user);
+      const source = await getVisualAsset(input.projectId, input.assetId);
+      if (!source || source.status !== "ready") throw new TRPCError({ code: "NOT_FOUND", message: "Visual asset not found" });
+      const sourceHash = perceptualHash(source);
+      if (!sourceHash) return { sourceAssetId: source.id, items: [], unavailable: "This image predates visual fingerprints. Regenerate its derivatives before comparing it." };
+      const [assets, records] = await Promise.all([
+        listVisualAssets(input.projectId),
+        listVraRecords({ projectId: input.projectId, recordType: "image" }),
+      ]);
+      const recordsByAssetId = new Map(records.filter(record => record.assetId).map(record => [record.assetId!, record]));
+      const items = assets
+        .filter(asset => asset.id !== source.id && asset.status === "ready")
+        .map(asset => ({ asset, fingerprint: perceptualHash(asset) }))
+        .filter((entry): entry is { asset: typeof source; fingerprint: string } => Boolean(entry.fingerprint))
+        .map(({ asset, fingerprint }) => {
+          const distance = perceptualDistance(sourceHash, fingerprint);
+          const score = Number((1 - distance / 64).toFixed(3));
+          return {
+            asset,
+            score,
+            distance,
+            classification: score >= 0.97 ? "possible duplicate" : score >= 0.84 ? "possible variant" : "visual neighborhood",
+            record: recordsByAssetId.get(asset.id) ?? null,
+          };
+        })
+        .filter(item => item.score >= 0.62)
+        .sort((left, right) => right.score - left.score || left.asset.id.localeCompare(right.asset.id))
+        .slice(0, input.limit)
+        .map(item => ({
+          asset: safeAssetResponse(item.asset),
+          record: item.record ? safeReviewedSearchRecord(item.record) : null,
+          score: item.score,
+          classification: item.classification,
+          explanation: `Perceptual fingerprint distance ${item.distance}/64. This is visual comparison only; confirm before grouping or treating images as duplicates.`,
+        }));
+      return { sourceAssetId: source.id, items, unavailable: null };
+    }),
+
   uploadAsset: protectedProcedure
     .input(z.object({
       projectId: z.number().int().positive(),
@@ -353,7 +421,17 @@ export const visualArchivesRouter = router({
       const sha256 = crypto.createHash("sha256").update(source).digest("hex");
       const duplicate = await findVisualAssetByHash(input.projectId, sha256);
       if (duplicate) {
-        throw new TRPCError({ code: "CONFLICT", message: "This image is already present in the project" });
+        const existingRecord = await getImageRecordByAssetId(input.projectId, duplicate.id);
+        if (existingRecord) {
+          return {
+            ...safeAssetResponse(duplicate),
+            autoCatalog: {
+              recordId: existingRecord.id,
+              suggestionStatus: "already_present" as const,
+            },
+          };
+        }
+        throw new TRPCError({ code: "CONFLICT", message: "This image is already being processed. Refresh the assets page before retrying it." });
       }
       let derivatives;
       try {
@@ -386,6 +464,7 @@ export const visualArchivesRouter = router({
           density: derivatives.density,
           space: derivatives.space,
           hasAlpha: derivatives.hasAlpha,
+          perceptualHash: derivatives.perceptualHash,
         },
         status: "uploaded",
       });
@@ -470,7 +549,29 @@ export const visualArchivesRouter = router({
     }))
     .query(async ({ ctx, input }) => {
       await requireVisualRole(input.projectId, ctx.user);
-      return listVraRecordsPage(input);
+      const page = await listVraRecordsPage(input);
+      const assets = await getVisualAssetsByIds(input.projectId, page.items.flatMap(record => record.assetId ? [record.assetId] : []));
+      const assetsById = new Map(assets.map(asset => [asset.id, asset]));
+      return {
+        ...page,
+        items: page.items.map(record => ({
+          ...safeReviewedSearchRecord(record),
+          asset: record.assetId && assetsById.has(record.assetId) ? safeAssetResponse(assetsById.get(record.assetId)!) : null,
+        })),
+      };
+    }),
+
+  listRecordIds: protectedProcedure
+    .input(z.object({
+      projectId: z.number().int().positive(),
+      recordType: recordTypeSchema.optional(),
+      status: recordStatusSchema.optional(),
+      search: z.string().trim().max(160).optional(),
+      limit: z.number().int().min(1).max(500).default(500),
+    }))
+    .query(async ({ ctx, input }) => {
+      await requireVisualRole(input.projectId, ctx.user);
+      return listVraRecordIds(input);
     }),
 
   getRecord: protectedProcedure
@@ -495,14 +596,16 @@ export const visualArchivesRouter = router({
         techniques: z.array(z.string().min(1).max(160)).max(12).optional(),
         stylePeriod: z.array(z.string().min(1).max(160)).max(12).optional(),
       }).default({}),
+      includeDrafts: z.boolean().default(false),
       limit: z.number().int().min(1).max(100).default(48),
     }))
     .query(async ({ ctx, input }) => {
       await requireVisualRole(input.projectId, ctx.user);
-      const approved = await listVraRecords({ projectId: input.projectId, recordType: input.recordType, status: "approved" });
-      const facets = buildVisualFacets(approved);
+      if (input.includeDrafts) await requireVisualEditor(input.projectId, ctx.user);
+      const catalogRecords = await listVraRecords({ projectId: input.projectId, recordType: input.recordType, status: input.includeDrafts ? undefined : "approved" });
+      const facets = buildVisualFacets(catalogRecords);
       const terms = input.query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
-      const results = approved.filter(record => {
+      const results = catalogRecords.filter(record => {
         const text = reviewedSearchText(record);
         if (!terms.every(term => text.includes(term))) return false;
         return visualFacetFields.every(field => {
@@ -534,15 +637,19 @@ export const visualArchivesRouter = router({
       await requireVisualRole(input.projectId, ctx.user);
       const approved = await listVraRecords({ projectId: input.projectId, status: "approved" });
       if (approved.length === 0) {
-        return { answer: "No approved catalog records are available yet. Review and approve Image, Work, or Collection records before asking questions about this Visual Archive.", sources: [] };
+        return { answer: "No approved catalog records are available yet. Review and approve Image, Work, or Collection records before asking questions about this Visual Archive.", sources: [], insufficientEvidence: true };
       }
       const terms = input.question.toLocaleLowerCase().split(/[^A-Za-z0-9\u0600-\u06FF]+/).filter(term => term.length >= 2);
-      const ranked = approved.map(record => {
+      const rankedWithScores = approved.map(record => {
         const title = `${record.title} ${record.localIdentifier ?? ""}`.toLocaleLowerCase();
         const reviewed = reviewedSearchText(record);
         const score = terms.reduce((total, term) => total + (title.includes(term) ? 5 : 0) + (reviewed.includes(term) ? 1 : 0), 0);
         return { record, score };
-      }).sort((a, b) => b.score - a.score || b.record.updatedAt.getTime() - a.record.updatedAt.getTime()).slice(0, 5).map(item => item.record);
+      }).sort((a, b) => b.score - a.score || b.record.updatedAt.getTime() - a.record.updatedAt.getTime());
+      if (terms.length > 0 && rankedWithScores[0]?.score === 0) {
+        return { answer: "I do not have enough approved catalog evidence to answer that question. Try a title, place, subject, material, or other reviewed term, or review more records first.", sources: [], insufficientEvidence: true };
+      }
+      const ranked = rankedWithScores.slice(0, 5).map(item => item.record);
       const assets = await getVisualAssetsByIds(input.projectId, ranked.flatMap(record => record.assetId ? [record.assetId] : []));
       const assetsById = new Map(assets.map(asset => [asset.id, asset]));
       const visualSources = ranked.map((record, index) => ({
@@ -575,8 +682,11 @@ export const visualArchivesRouter = router({
           title: source.record.title,
           recordType: source.record.recordType,
           excerpt: source.excerpt,
+          matchedFields: matchedReviewedFields(source.record, terms),
+          reviewedJson: source.record.reviewedJson,
           thumbnailUrl: source.asset?.thumbnailKey ? visualAssetAccessUrl(input.projectId, source.asset.id, "thumbnail") : null,
         })),
+        insufficientEvidence: false,
       };
     }),
 
@@ -817,26 +927,31 @@ export const visualArchivesRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       await requireVisualEditor(input.projectId, ctx.user);
-      const record = await getVraRecord(input.projectId, input.recordId);
-      if (!record) throw new TRPCError({ code: "NOT_FOUND", message: "Record not found" });
-      const reviewed = { ...(record.reviewedJson as Record<string, unknown>) };
-      const suggestions = record.aiSuggestedJson as Record<string, unknown>;
-      let acceptedTitle: string | undefined;
-      for (const field of input.acceptedFields) {
-        if (field === "title" && typeof suggestions.title === "string" && suggestions.title.trim()) {
-          acceptedTitle = suggestions.title.trim();
-          continue;
-        }
-        if (Object.prototype.hasOwnProperty.call(suggestions, field)) reviewed[field] = suggestions[field];
-      }
-      return updateVraRecord({
+      const updated = await acceptVraSuggestionFields({
         projectId: input.projectId,
         recordId: input.recordId,
         userId: ctx.user.id,
-        ...(acceptedTitle ? { title: acceptedTitle } : {}),
-        reviewedJson: reviewed,
-        status: "draft",
-        changeSummary: `Accepted AI suggestions: ${input.acceptedFields.join(", ")}`,
+        acceptedFields: input.acceptedFields,
       });
+      if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Record not found" });
+      return updated;
+    }),
+
+  rejectSuggestionFields: protectedProcedure
+    .input(z.object({
+      projectId: z.number().int().positive(),
+      recordId: z.string().uuid(),
+      rejectedFields: z.array(suggestionFieldSchema).min(1).max(12),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await requireVisualEditor(input.projectId, ctx.user);
+      const updated = await rejectVraSuggestionFields({
+        projectId: input.projectId,
+        recordId: input.recordId,
+        userId: ctx.user.id,
+        rejectedFields: input.rejectedFields,
+      });
+      if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Record not found" });
+      return updated;
     }),
 });

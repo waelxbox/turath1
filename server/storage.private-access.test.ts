@@ -71,6 +71,22 @@ function dependencies(overrides: Partial<StorageProxyDependencies> = {}): Storag
       thumbnailKey: "projects/12/visual-assets/123e4567-e89b-12d3-a456-426614174000/thumbnail.jpg",
       status: "ready",
     }),
+    getVisualCatalogExport: vi.fn().mockResolvedValue({
+      profile: "VRA Core 4-aligned reviewed catalog export",
+      exportedAt: "2026-08-27T00:00:00.000Z",
+      projectId: 12,
+      includeUnapproved: false,
+      records: [{
+        id: "123e4567-e89b-12d3-a456-426614174000",
+        recordType: "image",
+        title: "Approved courtyard",
+        localIdentifier: null,
+        status: "approved",
+        reviewedJson: { locations: ["Cairo"] },
+        assetId: "123e4567-e89b-12d3-a456-426614174000",
+      }],
+      relations: [],
+    }),
     getValidationSession: vi.fn().mockResolvedValue({
       projectId: 12,
       documentIds: [34],
@@ -260,6 +276,41 @@ describe("private storage resource routes", () => {
     expect(deps.getProjectRole).not.toHaveBeenCalled();
     expect(deps.getVisualAsset).not.toHaveBeenCalled();
     expect(backendFetch).not.toHaveBeenCalled();
+  });
+
+  it("serves a reviewed Visual Archives CSV as a private attachment with an explicit content type", async () => {
+    const deps = dependencies();
+    const routes = captureRoutes(deps);
+    const { response, state } = fakeResponse();
+
+    await routes.get("/api/storage/projects/:projectId/visual-exports/catalog.:format")!(
+      { params: { projectId: "12", format: "csv" }, query: { includeUnapproved: "false" }, headers: {} },
+      response,
+    );
+
+    expect(state.status).toBe(200);
+    expect(state.headers.get("Content-Type")).toBe("text/csv; charset=utf-8");
+    expect(state.headers.get("Content-Disposition")).toMatch(/^attachment; filename="turath-visual-catalog-.*\.csv"$/);
+    expect(state.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(String(state.body)).toContain("Approved courtyard");
+    expect(deps.getVisualCatalogExport).toHaveBeenCalledWith(12, false);
+  });
+
+  it("does not create a catalog export for a user outside the controlled preview allowlist", async () => {
+    const deps = dependencies({
+      authenticateUser: vi.fn().mockResolvedValue({ id: 8, email: "researcher@example.org" }),
+      visualArchivesUserAllowed: vi.fn().mockReturnValue(false),
+    });
+    const routes = captureRoutes(deps);
+    const { response, state } = fakeResponse();
+
+    await routes.get("/api/storage/projects/:projectId/visual-exports/catalog.:format")!(
+      { params: { projectId: "12", format: "json" }, query: {}, headers: {} },
+      response,
+    );
+
+    expect(state.status).toBe(404);
+    expect(deps.getVisualCatalogExport).not.toHaveBeenCalled();
   });
 
   it("rejects unknown visual asset variants before authorization or storage access", async () => {

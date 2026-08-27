@@ -6,7 +6,6 @@ import {
   MessageSquare, Search, Sparkles, Upload, X,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { buildVisualCatalogCsv, buildVraCoreXml, downloadTextFile, type VisualCatalogExport } from "@/lib/visualExports";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -66,6 +65,7 @@ type VisualRecordListItem = {
   assetId: string | null;
   createdAt: Date;
   updatedAt: Date;
+  asset?: { thumbnailUrl: string | null; displayUrl?: string | null } | null;
 };
 
 const navItems = [
@@ -270,6 +270,16 @@ function AssetsPage({ projectId, canEdit }: { projectId: number; canEdit: boolea
     setAssetPages(current => assetCursor ? [...current, assetPageQuery.data.items as VisualAsset[]] : [assetPageQuery.data.items as VisualAsset[]]);
   }, [assetPageQuery.data, assetCursor]);
 
+  useEffect(() => {
+    if (!batch.running) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "Visual Archive intake is still running. Completed images will remain available, but unfinished files will need to be selected again.";
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [batch.running]);
+
   const assets = assetPages.flat();
 
   const handleFiles = async (files: FileList | null) => {
@@ -303,9 +313,11 @@ function AssetsPage({ projectId, canEdit }: { projectId: number; canEdit: boolea
           if (!result) throw lastError instanceof Error ? lastError : new Error("Could not upload image");
           succeeded = true;
           toast.success(
-            result.autoCatalog.suggestionStatus === "generated"
-              ? `${file.name}: Image record and AI draft ready for review`
-              : `${file.name}: Image record ready for review; AI suggestions can be retried`,
+            result.autoCatalog.suggestionStatus === "already_present"
+              ? `${file.name}: already cataloged; restored to your review workflow`
+              : result.autoCatalog.suggestionStatus === "generated"
+                ? `${file.name}: Image record and AI draft ready for review`
+                : `${file.name}: Image record ready for review; AI suggestions can be retried`,
           );
         } catch (error) {
           toast.error(error instanceof Error ? error.message : `Could not upload ${file.name}`);
@@ -348,7 +360,7 @@ function AssetsPage({ projectId, canEdit }: { projectId: number; canEdit: boolea
         <div><p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">Ingestion</p><h1 className="font-serif text-3xl font-semibold">Visual assets</h1><p className="mt-2 text-sm text-muted-foreground">JPEG and PNG · 15 MB maximum · each upload creates an Image record and Gemini review draft automatically</p></div>
         {canEdit && <><input ref={inputRef} type="file" accept="image/jpeg,image/png" multiple className="hidden" onChange={event => handleFiles(event.target.files)} /><Button onClick={() => inputRef.current?.click()} disabled={batch.running} className="gap-2">{batch.running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}{batch.running ? `Processing ${batch.completed}/${batch.total}` : "Upload images"}</Button></>}
       </div>
-      {batch.total > 0 && <div className="border-y border-primary/30 bg-primary/5 px-4 py-3 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium">{batch.running ? "Batch cataloging in progress" : "Batch cataloging complete"}</span><span className="text-muted-foreground">{batch.completed} of {batch.total} complete{batch.running ? ` · ${batch.active} active` : ""}{batch.failed > 0 ? ` · ${batch.failed} failed` : ""}</span></div><p className="mt-1 text-xs text-muted-foreground">Each image receives immutable derivatives, an Image record, and a separate Gemini draft. <strong>Keep this tab open and do not reload or navigate away until the batch finishes.</strong> TURATH retries temporary upload failures up to two times.</p>{failedFiles.length > 0 && <p className="mt-2 text-xs text-destructive">Failed: {failedFiles.slice(0, 6).join(", ")}{failedFiles.length > 6 ? ` and ${failedFiles.length - 6} more` : ""}. These can be uploaded again; completed images remain safely cataloged.</p>}</div>}
+      {batch.total > 0 && <div className="border-y border-primary/30 bg-primary/5 px-4 py-3 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium">{batch.running ? "Batch cataloging in progress" : "Batch cataloging complete"}</span><span className="text-muted-foreground">{batch.completed} of {batch.total} complete{batch.running ? ` · ${batch.active} active` : ""}{batch.failed > 0 ? ` · ${batch.failed} failed` : ""}</span></div><p className="mt-1 text-xs text-muted-foreground">Each image receives immutable derivatives, an Image record, and a separate Gemini draft. <strong>Keep this tab open while work is active.</strong> If your connection drops or the page reloads, select the same files again: already cataloged images are detected and skipped; incomplete files resume through normal intake. TURATH retries temporary failures up to two times.</p>{failedFiles.length > 0 && <p className="mt-2 text-xs text-destructive">Failed: {failedFiles.slice(0, 6).join(", ")}{failedFiles.length > 6 ? ` and ${failedFiles.length - 6} more` : ""}. Select these files again after checking your connection.</p>}</div>}
       {assetPageQuery.isLoading && assets.length === 0 ? <Loader2 className="h-6 w-6 animate-spin text-primary" /> : (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
           {assets.map(asset => (
@@ -387,6 +399,8 @@ function CatalogPage({ projectId, canEdit }: { projectId: number; canEdit: boole
   const [cursor, setCursor] = useState<PageCursor | undefined>();
   const [pages, setPages] = useState<VisualRecordListItem[][]>([]);
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [lastBulkChange, setLastBulkChange] = useState<Array<{ id: string; status: VisualRecordListItem["status"] }> | null>(null);
   const [workRecordId, setWorkRecordId] = useState("");
   const [newWorkTitle, setNewWorkTitle] = useState("");
   const [groupingSuggestion, setGroupingSuggestion] = useState<GroupingSuggestion | null>(null);
@@ -401,6 +415,13 @@ function CatalogPage({ projectId, canEdit }: { projectId: number; canEdit: boole
   });
   const { data: assets } = trpc.visualArchives.listAssetsPage.useQuery({ projectId, limit: 100 });
   const { data: worksPage } = trpc.visualArchives.listRecordsPage.useQuery({ projectId, recordType: "work", limit: 100 });
+  const matchingRecordIds = trpc.visualArchives.listRecordIds.useQuery({
+    projectId,
+    recordType: filter === "all" ? undefined : filter,
+    status: statusFilter === "all" ? undefined : statusFilter,
+    search: search.trim() || undefined,
+    limit: 500,
+  }, { enabled: false });
   const records = pages.flat();
   const selectedImages = records.filter(record => selectedRecordIds.includes(record.id) && record.recordType === "image");
   const selectedCount = selectedRecordIds.length;
@@ -459,22 +480,58 @@ function CatalogPage({ projectId, canEdit }: { projectId: number; canEdit: boole
     onError: error => toast.error(error.message),
   });
   const toggleSelection = (recordId: string) => setSelectedRecordIds(current => current.includes(recordId) ? current.filter(id => id !== recordId) : [...current, recordId]);
+  const selectPage = () => setSelectedRecordIds(current => Array.from(new Set([...current, ...records.map(record => record.id)])));
+  const selectFiltered = async () => {
+    const result = await matchingRecordIds.refetch();
+    const ids = result.data?.map(record => record.id) ?? [];
+    setSelectedRecordIds(ids);
+    toast.success(`Selected ${ids.length} matching record${ids.length === 1 ? "" : "s"}${ids.length === 500 ? " (first 500)" : ""}`);
+  };
+  const applyBulkStatus = async (status: VisualRecordListItem["status"]) => {
+    const loadedStates = new Map(records.map(record => [record.id, record.status]));
+    let before = selectedRecordIds.map(id => ({ id, status: loadedStates.get(id) })).filter((record): record is { id: string; status: VisualRecordListItem["status"] } => Boolean(record.status));
+    if (before.length !== selectedRecordIds.length) {
+      const matching = await matchingRecordIds.refetch();
+      const states = new Map((matching.data ?? []).map(record => [record.id, record.status]));
+      before = selectedRecordIds.map(id => ({ id, status: states.get(id) })).filter((record): record is { id: string; status: VisualRecordListItem["status"] } => Boolean(record.status));
+    }
+    try {
+      for (let index = 0; index < selectedRecordIds.length; index += 100) {
+        await bulkStatus.mutateAsync({ projectId, recordIds: selectedRecordIds.slice(index, index + 100), status });
+      }
+      setLastBulkChange(before.length === selectedRecordIds.length ? before : null);
+    } catch {
+      // Mutation-level feedback already explains the failed request.
+    }
+  };
+  const undoBulkStatus = async () => {
+    if (!lastBulkChange?.length) return;
+    const grouped = lastBulkChange.reduce<Record<string, string[]>>((groups, record) => {
+      groups[record.status] = [...(groups[record.status] ?? []), record.id];
+      return groups;
+    }, {});
+    try {
+      for (const [status, ids] of Object.entries(grouped)) {
+        for (let index = 0; index < ids.length; index += 100) {
+          await bulkStatus.mutateAsync({ projectId, recordIds: ids.slice(index, index + 100), status: status as VisualRecordListItem["status"] });
+        }
+      }
+      toast.success("Bulk status change undone");
+      setLastBulkChange(null);
+    } catch {
+      // Mutation-level feedback already explains the failed request.
+    }
+  };
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div className="flex items-end justify-between gap-4"><div><p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">VRA Core 4</p><h1 className="font-serif text-3xl font-semibold">Catalog</h1><p className="mt-2 text-sm text-muted-foreground">Collections contain Works; Images document Works. Approved catalog data stays distinct from AI suggestions.</p></div>{canEdit && <Button className="gap-2" onClick={() => setShowCreate(true)}><Plus className="h-4 w-4" /> New record</Button>}</div>
-      <div className="flex flex-wrap gap-1 border-b border-border">
-        {(["all", "collection", "work", "image"] as const).map(value => <button key={value} onClick={() => setFilter(value)} className={`px-3 py-2 text-sm capitalize ${filter === value ? "border-b-2 border-primary font-medium text-primary" : "text-muted-foreground"}`}>{value}</button>)}
+      <div className="sticky top-0 z-20 -mx-4 border-y border-border bg-background/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap gap-1">{(["all", "collection", "work", "image"] as const).map(value => <button key={value} onClick={() => setFilter(value)} className={`px-3 py-2 text-sm capitalize ${filter === value ? "border-b-2 border-primary font-medium text-primary" : "text-muted-foreground hover:text-foreground"}`}>{value}</button>)}</div><div className="flex gap-1 rounded-md border border-border p-1"><Button size="sm" variant={viewMode === "grid" ? "secondary" : "ghost"} onClick={() => setViewMode("grid")}>Grid</Button><Button size="sm" variant={viewMode === "list" ? "secondary" : "ghost"} onClick={() => setViewMode("list")}>List</Button></div></div>
+        <div className="mt-3 grid gap-3 md:grid-cols-[1fr_190px_auto]"><Input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search catalog titles…" aria-label="Search catalog titles" /><select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)} className="h-10 rounded-md border border-input bg-background px-3 text-sm"><option value="all">All review states</option><option value="needs_review">Needs review</option><option value="approved">Approved</option><option value="draft">Draft</option><option value="archived">Archived</option></select>{canEdit && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={selectPage} disabled={records.length === 0}>Select page</Button><Button size="sm" variant="outline" onClick={() => void selectFiltered()} disabled={matchingRecordIds.isFetching}>Select all</Button></div>}</div>
       </div>
-      <div className="grid gap-3 border-y border-border py-3 md:grid-cols-[1fr_190px]">
-        <Input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search catalog titles…" aria-label="Search catalog titles" />
-        <select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)} className="h-10 rounded-md border border-input bg-background px-3 text-sm"><option value="all">All review states</option><option value="needs_review">Needs review</option><option value="approved">Approved</option><option value="draft">Draft</option><option value="archived">Archived</option></select>
-      </div>
-      {canEdit && selectedCount > 0 && <div className="flex flex-wrap items-center gap-2 border-y border-primary/30 bg-primary/5 px-4 py-3"><span className="mr-2 text-sm font-medium">{selectedCount} selected</span><Button size="sm" variant="outline" onClick={() => bulkStatus.mutate({ projectId, recordIds: selectedRecordIds, status: "needs_review" })} disabled={bulkStatus.isPending}>Needs review</Button><Button size="sm" variant="outline" onClick={() => bulkStatus.mutate({ projectId, recordIds: selectedRecordIds, status: "approved" })} disabled={bulkStatus.isPending}>Approve</Button>{selectedImages.length > 0 && <Button size="sm" onClick={() => { setGroupingSuggestion(null); setShowGroup(true); }} disabled={groupExisting.isPending || createWorkAndGroup.isPending}>Organize {selectedImages.length} image{selectedImages.length === 1 ? "" : "s"} as a Work</Button>}<Button size="sm" variant="ghost" onClick={() => setSelectedRecordIds([])}>Clear</Button></div>}
-      {catalogPage.isLoading && records.length === 0 ? <Loader2 className="h-6 w-6 animate-spin text-primary" /> : <div className="divide-y divide-border border-y border-border">
-        {records.map(record => <div key={record.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 py-4"><input type="checkbox" aria-label={`Select ${record.title}`} checked={selectedRecordIds.includes(record.id)} onChange={() => toggleSelection(record.id)} disabled={!canEdit} /><Link href={`/records/${record.id}`} className="min-w-0 hover:text-primary"><div className="truncate font-medium">{record.title}</div><div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground"><span className="capitalize">{record.recordType}</span>{record.localIdentifier && <><span>·</span><span>{record.localIdentifier}</span></>}<span>·</span><span>rev. {record.revision}</span></div></Link><div className="flex items-center gap-3">{statusBadge(record.status)}<ChevronRight className="h-4 w-4" /></div></div>)}
-        {records.length === 0 && <div className="py-16 text-center text-sm text-muted-foreground">No {filter === "all" ? "catalog" : filter} records match these filters.</div>}
-      </div>}
+      {canEdit && selectedCount > 0 && <div className="sticky top-[116px] z-10 flex flex-wrap items-center gap-2 border-y border-primary/30 bg-primary px-4 py-3 text-primary-foreground shadow-sm"><span className="mr-2 text-sm font-medium">{selectedCount} selected</span><Button size="sm" variant="secondary" onClick={() => void applyBulkStatus("needs_review")} disabled={bulkStatus.isPending}>Needs review</Button><Button size="sm" variant="secondary" onClick={() => void applyBulkStatus("approved")} disabled={bulkStatus.isPending}>Approve</Button>{selectedImages.length > 0 && <Button size="sm" variant="secondary" onClick={() => { setGroupingSuggestion(null); setShowGroup(true); }} disabled={groupExisting.isPending || createWorkAndGroup.isPending}>Organize {selectedImages.length} image{selectedImages.length === 1 ? "" : "s"} as a Work</Button>}{lastBulkChange && <Button size="sm" variant="ghost" className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground" onClick={() => void undoBulkStatus()} disabled={bulkStatus.isPending}>Undo</Button>}<Button size="sm" variant="ghost" className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground" onClick={() => setSelectedRecordIds([])}>Clear</Button></div>}
+      {catalogPage.isLoading && records.length === 0 ? <div className="flex min-h-72 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div> : records.length === 0 ? <div className="border-y border-border py-20 text-center"><Images className="mx-auto mb-3 h-9 w-9 text-muted-foreground" /><p className="font-serif text-xl">No matching catalog records</p><p className="mt-2 text-sm text-muted-foreground">Adjust the filters, search another title, or upload images to create review records automatically.</p></div> : viewMode === "grid" ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"><div className="col-span-full flex items-center justify-between text-xs text-muted-foreground"><span>Click a card to review. Select Images to organize them under a Work or site.</span><span>{selectedCount ? `${selectedCount} selected` : "No selection"}</span></div>{records.map(record => <article key={record.id} className={`group overflow-hidden border bg-card ${selectedRecordIds.includes(record.id) ? "border-primary ring-1 ring-primary" : "border-border hover:border-primary/60"}`}><div className="relative aspect-[4/3] bg-slate-100 dark:bg-slate-900">{record.asset?.thumbnailUrl ? <img src={record.asset.thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <div className="flex h-full items-center justify-center"><LibraryBig className="h-7 w-7 text-muted-foreground" /></div>}{canEdit && <label className="absolute left-2 top-2 flex h-7 w-7 cursor-pointer items-center justify-center bg-background/90"><input type="checkbox" aria-label={`Select ${record.title}`} checked={selectedRecordIds.includes(record.id)} onChange={() => toggleSelection(record.id)} className="h-4 w-4" /></label>}<div className="absolute bottom-2 right-2">{statusBadge(record.status)}</div></div><Link href={`/records/${record.id}`} className="block p-3"><p className="truncate text-sm font-medium group-hover:text-primary">{record.title}</p><p className="mt-1 truncate text-xs text-muted-foreground capitalize">{record.recordType}{record.localIdentifier ? ` · ${record.localIdentifier}` : ""}</p><p className="mt-2 text-[11px] text-muted-foreground">Revision {record.revision}</p></Link></article>)}</div> : <div className="divide-y divide-border border-y border-border">{records.map(record => <div key={record.id} className={`grid grid-cols-[auto_52px_1fr_auto] items-center gap-3 px-2 py-3 ${selectedRecordIds.includes(record.id) ? "bg-primary/5" : ""}`}><input type="checkbox" aria-label={`Select ${record.title}`} checked={selectedRecordIds.includes(record.id)} onChange={() => toggleSelection(record.id)} disabled={!canEdit} /><div className="flex h-12 w-12 items-center justify-center bg-slate-100 dark:bg-slate-900">{record.asset?.thumbnailUrl ? <img src={record.asset.thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <LibraryBig className="h-4 w-4 text-muted-foreground" />}</div><Link href={`/records/${record.id}`} className="min-w-0 hover:text-primary"><div className="truncate font-medium">{record.title}</div><div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground"><span className="capitalize">{record.recordType}</span>{record.localIdentifier && <><span>·</span><span>{record.localIdentifier}</span></>}<span>·</span><span>rev. {record.revision}</span></div></Link><div className="flex items-center gap-3">{statusBadge(record.status)}<ChevronRight className="h-4 w-4" /></div></div>)}</div>}
       {records.length > 0 && <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground"><span>Showing {records.length} of {catalogPage.data?.total ?? records.length} records</span>{catalogPage.data?.nextCursor && <Button variant="outline" onClick={() => setCursor(catalogPage.data?.nextCursor ?? undefined)} disabled={catalogPage.isFetching}>{catalogPage.isFetching && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Load more</Button>}</div>}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent><DialogHeader><DialogTitle className="font-serif">Create VRA record</DialogTitle></DialogHeader><div className="space-y-4 py-2"><div className="space-y-1.5"><Label>Record type</Label><select value={recordType} onChange={event => setRecordType(event.target.value as typeof recordType)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="collection">Collection</option><option value="work">Work</option><option value="image">Image</option></select></div><div className="space-y-1.5"><Label>Title</Label><Input value={title} onChange={event => setTitle(event.target.value)} placeholder="Untitled photograph, architectural work, collection..." /></div><div className="space-y-1.5"><Label>Local identifier</Label><Input value={localIdentifier} onChange={event => setLocalIdentifier(event.target.value)} placeholder="Optional accession or local ID" /></div>{recordType === "image" && <div className="space-y-1.5"><Label>Visual asset</Label><select value={assetId} onChange={event => setAssetId(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="">No asset attached</option>{(assets?.items ?? []).filter(item => item.status === "ready").map(item => <option key={item.id} value={item.id}>{item.filename}</option>)}</select></div>}</div><DialogFooter><Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button><Button onClick={() => create.mutate({ projectId, recordType, title, localIdentifier: localIdentifier || undefined, assetId: assetId || undefined, reviewedJson: {} })} disabled={!title.trim() || create.isPending}>{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create record</Button></DialogFooter></DialogContent>
@@ -496,11 +553,12 @@ const DISCOVERY_FACET_LABELS: Record<(typeof DISCOVERY_FACETS)[number], string> 
   stylePeriod: "Style / period",
 };
 
-function VisualSearchPage({ projectId }: { projectId: number }) {
+function VisualSearchPage({ projectId, canEdit }: { projectId: number; canEdit: boolean }) {
   const [draftQuery, setDraftQuery] = useState("");
   const [query, setQuery] = useState("");
   const [facets, setFacets] = useState<Partial<Record<(typeof DISCOVERY_FACETS)[number], string[]>>>({});
-  const search = trpc.visualArchives.searchReviewedCatalog.useQuery({ projectId, query, facets, limit: 48 });
+  const [includeDrafts, setIncludeDrafts] = useState(false);
+  const search = trpc.visualArchives.searchReviewedCatalog.useQuery({ projectId, query, facets, includeDrafts, limit: 48 });
   const toggleFacet = (field: (typeof DISCOVERY_FACETS)[number], value: string) => {
     setFacets(current => {
       const values = current[field] ?? [];
@@ -511,7 +569,7 @@ function VisualSearchPage({ projectId }: { projectId: number }) {
   const clearFilters = () => { setFacets({}); setDraftQuery(""); setQuery(""); };
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <div><p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">Discovery</p><h1 className="font-serif text-3xl font-semibold">Explore approved catalog evidence</h1><p className="mt-2 max-w-3xl text-sm text-muted-foreground">Search titles and human-reviewed metadata across this Visual Archive. AI drafts and unreviewed candidate identifications never appear here.</p></div>
+      <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">Discovery</p><h1 className="font-serif text-3xl font-semibold">Explore approved catalog evidence</h1><p className="mt-2 max-w-3xl text-sm text-muted-foreground">Search titles and human-reviewed metadata across this Visual Archive. AI drafts and unreviewed candidate identifications never appear in results.</p></div>{canEdit && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={includeDrafts} onChange={event => setIncludeDrafts(event.target.checked)} /> Include draft records <span className="text-xs text-muted-foreground">(AI drafts stay hidden)</span></label>}</div>
       <form className="flex gap-2 border-y border-border py-4" onSubmit={event => { event.preventDefault(); setQuery(draftQuery.trim()); }}><Input value={draftQuery} onChange={event => setDraftQuery(event.target.value)} placeholder="Search places, subjects, materials, titles…" aria-label="Search approved visual catalog" /><Button type="submit"><Search className="mr-2 h-4 w-4" />Search</Button></form>
       <div className="grid gap-8 lg:grid-cols-[230px_1fr]">
         <aside className="space-y-5 border-y border-border py-4 lg:border-y-0 lg:border-r lg:py-0 lg:pr-6"><div className="flex items-center justify-between"><h2 className="font-serif text-lg font-semibold">Refine</h2>{(query || Object.values(facets).some(values => values?.length)) && <Button size="sm" variant="ghost" className="h-7 px-0 text-xs" onClick={clearFilters}>Clear all</Button>}</div>{DISCOVERY_FACETS.map(field => { const options = search.data?.facets?.[field] ?? []; return options.length > 0 ? <div key={field}><p className="mb-2 text-xs font-semibold uppercase tracking-[0.13em] text-muted-foreground">{DISCOVERY_FACET_LABELS[field]}</p><div className="space-y-1.5">{options.map(option => <label key={option.value} className="flex cursor-pointer items-start gap-2 text-sm"><input type="checkbox" className="mt-0.5" checked={(facets[field] ?? []).includes(option.value)} onChange={() => toggleFacet(field, option.value)} /><span className="min-w-0 flex-1 truncate">{option.value}</span><span className="text-xs text-muted-foreground">{option.count}</span></label>)}</div></div> : null; })}</aside>
@@ -521,14 +579,15 @@ function VisualSearchPage({ projectId }: { projectId: number }) {
   );
 }
 
-type VisualChatSource = { index: number; recordId: string; title: string; recordType: string; excerpt: string; thumbnailUrl: string | null };
-type VisualChatMessage = { role: "user" | "assistant"; content: string; sources?: VisualChatSource[] };
+type VisualChatSource = { index: number; recordId: string; title: string; recordType: string; excerpt: string; matchedFields: string[]; reviewedJson: unknown; thumbnailUrl: string | null };
+type VisualChatMessage = { role: "user" | "assistant"; content: string; sources?: VisualChatSource[]; insufficientEvidence?: boolean };
 
 function VisualAskArchivePage({ projectId }: { projectId: number }) {
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<VisualChatMessage[]>([]);
+  const [activeEvidence, setActiveEvidence] = useState<VisualChatSource | null>(null);
   const ask = trpc.visualArchives.askArchive.useMutation({
-    onSuccess: result => setMessages(current => [...current, { role: "assistant", content: result.answer, sources: result.sources }]),
+    onSuccess: result => setMessages(current => [...current, { role: "assistant", content: result.answer, sources: result.sources, insufficientEvidence: result.insufficientEvidence }]),
     onError: error => { toast.error(error.message); setMessages(current => current.slice(0, -1)); },
   });
   const submit = () => {
@@ -542,8 +601,9 @@ function VisualAskArchivePage({ projectId }: { projectId: number }) {
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div><p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">Evidence-linked Q&A</p><h1 className="font-serif text-3xl font-semibold">Ask this Visual Archive</h1><p className="mt-2 max-w-3xl text-sm text-muted-foreground">Answers are grounded in human-approved VRA records and cite the exact Images, Works, or Collections used. AI drafts and unreviewed identifications are excluded.</p></div>
-      <div className="min-h-[420px] border-y border-border py-5"><div className="space-y-6">{messages.length === 0 && <div className="py-24 text-center"><MessageSquare className="mx-auto mb-4 h-10 w-10 text-primary" /><p className="font-serif text-xl">Begin with a question grounded in the catalog</p><p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">For example: “Which approved Images depict religious architecture?” or “What materials recur in this collection?”</p></div>}{messages.map((message, index) => <div key={`${message.role}-${index}`} className={message.role === "user" ? "ml-auto max-w-2xl bg-primary px-4 py-3 text-primary-foreground" : "max-w-4xl border-l-2 border-primary py-1 pl-4"}><p className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] opacity-70">{message.role === "user" ? "You" : "TURATH"}</p><p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>{message.sources && message.sources.length > 0 && <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{message.sources.map(source => <Link key={source.recordId} href={`/records/${source.recordId}`} className="grid grid-cols-[48px_1fr] gap-2 border border-border bg-background p-2 text-foreground hover:border-primary/50"><div className="flex h-12 w-12 items-center justify-center bg-slate-100 dark:bg-slate-900">{source.thumbnailUrl ? <img src={source.thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <LibraryBig className="h-4 w-4 text-muted-foreground" />}</div><div className="min-w-0"><p className="truncate text-xs font-medium">[Record {source.index}] {source.title}</p><p className="mt-1 truncate text-[11px] text-muted-foreground capitalize">{source.recordType}</p></div></Link>)}</div>}</div>)}{ask.isPending && <div className="flex items-center gap-2 border-l-2 border-primary py-2 pl-4 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Reading approved visual evidence…</div>}</div></div>
+      <div className="min-h-[420px] border-y border-border py-5"><div className="space-y-6">{messages.length === 0 && <div className="py-24 text-center"><MessageSquare className="mx-auto mb-4 h-10 w-10 text-primary" /><p className="font-serif text-xl">Begin with a question grounded in the catalog</p><p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">For example: “Which approved Images depict religious architecture?” or “What materials recur in this collection?”</p><div className="mt-5 flex justify-center gap-2 text-xs"><Badge variant="outline">Approved evidence only</Badge><Badge variant="outline">This Visual Archive</Badge></div></div>}{messages.map((message, index) => <div key={`${message.role}-${index}`} className={message.role === "user" ? "ml-auto max-w-2xl bg-primary px-4 py-3 text-primary-foreground" : "max-w-4xl border-l-2 border-primary py-1 pl-4"}><p className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] opacity-70">{message.role === "user" ? "You" : "TURATH"}</p><p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>{message.insufficientEvidence && <p className="mt-3 text-xs font-medium text-amber-700 dark:text-amber-300">No answer was inferred beyond the approved evidence currently available.</p>}{message.sources && message.sources.length > 0 && <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{message.sources.map(source => <button key={source.recordId} type="button" onClick={() => setActiveEvidence(source)} className="grid grid-cols-[48px_1fr] gap-2 border border-border bg-background p-2 text-left text-foreground hover:border-primary/50"><div className="flex h-12 w-12 items-center justify-center bg-slate-100 dark:bg-slate-900">{source.thumbnailUrl ? <img src={source.thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <LibraryBig className="h-4 w-4 text-muted-foreground" />}</div><div className="min-w-0"><p className="truncate text-xs font-medium">[Record {source.index}] {source.title}</p><p className="mt-1 truncate text-[11px] text-muted-foreground capitalize">{source.recordType}{source.matchedFields.length ? ` · ${source.matchedFields.join(", ")}` : ""}</p></div></button>)}</div>}</div>)}{ask.isPending && <div className="flex items-center gap-2 border-l-2 border-primary py-2 pl-4 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Reading approved visual evidence…</div>}</div></div>
       <div className="border border-border bg-card p-3"><Textarea value={question} onChange={event => setQuestion(event.target.value)} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") submit(); }} placeholder="Ask a question about approved records in this Visual Archive…" rows={3} disabled={ask.isPending} /><div className="mt-3 flex items-center justify-between gap-3"><p className="text-xs text-muted-foreground">Use ⌘/Ctrl + Enter to send. Answers cite reviewed catalog evidence.</p><Button onClick={submit} disabled={!question.trim() || ask.isPending}>{ask.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Ask archive</Button></div></div>
+      <Dialog open={Boolean(activeEvidence)} onOpenChange={open => { if (!open) setActiveEvidence(null); }}><DialogContent><DialogHeader><DialogTitle className="font-serif">[Record {activeEvidence?.index}] {activeEvidence?.title}</DialogTitle></DialogHeader>{activeEvidence && <div className="space-y-4"><div className="flex aspect-[4/3] items-center justify-center bg-slate-100 dark:bg-slate-900">{activeEvidence.thumbnailUrl ? <img src={activeEvidence.thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <LibraryBig className="h-8 w-8 text-muted-foreground" />}</div><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Matched approved fields</p><p className="mt-1 text-sm">{activeEvidence.matchedFields.length ? activeEvidence.matchedFields.join(", ") : "Included as approved archive context"}</p></div><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Reviewed metadata</p><pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap bg-muted p-3 text-xs">{JSON.stringify(activeEvidence.reviewedJson, null, 2)}</pre></div><Link href={`/records/${activeEvidence.recordId}`} className="inline-flex text-sm font-medium text-primary">Open full record →</Link></div>}</DialogContent></Dialog>
     </div>
   );
 }
@@ -551,23 +611,32 @@ function VisualAskArchivePage({ projectId }: { projectId: number }) {
 function VisualExportsPage({ projectId }: { projectId: number }) {
   const [includeUnapproved, setIncludeUnapproved] = useState(false);
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
+  const [downloadingFormat, setDownloadingFormat] = useState<"csv" | "json" | "xml" | null>(null);
   const assets = trpc.visualArchives.listAssetsPage.useQuery({ projectId, status: "ready", limit: 100 });
-  const exportCatalog = trpc.visualArchives.exportCatalog.useQuery({ projectId, includeUnapproved }, { enabled: false });
-  const getExport = async () => {
-    const result = await exportCatalog.refetch();
-    if (!result.data) throw new Error("The catalog export is unavailable");
-    return result.data as unknown as VisualCatalogExport;
-  };
   const exportText = async (format: "csv" | "json" | "xml") => {
+    setDownloadingFormat(format);
     try {
-      const data = await getExport();
-      const stamp = new Date().toISOString().slice(0, 10);
-      if (format === "csv") downloadTextFile(`turath-visual-catalog-${stamp}.csv`, buildVisualCatalogCsv(data), "text/csv;charset=utf-8");
-      if (format === "json") downloadTextFile(`turath-visual-catalog-${stamp}.json`, JSON.stringify(data, null, 2), "application/json");
-      if (format === "xml") downloadTextFile(`turath-visual-catalog-${stamp}.xml`, buildVraCoreXml(data), "application/xml");
-      toast.success(`${format.toUpperCase()} export prepared`);
+      const query = new URLSearchParams({ includeUnapproved: String(includeUnapproved) });
+      const response = await fetch(`/api/storage/projects/${projectId}/visual-exports/catalog.${format}?${query.toString()}`, { credentials: "include" });
+      if (!response.ok) throw new Error(`Could not prepare ${format.toUpperCase()} export (${response.status})`);
+      const blob = await response.blob();
+      if (blob.size === 0) throw new Error("The export was empty. Please try again.");
+      const filename = response.headers.get("content-disposition")?.match(/filename="?([^";]+)"?/i)?.[1]
+        ?? `turath-visual-catalog.${format}`;
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = filename;
+      anchor.style.display = "none";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+      toast.success(`${format.toUpperCase()} export downloaded`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Export failed");
+    } finally {
+      setDownloadingFormat(null);
     }
   };
   const toggleAsset = (assetId: string) => setSelectedAssetIds(current => current.includes(assetId) ? current.filter(id => id !== assetId) : [...current, assetId]);
@@ -579,7 +648,7 @@ function VisualExportsPage({ projectId }: { projectId: number }) {
   return (
     <div className="mx-auto max-w-6xl space-y-8">
       <div><p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">Portability</p><h1 className="font-serif text-3xl font-semibold">Export approved visual evidence</h1><p className="mt-2 max-w-3xl text-sm text-muted-foreground">Exports exclude AI drafts by default and preserve record identifiers and reviewed relationships. Image files remain private until you deliberately request a selected-image ZIP.</p></div>
-      <section className="border-y border-border py-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="font-serif text-xl font-semibold">Catalog data</h2><p className="mt-1 text-sm text-muted-foreground">Download reviewed Collections, Works, Images, and their relationships.</p></div><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={includeUnapproved} onChange={event => setIncludeUnapproved(event.target.checked)} /> Include unapproved working records</label></div><div className="mt-5 grid gap-3 sm:grid-cols-3"><button type="button" onClick={() => exportText("csv")} disabled={exportCatalog.isFetching} className="border border-border p-4 text-left hover:border-primary/50 disabled:opacity-60"><p className="font-medium">CSV</p><p className="mt-1 text-xs text-muted-foreground">Spreadsheet-ready catalog table</p></button><button type="button" onClick={() => exportText("json")} disabled={exportCatalog.isFetching} className="border border-border p-4 text-left hover:border-primary/50 disabled:opacity-60"><p className="font-medium">JSON</p><p className="mt-1 text-xs text-muted-foreground">Structured records and relationships</p></button><button type="button" onClick={() => exportText("xml")} disabled={exportCatalog.isFetching} className="border border-border p-4 text-left hover:border-primary/50 disabled:opacity-60"><p className="font-medium">VRA Core 4 XML</p><p className="mt-1 text-xs text-muted-foreground">Standards-oriented Work, Collection, and Image export</p></button></div>{exportCatalog.isFetching && <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Preparing reviewed catalog data…</p>}</section>
+      <section className="border-y border-border py-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="font-serif text-xl font-semibold">Catalog data</h2><p className="mt-1 text-sm text-muted-foreground">Download reviewed Collections, Works, Images, and their relationships.</p></div><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={includeUnapproved} onChange={event => setIncludeUnapproved(event.target.checked)} disabled={downloadingFormat !== null} /> Include unapproved working records</label></div><div className="mt-5 grid gap-3 sm:grid-cols-3">{(["csv", "json", "xml"] as const).map(format => <button key={format} type="button" onClick={() => exportText(format)} disabled={downloadingFormat !== null} className="border border-border p-4 text-left hover:border-primary/50 disabled:opacity-60"><p className="flex items-center gap-2 font-medium">{downloadingFormat === format && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{format === "xml" ? "VRA Core 4 XML" : format.toUpperCase()}</p><p className="mt-1 text-xs text-muted-foreground">{format === "csv" ? "Spreadsheet-ready catalog table" : format === "json" ? "Structured records and relationships" : "Standards-oriented Work, Collection, and Image export"}</p></button>)}</div>{downloadingFormat && <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Preparing your {downloadingFormat.toUpperCase()} download…</p>}</section>
       <section className="border-y border-border py-5"><div className="flex flex-wrap items-end justify-between gap-4"><div><h2 className="font-serif text-xl font-semibold">Selected original images</h2><p className="mt-1 text-sm text-muted-foreground">Choose up to 100 ready images. The protected ZIP includes originals plus a manifest of file identifiers.</p></div><Button onClick={downloadZip} disabled={selectedAssetIds.length === 0 || selectedAssetIds.length > 100}><Download className="mr-2 h-4 w-4" />Download {selectedAssetIds.length || "selected"} as ZIP</Button></div>{assets.isLoading ? <Loader2 className="mt-5 h-5 w-5 animate-spin text-primary" /> : <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">{(assets.data?.items ?? []).map(asset => <label key={asset.id} className={`cursor-pointer border p-2 ${selectedAssetIds.includes(asset.id) ? "border-primary bg-primary/5" : "border-border"}`}><input type="checkbox" className="sr-only" checked={selectedAssetIds.includes(asset.id)} onChange={() => toggleAsset(asset.id)} /><div className="aspect-square bg-slate-100 dark:bg-slate-900">{asset.thumbnailUrl ? <img src={asset.thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <div className="flex h-full items-center justify-center"><Images className="h-5 w-5 text-muted-foreground" /></div>}</div><p className="mt-2 truncate text-xs">{asset.filename}</p></label>)}{(assets.data?.items ?? []).length === 0 && <p className="col-span-full py-10 text-center text-sm text-muted-foreground">No ready image assets are available for ZIP export.</p>}</div>}<p className="mt-3 text-xs text-muted-foreground">{assets.data?.total && assets.data.total > 100 ? "The first 100 ready assets are shown. Use a focused project export or select up to 100 at a time." : `${selectedAssetIds.length} of 100 selected`}</p></section>
     </div>
   );
@@ -591,6 +660,8 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
   const utils = trpc.useUtils();
   const { data: record, isLoading } = trpc.visualArchives.getRecord.useQuery({ projectId, recordId: recordId ?? "00000000-0000-4000-8000-000000000000" }, { enabled: Boolean(recordId) });
   const { data: asset } = trpc.visualArchives.getAsset.useQuery({ projectId, assetId: record?.assetId ?? "00000000-0000-4000-8000-000000000000" }, { enabled: Boolean(record?.assetId) });
+  const neighbors = trpc.visualArchives.findVisualNeighbors.useQuery({ projectId, assetId: asset?.id ?? "00000000-0000-4000-8000-000000000000", limit: 12 }, { enabled: Boolean(asset?.id) });
+  const { data: reviewSequence = [] } = trpc.visualArchives.listRecordIds.useQuery({ projectId, recordType: "image", limit: 500 });
   const [title, setTitle] = useState("");
   const [fields, setFields] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -611,9 +682,21 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
     onSuccess: async () => { toast.success("Suggestion accepted into reviewed data"); await Promise.all([utils.visualArchives.getRecord.invalidate(), utils.visualArchives.listRecords.invalidate(), utils.visualArchives.listRecordsPage.invalidate()]); },
     onError: error => toast.error(error.message),
   });
+  const reject = trpc.visualArchives.rejectSuggestionFields.useMutation({
+    onSuccess: async () => { toast.success("Suggestion rejected and preserved in review provenance"); await Promise.all([utils.visualArchives.getRecord.invalidate(), utils.visualArchives.listRecords.invalidate(), utils.visualArchives.listRecordsPage.invalidate()]); },
+    onError: error => toast.error(error.message),
+  });
   if (isLoading) return <Loader2 className="h-6 w-6 animate-spin text-primary" />;
   if (!record) return <div className="text-sm text-muted-foreground">Record not found.</div>;
   const suggestions = record.aiSuggestedJson as Record<string, unknown>;
+  const rejectedFields = new Set(
+    Array.isArray((record.suggestionProvenance as Record<string, unknown> | null)?.rejectedFields)
+      ? ((record.suggestionProvenance as Record<string, unknown>).rejectedFields as unknown[]).filter((field): field is string => typeof field === "string")
+      : [],
+  );
+  const reviewableSuggestionFields = (["title", ...CATALOG_FIELDS.map(([key]) => key)] as string[])
+    .filter(field => !rejectedFields.has(field) && suggestions[field] !== undefined && formatFieldValue(suggestions[field]) !== "");
+  const reviewMutationBusy = accept.isPending || reject.isPending || update.isPending;
   const candidates = identificationCandidates(suggestions.identificationCandidates);
   const save = (status: "draft" | "needs_review" | "approved" | "archived" = "draft") => update.mutate({
     projectId,
@@ -621,20 +704,40 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
     title,
     reviewedJson: Object.fromEntries(CATALOG_FIELDS.map(([key]) => [key, parseFieldValue(key, fields[key] ?? "")])),
     status,
-    changeSummary: status === "approved" ? "Record approved" : "Catalog fields updated",
+    changeSummary: status === "approved" ? "Record approved" : status === "archived" ? "Record rejected from active review" : "Catalog fields updated",
   });
+  const currentSequenceIndex = reviewSequence.findIndex(item => item.id === record.id);
+  const previousRecordId = currentSequenceIndex > 0 ? reviewSequence[currentSequenceIndex - 1]?.id : undefined;
+  const nextRecordId = currentSequenceIndex >= 0 ? reviewSequence[currentSequenceIndex + 1]?.id : undefined;
+  const moveToRecord = (nextId: string | undefined) => {
+    if (nextId) navigate(`/records/${nextId}`);
+  };
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      if (event.key === "ArrowLeft") { event.preventDefault(); moveToRecord(previousRecordId); }
+      if (event.key === "ArrowRight") { event.preventDefault(); moveToRecord(nextRecordId); }
+      if (canEdit && !reviewMutationBusy && event.key.toLowerCase() === "a") { event.preventDefault(); save("approved"); }
+      if (canEdit && !reviewMutationBusy && event.key.toLowerCase() === "r") { event.preventDefault(); save("archived"); }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [canEdit, nextRecordId, previousRecordId, reviewMutationBusy, record.id, title, fields]);
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <button onClick={() => navigate("/catalog")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Catalog</button>
-      <div className="flex flex-col gap-4 border-b border-border pb-5 md:flex-row md:items-end md:justify-between"><div><div className="mb-2 flex items-center gap-2"><Badge variant="outline" className="capitalize">{record.recordType}</Badge>{statusBadge(record.status)}<span className="text-xs text-muted-foreground">Revision {record.revision}</span></div><Input className="h-auto border-0 bg-transparent p-0 font-serif text-3xl font-semibold shadow-none focus-visible:ring-0" value={title} onChange={event => setTitle(event.target.value)} disabled={!canEdit} /></div>{canEdit && <div className="flex gap-2"><Button variant="outline" onClick={() => save()} disabled={update.isPending}><Save className="mr-2 h-4 w-4" />Save</Button><Button onClick={() => save("approved")} disabled={update.isPending}><Check className="mr-2 h-4 w-4" />Approve</Button></div>}</div>
+      <div className="flex flex-col gap-4 border-b border-border pb-5 md:flex-row md:items-end md:justify-between"><div><div className="mb-2 flex items-center gap-2"><Badge variant="outline" className="capitalize">{record.recordType}</Badge>{statusBadge(record.status)}<span className="text-xs text-muted-foreground">Revision {record.revision}</span></div><Input className="h-auto border-0 bg-transparent p-0 font-serif text-3xl font-semibold shadow-none focus-visible:ring-0" value={title} onChange={event => setTitle(event.target.value)} disabled={!canEdit || reviewMutationBusy} /></div><div className="flex flex-wrap items-center gap-2"><Button size="sm" variant="outline" onClick={() => moveToRecord(previousRecordId)} disabled={!previousRecordId || reviewMutationBusy}>← Previous</Button><Button size="sm" variant="outline" onClick={() => moveToRecord(nextRecordId)} disabled={!nextRecordId || reviewMutationBusy}>Next →</Button>{canEdit && <><Button variant="outline" onClick={() => save()} disabled={reviewMutationBusy}><Save className="mr-2 h-4 w-4" />Save</Button><Button variant="outline" onClick={() => save("archived")} disabled={reviewMutationBusy}>Reject / archive</Button><Button onClick={() => save("approved")} disabled={reviewMutationBusy}><Check className="mr-2 h-4 w-4" />Approve</Button></>}</div></div>
+      <p className="-mt-3 text-xs text-muted-foreground">Shortcuts outside a field: <kbd>←</kbd>/<kbd>→</kbd> previous/next · <kbd>A</kbd> approve · <kbd>R</kbd> reject/archive. Suggestions are saved one action at a time.</p>
       <div className="grid gap-8 lg:grid-cols-[0.8fr_1.2fr]">
-        <aside>{asset ? <div className="sticky top-24 border border-border bg-slate-100 dark:bg-slate-900"><img src={asset.displayUrl ?? asset.originalUrl} alt="" className="max-h-[70vh] w-full object-contain" /></div> : <div className="flex aspect-[4/3] items-center justify-center border border-dashed border-border text-sm text-muted-foreground">No image attached</div>}</aside>
+        <aside className="space-y-4">{asset ? <div className="sticky top-24 border border-border bg-slate-100 dark:bg-slate-900"><img src={asset.displayUrl ?? asset.originalUrl} alt="" className="max-h-[70vh] w-full object-contain" /></div> : <div className="flex aspect-[4/3] items-center justify-center border border-dashed border-border text-sm text-muted-foreground">No image attached</div>}{asset && <section className="border-y border-border py-4"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Visual neighborhood</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Image-only similarity signals. They do not change catalog data, create links, or prove identity.</p>{neighbors.isLoading && <Loader2 className="mt-3 h-4 w-4 animate-spin text-primary" />}{neighbors.data?.unavailable && <p className="mt-3 text-xs text-muted-foreground">{neighbors.data.unavailable}</p>}{neighbors.data?.items.length ? <div className="mt-3 grid grid-cols-3 gap-2">{neighbors.data.items.map(item => <Link key={item.asset.id} href={item.record ? `/records/${item.record.id}` : "/assets"} className="group border border-border bg-card p-1 hover:border-primary/60"><div className="aspect-square bg-slate-100 dark:bg-slate-900">{item.asset.thumbnailUrl ? <img src={item.asset.thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <div className="flex h-full items-center justify-center"><Images className="h-3.5 w-3.5 text-muted-foreground" /></div>}</div><p className="mt-1 truncate text-[10px] font-medium capitalize group-hover:text-primary">{item.classification}</p><p className="text-[10px] text-muted-foreground">{Math.round(item.score * 100)}% visual signal</p></Link>)}</div> : neighbors.data && !neighbors.data.unavailable ? <p className="mt-3 text-xs text-muted-foreground">No close visual neighbors were found in this project.</p> : null}</section>}</aside>
         <section className="space-y-5">
+          {reviewableSuggestionFields.length > 0 && canEdit && <div className="flex flex-wrap items-center justify-between gap-3 border-y border-primary/30 bg-primary/5 px-4 py-3"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">AI review batch</p><p className="mt-1 text-xs text-muted-foreground">Apply all {reviewableSuggestionFields.length} remaining suggested catalog fields in one revision, or review each field below.</p></div><Button size="sm" onClick={() => accept.mutate({ projectId, recordId: record.id, acceptedFields: reviewableSuggestionFields as Array<"title" | "description" | "workType" | "agents" | "dates" | "locations" | "subjects" | "culturalContext" | "materials" | "techniques" | "inscriptions" | "stylePeriod"> })} disabled={reviewMutationBusy}>{accept.isPending ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1 h-3.5 w-3.5" />}Accept all remaining</Button></div>}
           {typeof suggestions.title === "string" && suggestions.title.trim() && (
             <div className="border-y border-primary/30 bg-primary/5 px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Suggested catalog title</p><p className="mt-1 font-medium">{suggestions.title}</p></div>
-                {canEdit && <Button size="sm" variant="outline" onClick={() => accept.mutate({ projectId, recordId: record.id, acceptedFields: ["title"] })}><Check className="mr-1 h-3.5 w-3.5" /> Accept title</Button>}
+                <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Suggested catalog title</p><p className="mt-1 font-medium">{suggestions.title}</p>{rejectedFields.has("title") && <p className="mt-1 text-xs text-muted-foreground">Rejected for this suggestion round.</p>}</div>
+                {canEdit && !rejectedFields.has("title") && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => accept.mutate({ projectId, recordId: record.id, acceptedFields: ["title"] })} disabled={reviewMutationBusy}><Check className="mr-1 h-3.5 w-3.5" /> Accept</Button><Button size="sm" variant="ghost" onClick={() => reject.mutate({ projectId, recordId: record.id, rejectedFields: ["title"] })} disabled={reviewMutationBusy}>Reject</Button></div>}
               </div>
             </div>
           )}
@@ -648,7 +751,9 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
           )}
           {CATALOG_FIELDS.map(([key, label]) => {
             const suggestion = suggestions[key];
-            return <div key={key} className="border-b border-border pb-5"><div className="mb-2 flex items-center justify-between"><Label htmlFor={key}>{label}</Label>{canEdit && suggestion !== undefined && formatFieldValue(suggestion) !== "" && <Button size="sm" variant="ghost" className="h-7 text-xs text-primary" onClick={() => accept.mutate({ projectId, recordId: record.id, acceptedFields: [key] })}><Check className="mr-1 h-3 w-3" /> Accept suggestion</Button>}</div>{key === "description" ? <Textarea id={key} rows={4} value={fields[key] ?? ""} onChange={event => setFields(current => ({ ...current, [key]: event.target.value }))} disabled={!canEdit} /> : <Input id={key} value={fields[key] ?? ""} onChange={event => setFields(current => ({ ...current, [key]: event.target.value }))} placeholder={ARRAY_FIELDS.has(key) ? "Comma-separated values" : undefined} disabled={!canEdit} />}{suggestion !== undefined && formatFieldValue(suggestion) !== "" && <div className="mt-2 bg-primary/5 px-3 py-2 text-xs leading-relaxed"><span className="font-semibold text-primary">AI suggestion:</span> {formatFieldValue(suggestion)}</div>}</div>;
+            const hasSuggestion = suggestion !== undefined && formatFieldValue(suggestion) !== "";
+            const isRejected = rejectedFields.has(key);
+            return <div key={key} className="border-b border-border pb-5"><div className="mb-2 flex items-center justify-between gap-3"><Label htmlFor={key}>{label}</Label>{canEdit && hasSuggestion && !isRejected && <div className="flex gap-2"><Button size="sm" variant="ghost" className="h-7 text-xs text-primary" onClick={() => accept.mutate({ projectId, recordId: record.id, acceptedFields: [key] })} disabled={reviewMutationBusy}><Check className="mr-1 h-3 w-3" /> Accept</Button><Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={() => reject.mutate({ projectId, recordId: record.id, rejectedFields: [key] })} disabled={reviewMutationBusy}>Reject</Button></div>}</div>{key === "description" ? <Textarea id={key} rows={4} value={fields[key] ?? ""} onChange={event => setFields(current => ({ ...current, [key]: event.target.value }))} disabled={!canEdit || reviewMutationBusy} /> : <Input id={key} value={fields[key] ?? ""} onChange={event => setFields(current => ({ ...current, [key]: event.target.value }))} placeholder={ARRAY_FIELDS.has(key) ? "Comma-separated values" : undefined} disabled={!canEdit || reviewMutationBusy} />}{hasSuggestion && <div className="mt-2 bg-primary/5 px-3 py-2 text-xs leading-relaxed"><span className="font-semibold text-primary">AI suggestion:</span> {formatFieldValue(suggestion)}{isRejected && <span className="ml-2 text-muted-foreground">— rejected for this suggestion round</span>}</div>}</div>;
           })}
           {canEdit && asset && <div className="border-y border-border py-5"><div className="flex items-center justify-between gap-4"><div><div className="font-medium">Generate catalog suggestions</div><p className="text-xs text-muted-foreground">Gemini proposes detailed descriptions and clearly labeled identification candidates. Nothing enters reviewed data automatically.</p></div><Button variant="outline" onClick={() => suggest.mutate({ projectId, recordId: record.id })} disabled={suggest.isPending}>{suggest.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}Suggest fields</Button></div></div>}
         </section>
@@ -734,7 +839,7 @@ export default function VisualWorkspace({ projectId, project }: { projectId: num
       <Switch>
         <Route path="/assets"><AssetsPage projectId={projectId} canEdit={canEdit} /></Route>
         <Route path="/catalog"><CatalogPage projectId={projectId} canEdit={canEdit} /></Route>
-        <Route path="/search"><VisualSearchPage projectId={projectId} /></Route>
+      <Route path="/search"><VisualSearchPage projectId={projectId} canEdit={canEdit} /></Route>
         <Route path="/ask"><VisualAskArchivePage projectId={projectId} /></Route>
         <Route path="/exports"><VisualExportsPage projectId={projectId} /></Route>
         <Route path="/records/:recordId"><RecordEditor projectId={projectId} canEdit={canEdit} /></Route>

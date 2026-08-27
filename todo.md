@@ -800,3 +800,10 @@
 - [x] Add Visual Archives-only metadata and faceted search over reviewed VRA records without exposing draft AI suggestions by default
 - [x] Add evidence-linked Visual Archives Q&A that cites reviewed records and protected derivative images
 - [x] Add human-authorized Visual Archives CSV, JSON, VRA Core, and selected-image ZIP/manifest exports
+- [x] Make Visual Archives field acceptance race-safe, atomic, feedback-rich, and recoverable under rapid review actions
+- [x] Restore reliable Visual Archives CSV, JSON, and VRA Core browser downloads with explicit download failures and end-to-end coverage
+- [x] Redesign the Visual Archives catalog and review UI for image-first high-volume selection, keyboard review, undo, and safe bulk AI-field acceptance
+- [x] Make Visual Archives intake refresh/reconnect-safe with idempotent upload detection and per-image resume guidance; assess durable server jobs separately
+- [ ] Apply `0013_visual_archives_memory.sql`, then activate project-scoped reviewed-record embeddings and hybrid semantic ranking; do not auto-merge images
+- [x] Add project-scoped perceptual visual-neighborhood, duplicate, and variant suggestions with score explanations and explicit human confirmation
+- [x] Improve Visual Archives Ask Archive with evidence drawer, highlighted approved fields, conversation history, follow-ups, and insufficient-evidence behavior

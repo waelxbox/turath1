@@ -668,6 +668,41 @@ export const vraRecords = pgTable("vra_records", {
 export type VraRecord = typeof vraRecords.$inferSelect;
 export type InsertVraRecord = typeof vraRecords.$inferInsert;
 
+// ─── Visual Archives Memory (controlled beta; reviewed records only) ─────────
+// Text vectors index human-approved VRA descriptions and fields. Perceptual
+// image fingerprints stay in visual_assets. Neither signal creates a relation.
+export const visualRecordEmbeddings = pgTable("visual_record_embeddings", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: integer("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  recordId: uuid("recordId").notNull(),
+  assetId: uuid("assetId"),
+  sourceRevision: integer("sourceRevision").notNull(),
+  content: text("content").notNull(),
+  embedding: vector("embedding", { dimensions: 3072 }),
+  model: varchar("model", { length: 120 }).notNull(),
+  status: varchar("status", { length: 32 }).default("pending").notNull(),
+  errorMessage: text("errorMessage"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("visual_record_embeddings_project_record_uq").on(t.projectId, t.recordId),
+  index("visual_record_embeddings_project_status_idx").on(t.projectId, t.status),
+  index("visual_record_embeddings_project_asset_idx").on(t.projectId, t.assetId),
+  foreignKey({
+    columns: [t.projectId, t.recordId],
+    foreignColumns: [vraRecords.projectId, vraRecords.id],
+    name: "visual_record_embeddings_project_record_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [t.projectId, t.assetId],
+    foreignColumns: [visualAssets.projectId, visualAssets.id],
+    name: "visual_record_embeddings_project_asset_fk",
+  }).onDelete("cascade"),
+]);
+
+export type VisualRecordEmbedding = typeof visualRecordEmbeddings.$inferSelect;
+export type InsertVisualRecordEmbedding = typeof visualRecordEmbeddings.$inferInsert;
+
 export const vraRecordRelations = pgTable("vra_record_relations", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   projectId: integer("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),

@@ -186,6 +186,22 @@ export async function getVraRecord(projectId: number, recordId: string) {
   return rows[0];
 }
 
+export async function getImageRecordByAssetId(projectId: number, assetId: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db
+    .select()
+    .from(vraRecords)
+    .where(and(
+      eq(vraRecords.projectId, projectId),
+      eq(vraRecords.assetId, assetId),
+      eq(vraRecords.recordType, "image"),
+    ))
+    .orderBy(desc(vraRecords.updatedAt))
+    .limit(1);
+  return rows[0];
+}
+
 export async function listVraRecords(input: {
   projectId: number;
   recordType?: "collection" | "work" | "image";
@@ -239,6 +255,27 @@ export async function listVraRecordsPage(input: {
   };
 }
 
+export async function listVraRecordIds(input: {
+  projectId: number;
+  recordType?: "collection" | "work" | "image";
+  status?: "draft" | "needs_review" | "approved" | "archived";
+  search?: string;
+  limit: number;
+}) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [eq(vraRecords.projectId, input.projectId)];
+  if (input.recordType) conditions.push(eq(vraRecords.recordType, input.recordType));
+  if (input.status) conditions.push(eq(vraRecords.status, input.status));
+  if (input.search?.trim()) conditions.push(ilike(vraRecords.title, `%${input.search.trim().replace(/[%_]/g, "")}%`));
+  return db
+    .select({ id: vraRecords.id, recordType: vraRecords.recordType, status: vraRecords.status })
+    .from(vraRecords)
+    .where(and(...conditions))
+    .orderBy(desc(vraRecords.updatedAt), desc(vraRecords.id))
+    .limit(input.limit);
+}
+
 export async function getVraRecordsByIds(projectId: number, recordIds: string[]) {
   if (recordIds.length === 0) return [];
   const db = await getDb();
@@ -266,6 +303,7 @@ export async function updateVraRecord(input: {
       .select()
       .from(vraRecords)
       .where(and(eq(vraRecords.projectId, input.projectId), eq(vraRecords.id, input.recordId)))
+      .for("update")
       .limit(1);
     if (!current) return undefined;
     const nextRevision = current.revision + 1;
@@ -290,6 +328,115 @@ export async function updateVraRecord(input: {
       revision: updated.revision,
       snapshotJson: updated.reviewedJson,
       changeSummary: input.changeSummary ?? "Record updated",
+      createdByUserId: input.userId,
+    });
+    return updated;
+  });
+}
+
+export async function acceptVraSuggestionFields(input: {
+  projectId: number;
+  recordId: string;
+  userId: number;
+  acceptedFields: Array<
+    "title" | "description" | "workType" | "agents" | "dates" | "locations" |
+    "subjects" | "culturalContext" | "materials" | "techniques" | "inscriptions" | "stylePeriod"
+  >;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.transaction(async tx => {
+    const [current] = await tx
+      .select()
+      .from(vraRecords)
+      .where(and(eq(vraRecords.projectId, input.projectId), eq(vraRecords.id, input.recordId)))
+      .for("update")
+      .limit(1);
+    if (!current) return undefined;
+
+    const reviewed = { ...(current.reviewedJson as Record<string, unknown>) };
+    const suggestions = current.aiSuggestedJson as Record<string, unknown>;
+    let acceptedTitle: string | undefined;
+    for (const field of input.acceptedFields) {
+      if (field === "title" && typeof suggestions.title === "string" && suggestions.title.trim()) {
+        acceptedTitle = suggestions.title.trim();
+      } else if (Object.prototype.hasOwnProperty.call(suggestions, field)) {
+        reviewed[field] = suggestions[field];
+      }
+    }
+
+    const nextRevision = current.revision + 1;
+    const [updated] = await tx
+      .update(vraRecords)
+      .set({
+        ...(acceptedTitle ? { title: acceptedTitle } : {}),
+        reviewedJson: reviewed,
+        status: "draft",
+        revision: nextRevision,
+        updatedByUserId: input.userId,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(vraRecords.projectId, input.projectId), eq(vraRecords.id, input.recordId)))
+      .returning();
+    await tx.insert(vraRecordRevisions).values({
+      projectId: updated.projectId,
+      recordId: updated.id,
+      revision: updated.revision,
+      snapshotJson: updated.reviewedJson,
+      changeSummary: `Accepted AI suggestions: ${input.acceptedFields.join(", ")}`,
+      createdByUserId: input.userId,
+    });
+    return updated;
+  });
+}
+
+export async function rejectVraSuggestionFields(input: {
+  projectId: number;
+  recordId: string;
+  userId: number;
+  rejectedFields: Array<
+    "title" | "description" | "workType" | "agents" | "dates" | "locations" |
+    "subjects" | "culturalContext" | "materials" | "techniques" | "inscriptions" | "stylePeriod"
+  >;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.transaction(async tx => {
+    const [current] = await tx
+      .select()
+      .from(vraRecords)
+      .where(and(eq(vraRecords.projectId, input.projectId), eq(vraRecords.id, input.recordId)))
+      .for("update")
+      .limit(1);
+    if (!current) return undefined;
+
+    const previousProvenance = (current.suggestionProvenance ?? {}) as Record<string, unknown>;
+    const existing = Array.isArray(previousProvenance.rejectedFields)
+      ? previousProvenance.rejectedFields.filter((field): field is string => typeof field === "string")
+      : [];
+    const rejectedFields = Array.from(new Set([...existing, ...input.rejectedFields]));
+    const nextRevision = current.revision + 1;
+    const [updated] = await tx
+      .update(vraRecords)
+      .set({
+        suggestionProvenance: {
+          ...previousProvenance,
+          rejectedFields,
+          lastReviewedAt: new Date().toISOString(),
+          lastReviewedByUserId: input.userId,
+        },
+        revision: nextRevision,
+        updatedByUserId: input.userId,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(vraRecords.projectId, input.projectId), eq(vraRecords.id, input.recordId)))
+      .returning();
+    await tx.insert(vraRecordRevisions).values({
+      projectId: updated.projectId,
+      recordId: updated.id,
+      revision: updated.revision,
+      snapshotJson: updated.reviewedJson,
+      changeSummary: `Rejected AI suggestions: ${input.rejectedFields.join(", ")}`,
       createdByUserId: input.userId,
     });
     return updated;

@@ -4,6 +4,7 @@ const {
   getProjectRole,
   getVisualProjectMode,
   getVisualAsset,
+  getImageRecordByAssetId,
   getVisualAssetsByIds,
   getVraRecord,
   getVraRecordsByIds,
@@ -13,6 +14,8 @@ const {
   listVraRecordsPage,
   unlinkImageRecordsFromWork,
   createVraRecord,
+  acceptVraSuggestionFields,
+  rejectVraSuggestionFields,
   updateVraRecord,
   updateVraSuggestions,
   storageGet,
@@ -27,6 +30,7 @@ const {
   getProjectRole: vi.fn(),
   getVisualProjectMode: vi.fn(),
   getVisualAsset: vi.fn(),
+  getImageRecordByAssetId: vi.fn(),
   getVisualAssetsByIds: vi.fn(),
   getVraRecord: vi.fn(),
   getVraRecordsByIds: vi.fn(),
@@ -36,6 +40,8 @@ const {
   listVraRecordsPage: vi.fn(),
   unlinkImageRecordsFromWork: vi.fn(),
   createVraRecord: vi.fn(),
+  acceptVraSuggestionFields: vi.fn(),
+  rejectVraSuggestionFields: vi.fn(),
   updateVraRecord: vi.fn(),
   updateVraSuggestions: vi.fn(),
   storageGet: vi.fn(),
@@ -61,10 +67,12 @@ vi.mock("./visualArchives/db", () => ({
   createVisualAsset,
   createVisualProject: vi.fn(),
   createVraRecord,
+  acceptVraSuggestionFields,
   createVraRelation: vi.fn(),
   findVisualAssetByHash,
   getVisualArchiveStats: vi.fn(),
   getVisualAsset,
+  getImageRecordByAssetId,
   getVisualAssetsByIds,
   getVisualProjectMode,
   getVraRecord,
@@ -75,6 +83,7 @@ vi.mock("./visualArchives/db", () => ({
   listVraRecords,
   listVraRecordsPage,
   listVraRelations: vi.fn(),
+  rejectVraSuggestionFields,
   unlinkImageRecordsFromWork,
   updateVisualAsset,
   updateVraRecord,
@@ -106,9 +115,12 @@ describe("Visual Archives router boundaries", () => {
     vi.clearAllMocks();
     getProjectRole.mockResolvedValue("owner");
     getVisualProjectMode.mockResolvedValue({ projectId: 12, archiveMode: "visual_vra" });
+    getVisualAssetsByIds.mockResolvedValue([]);
     listVraRecords.mockResolvedValue([]);
     listVraRecordsPage.mockResolvedValue({ items: [], total: 0, nextCursor: null });
     listVisualAssetsPage.mockResolvedValue({ items: [], total: 0, nextCursor: null });
+    acceptVraSuggestionFields.mockImplementation(async (input: Record<string, unknown>) => input);
+    rejectVraSuggestionFields.mockImplementation(async (input: Record<string, unknown>) => input);
   });
 
   function configureUploadPipeline() {
@@ -243,7 +255,8 @@ describe("Visual Archives router boundaries", () => {
     const result = await caller().askArchive({ projectId: 12, question: "What is in Cairo?" });
 
     expect(result.answer).toContain("[Record 1]");
-    expect(result.sources).toEqual([expect.objectContaining({ index: 1, recordId, title: "Courtyard photograph", thumbnailUrl: undefined })]);
+    expect(result.insufficientEvidence).toBe(false);
+    expect(result.sources).toEqual([expect.objectContaining({ index: 1, recordId, title: "Courtyard photograph", matchedFields: ["locations"], thumbnailUrl: undefined })]);
     const call = invokeLLM.mock.calls[0]?.[0];
     expect(JSON.stringify(call)).toContain("Cairo");
     expect(JSON.stringify(call)).not.toContain("Secret AI draft place");
@@ -256,6 +269,21 @@ describe("Visual Archives router boundaries", () => {
 
     expect(result.sources).toEqual([]);
     expect(result.answer).toContain("No approved catalog records");
+    expect(result.insufficientEvidence).toBe(true);
+    expect(invokeLLM).not.toHaveBeenCalled();
+  });
+
+  it("returns an insufficient-evidence response rather than making an unsupported visual archive inference", async () => {
+    listVraRecords.mockResolvedValue([{
+      id: "123e4567-e89b-12d3-a456-426614174011", projectId: 12, recordType: "image", status: "approved", title: "Courtyard photograph", localIdentifier: null, assetId: null,
+      reviewedJson: { locations: ["Cairo"] }, aiSuggestedJson: { locations: ["Hidden draft"] }, suggestionProvenance: {}, updatedAt: new Date(),
+    }]);
+
+    const result = await caller().askArchive({ projectId: 12, question: "Which images show a glacier?" });
+
+    expect(result.insufficientEvidence).toBe(true);
+    expect(result.sources).toEqual([]);
+    expect(result.answer).toContain("not have enough approved catalog evidence");
     expect(invokeLLM).not.toHaveBeenCalled();
   });
 
@@ -306,6 +334,30 @@ describe("Visual Archives router boundaries", () => {
     });
   });
 
+  it("returns the existing Image review record when an interrupted intake retry reselects an identical image", async () => {
+    const assetId = "123e4567-e89b-12d3-a456-426614174001";
+    findVisualAssetByHash.mockResolvedValue({
+      id: assetId,
+      projectId: 12,
+      originalKey: "visual/original.jpg",
+      displayKey: "visual/display.jpg",
+      thumbnailKey: "visual/thumbnail.jpg",
+      status: "ready",
+    });
+    getImageRecordByAssetId.mockResolvedValue({ id: "123e4567-e89b-12d3-a456-426614174010" });
+
+    const result = await caller().uploadAsset({
+      projectId: 12,
+      filename: "courtyard.png",
+      mimeType: "image/png",
+      fileBase64: Buffer.from("synthetic image bytes").toString("base64"),
+    });
+
+    expect(result.autoCatalog).toEqual({ recordId: "123e4567-e89b-12d3-a456-426614174010", suggestionStatus: "already_present" });
+    expect(createVisualAsset).not.toHaveBeenCalled();
+    expect(createVraRecord).not.toHaveBeenCalled();
+  });
+
   it("bulk-links selected Image records to a human-chosen Work without merging them", async () => {
     const workId = "123e4567-e89b-12d3-a456-426614174020";
     const imageIds = ["123e4567-e89b-12d3-a456-426614174021", "123e4567-e89b-12d3-a456-426614174022"];
@@ -353,55 +405,65 @@ describe("Visual Archives router boundaries", () => {
     expect(updateVraRecord).toHaveBeenCalledWith(expect.objectContaining({ projectId: 12, status: "approved", changeSummary: "Bulk status change to approved" }));
   });
 
-  it("copies only explicitly accepted VRA fields into reviewed data", async () => {
-    getVraRecord.mockResolvedValue({
-      id: "123e4567-e89b-12d3-a456-426614174000",
-      projectId: 12,
-      reviewedJson: { description: "Human description" },
-      aiSuggestedJson: {
-        locations: ["Cairo"],
-        confidenceNotes: "Visible evidence is limited",
-      },
-    });
-    updateVraRecord.mockImplementation(async (input) => input);
-
+  it("routes explicitly accepted VRA fields through the atomic locked revision helper", async () => {
     await caller().acceptSuggestionFields({
       projectId: 12,
       recordId: "123e4567-e89b-12d3-a456-426614174000",
       acceptedFields: ["locations"],
     });
 
-    expect(updateVraRecord).toHaveBeenCalledWith(expect.objectContaining({
+    expect(acceptVraSuggestionFields).toHaveBeenCalledWith(expect.objectContaining({
       projectId: 12,
-      reviewedJson: {
-        description: "Human description",
-        locations: ["Cairo"],
-      },
-      status: "draft",
+      recordId: "123e4567-e89b-12d3-a456-426614174000",
+      userId: 7,
+      acceptedFields: ["locations"],
     }));
   });
 
-  it("requires an explicit action before a suggested title replaces the human title", async () => {
-    getVraRecord.mockResolvedValue({
-      id: "123e4567-e89b-12d3-a456-426614174000",
-      projectId: 12,
-      title: "images-1-",
-      reviewedJson: { description: "Human description" },
-      aiSuggestedJson: { title: "Nasir al-Mulk Mosque" },
-    });
-    updateVraRecord.mockImplementation(async (input) => input);
+  it("routes rapid independent acceptance clicks through the locked helper without stale router-side metadata merges", async () => {
+    await Promise.all([
+      caller().acceptSuggestionFields({
+        projectId: 12,
+        recordId: "123e4567-e89b-12d3-a456-426614174000",
+        acceptedFields: ["locations"],
+      }),
+      caller().acceptSuggestionFields({
+        projectId: 12,
+        recordId: "123e4567-e89b-12d3-a456-426614174000",
+        acceptedFields: ["workType"],
+      }),
+    ]);
 
+    expect(acceptVraSuggestionFields).toHaveBeenCalledTimes(2);
+    expect(acceptVraSuggestionFields).toHaveBeenNthCalledWith(1, expect.objectContaining({ acceptedFields: ["locations"] }));
+    expect(acceptVraSuggestionFields).toHaveBeenNthCalledWith(2, expect.objectContaining({ acceptedFields: ["workType"] }));
+    expect(updateVraRecord).not.toHaveBeenCalled();
+  });
+
+  it("requires an explicit action before a suggested title replaces the human title", async () => {
     await caller().acceptSuggestionFields({
       projectId: 12,
       recordId: "123e4567-e89b-12d3-a456-426614174000",
       acceptedFields: ["title"],
     });
 
-    expect(updateVraRecord).toHaveBeenCalledWith(expect.objectContaining({
-      title: "Nasir al-Mulk Mosque",
-      reviewedJson: { description: "Human description" },
-      status: "draft",
+    expect(acceptVraSuggestionFields).toHaveBeenCalledWith(expect.objectContaining({ acceptedFields: ["title"] }));
+  });
+
+  it("records an explicit suggestion rejection without modifying reviewed catalog data in the router", async () => {
+    await caller().rejectSuggestionFields({
+      projectId: 12,
+      recordId: "123e4567-e89b-12d3-a456-426614174000",
+      rejectedFields: ["workType"],
+    });
+
+    expect(rejectVraSuggestionFields).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 12,
+      recordId: "123e4567-e89b-12d3-a456-426614174000",
+      userId: 7,
+      rejectedFields: ["workType"],
     }));
+    expect(updateVraRecord).not.toHaveBeenCalled();
   });
 
   it("stores recognizable-place hypotheses separately with rationale and verification guidance", async () => {
