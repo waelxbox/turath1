@@ -789,3 +789,4 @@
 - [ ] Introduce a non-BYPASSRLS runtime database role and explicit project-membership RLS policies before treating database RLS as an independent tenant-isolation control
 - [x] Improve visual AI suggestions with review-required candidate identification, location, and contextual detail instead of generic-only descriptions
 - [x] Restrict Visual Archives discovery, creation, access, and protected asset delivery to Adam Amin’s allowlisted account during controlled development
+- [x] Fix the Visual Archives workspace Projects control so it returns to the main dashboard

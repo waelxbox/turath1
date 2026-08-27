@@ -108,9 +108,9 @@ function VisualShell({ project, children }: { project: VisualProject; children: 
           <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileOpen(value => !value)}>
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </Button>
-          <Link href="/dashboard" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+          <a href="/dashboard" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
             <ArrowLeft className="h-4 w-4" /> Projects
-          </Link>
+          </a>
           <div className="h-5 w-px bg-border" />
           <div className="min-w-0">
             <div className="truncate font-serif font-semibold">{project.name}</div>
