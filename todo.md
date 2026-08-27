@@ -812,6 +812,7 @@
 - [x] Persist Visual Archives-only conversation continuity locally while preserving approved-evidence-only citations and direct record actions
 - [x] Add visible Visual Archives export start, success, and failure feedback plus navigation-continuity regression coverage
 - [x] Complete documented authenticated desktop Visual Archives QA and full document-mode regression testing
-- [ ] Manually complete authenticated tablet/mobile Visual Archives QA; automated mobile capture cannot carry the temporary staging owner session
+- [x] Complete authenticated tablet/mobile Visual Archives QA with the temporary owner-session browser runner and responsive screenshot review
 - [x] Fix the Visual Archives record-route React hooks-order crash that prevents opening Image, Work, and Collection records
 - [x] Inventory, review, and selectively integrate Codex’s undeployed Visual Archives-only reliability changes without regressing document mode
+- [x] Fix Visual Archives review mutations so accept-all, per-field review, approval, and bulk actions visibly refresh, clear stale controls, and advance to the next actionable record

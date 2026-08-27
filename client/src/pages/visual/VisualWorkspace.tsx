@@ -201,19 +201,22 @@ function VisualShell({ project, children }: { project: VisualProject; children: 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur">
-        <div className="flex h-16 items-center gap-3 px-4 md:px-6">
-          <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileOpen(value => !value)}>
+        <div className="flex min-h-16 items-center gap-2 px-3 md:h-16 md:gap-3 md:px-6">
+          <Button variant="ghost" size="icon" className="shrink-0 md:hidden" onClick={() => setMobileOpen(value => !value)}>
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </Button>
-          <a href="/dashboard" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+          <a href="/dashboard" aria-label="Return to projects" className="flex shrink-0 items-center text-muted-foreground hover:text-foreground md:hidden">
+            <ArrowLeft className="h-4 w-4" />
+          </a>
+          <a href="/dashboard" className="hidden items-center gap-2 text-sm text-muted-foreground hover:text-foreground md:flex">
             <ArrowLeft className="h-4 w-4" /> Projects
           </a>
-          <div className="h-5 w-px bg-border" />
-          <div className="min-w-0">
-            <div className="truncate font-serif font-semibold">{project.name}</div>
-            <div className="text-[11px] uppercase tracking-[0.18em] text-primary">Visual archive · VRA Core</div>
+          <div className="hidden h-5 w-px bg-border md:block" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-serif font-semibold sm:text-base">{project.name}</div>
+            <div className="hidden text-[11px] uppercase tracking-[0.18em] text-primary sm:block">Visual archive · VRA Core</div>
           </div>
-          <Badge variant="outline" className="ml-auto rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em]">Controlled beta</Badge>
+          <Badge variant="outline" className="shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] sm:text-[10px] sm:tracking-[0.1em]">Controlled beta</Badge>
         </div>
       </header>
       <div className="flex min-h-[calc(100vh-64px)]">
@@ -665,7 +668,7 @@ function CatalogPage({ projectId, canEdit }: { projectId: number; canEdit: boole
       <VisualPageHeading eyebrow="VRA Core 4" title="Catalog" description="Collections contain Works; Images document Works. Approved catalog data stays distinct from AI suggestions." actions={canEdit ? <Button className="gap-2" onClick={() => setShowCreate(true)}><Plus className="h-4 w-4" /> New record</Button> : undefined} />
       <div className="sticky top-16 z-20 -mx-4 border-y border-border bg-background/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap gap-1">{(["all", "collection", "work", "image"] as const).map(value => <button key={value} onClick={() => setFilter(value)} className={`px-3 py-2 text-sm capitalize ${filter === value ? "border-b-2 border-primary font-medium text-primary" : "text-muted-foreground hover:text-foreground"}`}>{value}</button>)}</div><div className="flex gap-1 rounded-md border border-border p-1"><Button size="sm" variant={viewMode === "grid" ? "secondary" : "ghost"} onClick={() => setViewMode("grid")}>Grid</Button><Button size="sm" variant={viewMode === "list" ? "secondary" : "ghost"} onClick={() => setViewMode("list")}>List</Button></div></div>
-        <div className="mt-3 grid gap-3 md:grid-cols-[1fr_190px_auto]"><Input value={searchInput} onChange={event => setSearchInput(event.target.value)} placeholder="Search catalog titles…" aria-label="Search catalog titles" /><select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)} className="h-10 rounded-md border border-input bg-background px-3 text-sm"><option value="all">All review states</option><option value="needs_review">Needs review</option><option value="approved">Approved</option><option value="draft">Draft</option><option value="archived">Archived</option></select>{canEdit && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={selectPage} disabled={records.length === 0}>Select loaded</Button><Button size="sm" variant="outline" onClick={() => void selectFiltered()} disabled={matchingRecordIds.isFetching}>{matchingRecordIds.isFetching ? "Selecting…" : "Select all matches"}</Button></div>}</div>
+        <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_190px_auto]"><Input value={searchInput} onChange={event => setSearchInput(event.target.value)} placeholder="Search catalog titles…" aria-label="Search catalog titles" /><select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)} className="h-10 rounded-md border border-input bg-background px-3 text-sm"><option value="all">All review states</option><option value="needs_review">Needs review</option><option value="approved">Approved</option><option value="draft">Draft</option><option value="archived">Archived</option></select>{canEdit && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={selectPage} disabled={records.length === 0}>Select loaded</Button><Button size="sm" variant="outline" onClick={() => void selectFiltered()} disabled={matchingRecordIds.isFetching}>{matchingRecordIds.isFetching ? "Selecting…" : "Select all matches"}</Button></div>}</div>
       </div>
       {canEdit && selectedCount > 0 && <div className="sticky top-[13.25rem] z-10 flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary px-4 py-3 text-primary-foreground shadow-md sm:top-[10.25rem] md:top-[8.5rem]"><span className="mr-2 text-sm font-medium">{bulkOperation === "updating" ? "Updating selected records…" : `${selectedCount} selected`}</span><Button size="sm" variant="secondary" onClick={() => void applyBulkStatus("needs_review")} disabled={Boolean(bulkOperation)}>Needs review</Button><Button size="sm" variant="secondary" onClick={() => void applyBulkStatus("approved")} disabled={Boolean(bulkOperation)}>Approve</Button>{selectedImageIds.length > 0 && <Button size="sm" variant="secondary" onClick={() => { setGroupingSuggestion(null); setShowGroup(true); }} disabled={Boolean(bulkOperation) || groupExisting.isPending || createWorkAndGroup.isPending}>Organize {selectedImageIds.length} image{selectedImageIds.length === 1 ? "" : "s"} as a Work</Button>}{lastBulkChange && <Button size="sm" variant="ghost" className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground" onClick={() => void undoBulkStatus()} disabled={Boolean(bulkOperation)}>Undo</Button>}<Button size="sm" variant="ghost" className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground" onClick={clearSelection} disabled={Boolean(bulkOperation)}>Clear</Button></div>}
       {canEdit && lastBulkChange?.length && selectedCount === 0 ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/25 bg-primary/5 px-4 py-3 text-sm"><span>{lastBulkChange.length} catalog record{lastBulkChange.length === 1 ? " was" : "s were"} changed. You can restore the previous review state.</span><Button size="sm" variant="outline" onClick={() => void undoBulkStatus()} disabled={Boolean(bulkOperation)}>{bulkOperation === "undoing" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Undo bulk change</Button></div> : null}
@@ -929,12 +932,17 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
   const { data: record, isLoading } = trpc.visualArchives.getRecord.useQuery({ projectId, recordId: recordId ?? "00000000-0000-4000-8000-000000000000" }, { enabled: Boolean(recordId) });
   const { data: asset } = trpc.visualArchives.getAsset.useQuery({ projectId, assetId: record?.assetId ?? "00000000-0000-4000-8000-000000000000" }, { enabled: Boolean(record?.assetId) });
   const neighbors = trpc.visualArchives.findVisualNeighbors.useQuery({ projectId, assetId: asset?.id ?? "00000000-0000-4000-8000-000000000000", limit: 12 }, { enabled: Boolean(asset?.id) });
-  const { data: reviewSequence = [] } = trpc.visualArchives.listRecordIds.useQuery({ projectId, recordType: "image", limit: 500 });
+  const { data: reviewSequence = [] } = trpc.visualArchives.listRecordIds.useQuery({ projectId, recordType: "image", status: "needs_review", limit: 500 });
   const [title, setTitle] = useState("");
   const [fields, setFields] = useState<Record<string, string>>({});
   const [dirtyFields, setDirtyFields] = useState<Set<string>>(new Set());
   const [recordConflict, setRecordConflict] = useState(false);
   const [activeOperation, setActiveOperation] = useState<string | null>(null);
+  const [reviewOutcome, setReviewOutcome] = useState<{
+    kind: "accepted" | "rejected" | "approved" | "archived";
+    count?: number;
+    nextRecordId?: string;
+  } | null>(null);
   const operationLocked = useRef(false);
   const loadedRecordId = useRef<string | null>(null);
   useEffect(() => {
@@ -953,6 +961,9 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
     }
     loadedRecordId.current = record.id;
   }, [record?.id, record?.revision]);
+  useEffect(() => {
+    setReviewOutcome(null);
+  }, [record?.id]);
   const update = trpc.visualArchives.updateRecord.useMutation();
   const suggest = trpc.visualArchives.generateSuggestions.useMutation();
   const accept = trpc.visualArchives.acceptSuggestionFields.useMutation();
@@ -967,15 +978,23 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
   const candidates = identificationCandidates(suggestions.identificationCandidates);
   const updateCachedRecord = (updated: NonNullable<typeof record>) => {
     utils.visualArchives.getRecord.setData({ projectId, recordId: updated.id }, updated);
+    setTitle(updated.title);
+    const reviewed = updated.reviewedJson as Record<string, unknown>;
+    setFields(Object.fromEntries(CATALOG_FIELDS.map(([key]) => [key, formatFieldValue(reviewed[key])])))
+    setDirtyFields(new Set());
+    setRecordConflict(false);
   };
   const refreshRecordLists = async () => {
-    await Promise.allSettled([
+    const refreshes = await Promise.allSettled([
       utils.visualArchives.getRecord.invalidate({ projectId, recordId: record?.id }),
       utils.visualArchives.listRecords.invalidate({ projectId }),
       utils.visualArchives.listRecordsPage.invalidate(),
       utils.visualArchives.searchReviewedCatalog.invalidate(),
       utils.visualArchives.stats.invalidate({ projectId }),
     ]);
+    if (refreshes.some(result => result.status === "rejected")) {
+      toast.error("Saved, but the review queue could not refresh. Reload before continuing.");
+    }
   };
   const runLockedOperation = async (label: string, operation: () => Promise<void>) => {
     if (operationLocked.current) return;
@@ -995,13 +1014,16 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
       setActiveOperation(null);
     }
   };
-  const save = (status?: "draft" | "needs_review" | "approved" | "archived") => {
+  const save = (status?: "draft" | "needs_review" | "approved" | "archived", advanceAfterCompletion = true) => {
     if (!record) return;
     if (recordConflict) {
       toast.info("Load the latest record before saving");
       return;
     }
     const nextStatus = status ?? (record.status === "approved" ? "needs_review" : record.status);
+    const nextActionableRecordId = (nextStatus === "approved" || nextStatus === "archived")
+      ? reviewSequence.find(item => item.id !== record.id)?.id
+      : undefined;
     void runLockedOperation(nextStatus === "approved" ? "Approving record" : nextStatus === "archived" ? "Archiving record" : "Saving changes", async () => {
       const updated = await update.mutateAsync({
         projectId,
@@ -1012,10 +1034,16 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
         expectedRevision: record.revision,
         changeSummary: nextStatus === "approved" ? "Record approved" : nextStatus === "archived" ? "Record rejected from active review" : "Catalog fields updated",
       });
-      setDirtyFields(new Set());
       updateCachedRecord(updated);
       toast.success(nextStatus === "approved" ? "Record approved" : nextStatus === "archived" ? "Record archived" : "Changes saved");
       await refreshRecordLists();
+      if (nextStatus === "approved" || nextStatus === "archived") {
+        setReviewOutcome({ kind: nextStatus, nextRecordId: nextActionableRecordId });
+        if (advanceAfterCompletion && nextActionableRecordId) {
+          toast.success(nextStatus === "approved" ? "Approved. Opening the next record." : "Archived. Opening the next record.");
+          navigate(`/records/${nextActionableRecordId}`);
+        }
+      }
     });
   };
   const reviewSuggestions = (action: "accept" | "reject", fieldsToReview: SuggestionField[]) => {
@@ -1036,6 +1064,7 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
         ? await accept.mutateAsync({ projectId, recordId: record.id, acceptedFields: fieldsToReview })
         : await reject.mutateAsync({ projectId, recordId: record.id, rejectedFields: fieldsToReview });
       updateCachedRecord(updated);
+      setReviewOutcome({ kind: action === "accept" ? "accepted" : "rejected", count: fieldsToReview.length });
       toast.success(action === "accept"
         ? `${fieldsToReview.length} suggestion${fieldsToReview.length === 1 ? "" : "s"} applied in one revision`
         : `${fieldsToReview.length} suggestion${fieldsToReview.length === 1 ? "" : "s"} rejected`);
@@ -1055,6 +1084,7 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
     void runLockedOperation("Generating suggestions", async () => {
       const updated = await suggest.mutateAsync({ projectId, recordId: record.id });
       updateCachedRecord(updated);
+      setReviewOutcome(null);
       toast.success("New suggestions are ready for review");
       await refreshRecordLists();
     });
@@ -1119,6 +1149,7 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
       <div className="flex flex-col gap-4 border-b border-border pb-5 md:flex-row md:items-end md:justify-between"><div><div className="mb-2 flex items-center gap-2"><Badge variant="outline" className="capitalize">{record.recordType}</Badge>{statusBadge(record.status)}<span className="text-xs text-muted-foreground">Revision {record.revision}</span>{hasUnsavedChanges && <Badge variant="secondary" className="rounded-full">Unsaved changes</Badge>}</div><Input className="h-auto border-0 bg-transparent p-0 font-serif text-3xl font-semibold shadow-none focus-visible:ring-0" value={title} onChange={event => { setTitle(event.target.value); setDirtyFields(current => new Set(current).add("title")); }} disabled={!canEdit || reviewMutationBusy || recordConflict} /></div><div className="flex flex-wrap items-center gap-2"><Button size="sm" variant="outline" onClick={() => moveToRecord(previousRecordId)} disabled={!previousRecordId || reviewMutationBusy}>← Previous</Button><Button size="sm" variant="outline" onClick={() => moveToRecord(nextRecordId)} disabled={!nextRecordId || reviewMutationBusy}>Next →</Button>{canEdit && <><Button variant="outline" onClick={() => save()} disabled={reviewMutationBusy || !hasUnsavedChanges || recordConflict}><Save className="mr-2 h-4 w-4" />Save changes</Button>{hasUnsavedChanges && <Button variant="ghost" onClick={discardChanges} disabled={reviewMutationBusy}>Discard</Button>}<Button variant="outline" onClick={() => save("archived")} disabled={reviewMutationBusy || recordConflict}>Reject / archive</Button><Button onClick={() => save("approved")} disabled={reviewMutationBusy || recordConflict}><Check className="mr-2 h-4 w-4" />Approve</Button></>}</div></div>
       <p className="-mt-3 text-xs text-muted-foreground">Shortcuts outside a field: <kbd>←</kbd>/<kbd>→</kbd> previous/next · <kbd>A</kbd> approve · <kbd>R</kbd> reject/archive. Suggestions are saved one action at a time.</p>
       {activeOperation && <div role="status" aria-live="polite" className="flex items-center gap-2 rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin text-primary" />{activeOperation}…</div>}
+      {reviewOutcome && !activeOperation && <div role="status" aria-live="polite" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-emerald-700/20 bg-emerald-50 px-4 py-3 text-sm text-emerald-950 dark:bg-emerald-950/20 dark:text-emerald-100"><div><p className="font-medium">{reviewOutcome.kind === "accepted" ? `Applied ${reviewOutcome.count ?? 0} AI suggestion${reviewOutcome.count === 1 ? "" : "s"}` : reviewOutcome.kind === "rejected" ? `Rejected ${reviewOutcome.count ?? 0} AI suggestion${reviewOutcome.count === 1 ? "" : "s"}` : reviewOutcome.kind === "approved" ? "Record approved" : "Record archived"}</p><p className="mt-0.5 text-xs text-emerald-900/75 dark:text-emerald-200/80">{reviewOutcome.kind === "accepted" || reviewOutcome.kind === "rejected" ? "The form and remaining review controls now reflect the saved revision." : reviewOutcome.nextRecordId ? "The next record is ready for review." : "There are no more Images awaiting review in this project."}</p></div>{canEdit && reviewOutcome.kind === "accepted" && reviewableSuggestionFields.length === 0 && record.status !== "approved" && <Button size="sm" onClick={() => save("approved", true)} disabled={reviewMutationBusy}><Check className="mr-1.5 h-3.5 w-3.5" />Approve &amp; next</Button>}{reviewOutcome.nextRecordId && (reviewOutcome.kind === "approved" || reviewOutcome.kind === "archived") && <Button size="sm" variant="outline" onClick={() => moveToRecord(reviewOutcome.nextRecordId)} disabled={reviewMutationBusy}>Open next record</Button>}{!reviewOutcome.nextRecordId && (reviewOutcome.kind === "approved" || reviewOutcome.kind === "archived") && <Button size="sm" variant="outline" onClick={() => navigate("/catalog")}>Return to catalog</Button>}</div>}
       {recordConflict && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-3 text-sm"><div><p className="font-medium">A newer revision is available</p><p className="mt-1 text-xs text-muted-foreground">Your local edits were not saved, so newer reviewed data remains intact.</p></div><Button size="sm" variant="outline" onClick={discardChanges} disabled={Boolean(activeOperation)}>Discard local edits and load latest</Button></div>}
       {hasUnsavedChanges && <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-muted-foreground">Manual edits are preserved while the record refreshes. Save or discard them before accepting or rejecting AI suggestions.</div>}
       <div className="grid gap-8 lg:grid-cols-[0.8fr_1.2fr]">

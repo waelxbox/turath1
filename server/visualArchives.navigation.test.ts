@@ -5,7 +5,8 @@ const source = readFileSync(new URL("../client/src/pages/visual/VisualWorkspace.
 
 describe("VisualWorkspace Projects navigation", () => {
   it("uses an absolute dashboard anchor outside the project-scoped router", () => {
-    expect(source).toContain('<a href="/dashboard" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">');
+    expect(source).toContain('href="/dashboard" aria-label="Return to projects"');
+    expect(source).toContain('href="/dashboard" className="hidden items-center gap-2 text-sm text-muted-foreground hover:text-foreground md:flex"');
     expect(source).not.toContain('<Link href="/dashboard"');
   });
 
@@ -24,5 +25,14 @@ describe("VisualWorkspace Projects navigation", () => {
     expect(keyboardEffect).toBeGreaterThan(-1);
     expect(loadingReturn).toBeGreaterThan(keyboardEffect);
     expect(missingReturn).toBeGreaterThan(keyboardEffect);
+  });
+
+  it("reconciles accept-all visibly and moves completed review actions to the next actionable Image", () => {
+    const recordEditor = source.slice(source.indexOf("function RecordEditor"), source.indexOf("function RelationshipsPage"));
+    expect(recordEditor).toContain('status: "needs_review", limit: 500');
+    expect(recordEditor).toContain('setReviewOutcome({ kind: action === "accept" ? "accepted" : "rejected", count: fieldsToReview.length })');
+    expect(recordEditor).toContain('The form and remaining review controls now reflect the saved revision.');
+    expect(recordEditor).toContain('save("approved", true)');
+    expect(recordEditor).toContain('navigate(`/records/${nextActionableRecordId}`)');
   });
 });

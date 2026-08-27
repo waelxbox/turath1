@@ -49,3 +49,9 @@ Clicking the CSV control in the authenticated desktop preview successfully produ
 ## Record-route crash repair
 
 The direct Visual Archives route that previously threw React error 310 was opened successfully after the repair: `/projects/137/records/0cc01df5-b890-4e76-a43f-401844f583ac`. The Image record rendered its protected display derivative, status/revision data, review controls, candidate identification, reviewed-field acceptance/rejection controls, and keyboard-navigation controls without an error boundary. The root cause was a keyboard `useEffect` declared after loading and missing-record conditional returns; it now runs unconditionally with safe optional-record guards.
+
+## Responsive catalog QA
+
+Authenticated responsive captures completed successfully at desktop (1280×800), tablet (768×1024), and mobile (390×844) viewports. The Catalog grid, review-state filter, image selection controls, and image thumbnails remained usable at each viewport. The mobile capture revealed an over-dense project header: a long project name competed with the Visual Archive subtitle and controlled-beta badge. This is a visible mobile polish issue and will be corrected before this iteration is closed.
+
+The corrected mobile header now retains a compact menu, a direct return-to-projects affordance, a single-line truncated project name, and the beta badge without overlap. Tablet review found a separate control-density issue: the Catalog filter grid entered its three-column layout before the narrow project-content area had enough width, leaving the search input nearly collapsed. The responsive breakpoint is being raised so tablet controls stack predictably rather than squeezing a critical search field.

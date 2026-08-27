@@ -1,14 +1,14 @@
 import { chromium } from "playwright";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
 const baseUrl = "https://3000-iq3zp1mnn30f1iaqevqxp-27d78d34.us2.manus.computer";
 const projectPath = "/projects/144/catalog";
 const outputDir = "/home/ubuntu/visual-archives-responsive-qa";
-const token = (await readFile("/tmp/visual-productization-final-session.txt", "utf8")).trim();
+const token = (process.env.VISUAL_QA_TOKEN ?? "").trim();
 
 if (!token) {
-  throw new Error("Missing temporary Visual Archives QA session token.");
+  throw new Error("Missing VISUAL_QA_TOKEN for the temporary Visual Archives QA session.");
 }
 
 const viewports = [
@@ -32,7 +32,7 @@ try {
       {
         name: "app_session_id",
         value: token,
-        url: baseUrl,
+        domain: new URL(baseUrl).hostname,
         path: "/",
         sameSite: "Lax",
         secure: true,
@@ -41,7 +41,7 @@ try {
 
     const page = await context.newPage();
     const response = await page.goto(`${baseUrl}${projectPath}`, { waitUntil: "networkidle", timeout: 45_000 });
-    await page.waitForSelector("text=VRA catalog", { timeout: 15_000 });
+    await page.getByRole("heading", { name: "Catalog", exact: true }).waitFor({ state: "visible", timeout: 15_000 });
     await page.screenshot({
       path: path.join(outputDir, `catalog-${viewport.name}.png`),
       fullPage: true,
