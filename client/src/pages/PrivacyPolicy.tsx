@@ -29,39 +29,38 @@ export default function PrivacyPolicy() {
             <p>
               TURATH is an archival transcription platform designed for researchers, librarians, and archivists.
               We understand that archival materials are often sensitive, culturally significant, and subject to
-              institutional data governance policies. This document explains exactly where your data lives,
-              who owns it, and how to remove it.
+              institutional data governance policies. This document describes how TURATH handles materials,
+              who owns them, and how to make a data request.
             </p>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-foreground mb-3">Where Is My Data Stored?</h2>
-            <p className="mb-3">TURATH stores data in the following locations:</p>
+            <h2 className="text-lg font-semibold text-foreground mb-3">Where and How Is My Data Processed?</h2>
+            <p className="mb-3">TURATH uses the following managed services to operate the platform:</p>
             <ul className="list-disc pl-6 space-y-2">
-              <li><strong className="text-foreground">Document images and files:</strong> Amazon Web Services (AWS) S3 object storage, US region.</li>
-              <li><strong className="text-foreground">Database (transcriptions, metadata, user accounts):</strong> Supabase-managed PostgreSQL, hosted on AWS infrastructure.</li>
-              <li><strong className="text-foreground">AI processing:</strong> Document images are sent to Google's Gemini API for transcription. Google does not retain input data after processing per their API terms of service.</li>
+              <li><strong className="text-foreground">Uploaded files:</strong> Managed, access-controlled object storage used by TURATH&apos;s application hosting platform. Original files are kept private and served through authenticated, project-authorized application routes.</li>
+              <li><strong className="text-foreground">Structured data:</strong> Supabase-managed PostgreSQL stores account, project, transcription, catalog, and metadata records.</li>
+              <li><strong className="text-foreground">AI processing:</strong> TURATH sends the material needed to provide a requested feature to Google&apos;s Gemini API, such as transcription, translation, or reviewable catalog suggestions. Google&apos;s handling of that material is governed by the applicable Google API terms and data-use policy.</li>
             </ul>
             <p className="mt-3">
-              All data is encrypted in transit (TLS 1.2+) and at rest (AES-256). No data is stored on local servers or personal devices.
+              TURATH is designed not to store uploaded archival files on personal devices or in the public client application. Provider infrastructure, data location, backup, and security controls are governed by the applicable provider terms and configuration.
             </p>
           </section>
 
           <section>
             <h2 className="text-lg font-semibold text-foreground mb-3">Who Owns the Data?</h2>
             <p>
-              <strong className="text-foreground">You retain full ownership of all materials you upload and all outputs generated from them.</strong> TURATH does not claim any intellectual property rights over your documents, transcriptions, translations, or metadata. Your data is yours.
+              <strong className="text-foreground">You retain ownership of the materials you upload and the rights you hold in resulting work.</strong> TURATH does not claim intellectual-property rights in your documents, transcriptions, translations, or metadata. You are responsible for ensuring that you have authority to upload and process materials through TURATH.
             </p>
             <p className="mt-3">
-              We do not use your documents to train general-purpose AI models. Your materials are processed solely to provide the transcription service you requested, and AI configurations are scoped to your individual project.
+              TURATH does not intentionally use your archival materials to train a general-purpose TURATH model. Materials are processed to provide the feature you requested, and project configurations are scoped to the relevant project.
             </p>
           </section>
 
           <section>
             <h2 className="text-lg font-semibold text-foreground mb-3">Can I Delete My Data?</h2>
             <p>
-              Yes. You can request complete deletion of your account and all associated data at any time.
-              Upon request, we permanently delete:
+              You may request deletion of your account or project data at any time. We will confirm the request&apos;s scope and coordinate deletion of operational copies under TURATH&apos;s control, subject to applicable legal obligations and provider backup or retention processes. A request may include:
             </p>
             <ul className="list-disc pl-6 space-y-2 mt-3">
               <li>All uploaded document images</li>
@@ -71,37 +70,31 @@ export default function PrivacyPolicy() {
               <li>Your user account and authentication records</li>
             </ul>
             <p className="mt-3">
-              Deletion is irreversible and typically completed within 7 business days. To request deletion,
-              email <a href="mailto:adamamin2027@gmail.com" className="text-primary hover:underline">adamamin2027@gmail.com</a>.
+              Deletion may be irreversible. We will confirm the request and completion status by email; timing can vary with the request&apos;s scope and the applicable provider processes. To request deletion, email <a href="mailto:adamamin2027@gmail.com" className="text-primary hover:underline">adamamin2027@gmail.com</a>.
             </p>
             <p className="mt-3">
-              You can also export all your data (transcriptions, metadata, and project configurations) at any
-              time via the platform's built-in export feature (CSV, JSON, or TEI-XML).
+              TURATH provides export tools for supported project outputs, including transcription and catalog formats. Available export formats and scope may vary by project type and feature availability.
             </p>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-foreground mb-3">GDPR Compliance</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-3">Privacy Requests from the EEA and United Kingdom</h2>
             <p>
-              TURATH is committed to compliance with the EU General Data Protection Regulation (GDPR).
-              For users and institutions in the European Economic Area:
+              If you are in the European Economic Area or the United Kingdom, you may have rights under applicable privacy law. You can contact TURATH to request access, correction, deletion, or an export of supported project data. We will assess and respond to requests in accordance with applicable law and our operational capabilities.
             </p>
             <ul className="list-disc pl-6 space-y-2 mt-3">
-              <li><strong className="text-foreground">Lawful basis:</strong> We process your data based on your consent (account creation) and contractual necessity (providing the transcription service).</li>
-              <li><strong className="text-foreground">Right of access:</strong> You can view and export all data we hold about you at any time through the platform.</li>
-              <li><strong className="text-foreground">Right to rectification:</strong> You can edit any transcription or metadata directly in the review interface.</li>
-              <li><strong className="text-foreground">Right to erasure:</strong> You can request complete deletion of your data (see above).</li>
-              <li><strong className="text-foreground">Right to data portability:</strong> All data is exportable in standard formats (JSON, CSV, TEI-XML).</li>
-              <li><strong className="text-foreground">Data transfers:</strong> Data is stored in the United States. Transfers from the EU are governed by Standard Contractual Clauses (SCCs) as implemented by our infrastructure providers (AWS, Supabase, Google Cloud).</li>
+              <li><strong className="text-foreground">Access and correction:</strong> You can request a copy of supported project data or ask us to correct personal-account information.</li>
+              <li><strong className="text-foreground">Deletion:</strong> You can request deletion as described above.</li>
+              <li><strong className="text-foreground">Portability:</strong> Supported project outputs can be exported in the formats available within the platform.</li>
+              <li><strong className="text-foreground">International processing:</strong> TURATH relies on service providers that may process data in locations outside your country. Their terms and data-processing commitments govern those transfers.</li>
             </ul>
           </section>
 
           <section>
             <h2 className="text-lg font-semibold text-foreground mb-3">Data Isolation Between Projects</h2>
             <p>
-              Each TURATH project is completely isolated at the database level. Documents, AI configurations,
-              transcriptions, and research data are never shared between projects or with other users.
-              Institutional collections remain accessible only to authorized project members.
+              TURATH enforces project-scoped authorization in the application. Documents, AI configurations,
+              transcriptions, catalog records, and research data are intended to be available only to authorized project members. Access controls are designed to prevent one project&apos;s data from being retrieved through another project.
             </p>
           </section>
 
@@ -113,7 +106,7 @@ export default function PrivacyPolicy() {
               <li><strong className="text-foreground">Document images:</strong> The archival document images you upload for transcription.</li>
               <li><strong className="text-foreground">Transcription data:</strong> AI-generated transcriptions and any corrections you make during review.</li>
               <li><strong className="text-foreground">Project configuration:</strong> Custom AI settings, glossaries, and extraction schemas.</li>
-              <li><strong className="text-foreground">Usage data:</strong> Basic analytics (page views, feature usage) to improve the platform. No tracking cookies or advertising identifiers are used.</li>
+              <li><strong className="text-foreground">Technical and usage information:</strong> Basic operational information, such as page visits, feature use, errors, and security-relevant activity, to operate and improve the platform.</li>
             </ul>
           </section>
 
@@ -121,9 +114,9 @@ export default function PrivacyPolicy() {
             <h2 className="text-lg font-semibold text-foreground mb-3">Third-Party Services</h2>
             <p className="mb-3">TURATH uses the following third-party services:</p>
             <ul className="list-disc pl-6 space-y-2">
-              <li><strong className="text-foreground">Google Cloud (Gemini AI):</strong> Document transcription and translation. Images are sent for processing and not retained by Google after the API call completes.</li>
+              <li><strong className="text-foreground">Google Gemini API:</strong> AI-assisted transcription, translation, and reviewable catalog suggestions. Only the material needed for a requested feature is sent for processing; Google&apos;s handling is governed by its applicable terms and data-use policy.</li>
               <li><strong className="text-foreground">Google OAuth:</strong> Secure authentication. We only receive your name and email.</li>
-              <li><strong className="text-foreground">AWS S3:</strong> File storage for uploaded document images.</li>
+              <li><strong className="text-foreground">Managed hosting and object storage:</strong> Application hosting and private storage for uploaded files.</li>
               <li><strong className="text-foreground">Supabase (PostgreSQL):</strong> Database hosting for structured data.</li>
             </ul>
             <p className="mt-3">
@@ -136,8 +129,8 @@ export default function PrivacyPolicy() {
             <h2 className="text-lg font-semibold text-foreground mb-3">For Institutional Partners</h2>
             <p>
               If your institution requires a Data Processing Agreement (DPA), specific security documentation,
-              or has additional compliance requirements, please contact us. We are happy to work with your
-              IT and legal teams to ensure TURATH meets your institutional data governance standards.
+              or has additional compliance requirements, please contact us. We can discuss the platform&apos;s
+              current data flows and determine whether its current controls are suitable for your requirements.
             </p>
           </section>
 
