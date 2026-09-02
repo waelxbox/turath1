@@ -3,10 +3,10 @@
 
 export const PLANS = {
   free: {
-    name: "Free",
-    documentLimit: 100,
+    name: "Demo access",
+    documentLimit: 20,
     priceMonthly: 0,
-    features: ["100 documents", "All AI models", "Search & Ask Archive", "JSON/CSV export"],
+    features: ["20 AI document-processing uses", "Search & Ask Archive", "JSON/CSV export"],
   },
   pro: {
     name: "Pro",

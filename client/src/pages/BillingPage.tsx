@@ -1,122 +1,95 @@
 import { trpc } from "@/lib/trpc";
-import { Check } from "lucide-react";
+import { Check, Infinity as InfinityIcon, Mail, ShieldCheck } from "lucide-react";
 
-const PLAN_DETAILS = {
-  free: { name: "Free", price: "$0", period: "forever", docs: "100 documents" },
-  pro: { name: "Pro", price: "$20", period: "/month", docs: "300 documents" },
-  team: { name: "Team", price: "$50", period: "/month", docs: "1,100 documents" },
-  enterprise: { name: "Enterprise", price: "Custom", period: "", docs: "Unlimited" },
-};
+const CONTACT_EMAIL = "adamamin2027@gmail.com";
 
 export default function BillingPage() {
-  const { data: myPlan, isLoading } = trpc.billing.getMyPlan.useQuery();
-  const checkout = trpc.billing.createCheckout.useMutation();
-  const portal = trpc.billing.createPortal.useMutation();
+  const { data: access, isLoading, error } = trpc.billing.getMyPlan.useQuery();
 
-  const handleUpgrade = async (planId: "pro" | "team") => {
-    const { url } = await checkout.mutateAsync({
-      planId,
-      origin: window.location.origin,
-    });
-    window.open(url, "_blank");
-  };
+  if (isLoading) return <div className="p-8 text-muted-foreground">Loading access details…</div>;
+  if (error || !access) {
+    return <div className="p-8 text-destructive">Usage details are unavailable. Please refresh and try again.</div>;
+  }
 
-  const handleManage = async () => {
-    const { url } = await portal.mutateAsync({
-      origin: window.location.origin,
-    });
-    window.open(url, "_blank");
-  };
-
-  if (isLoading) return <div className="p-8 text-muted-foreground">Loading...</div>;
-
-  const currentPlan = myPlan?.plan || "free";
+  const used = access?.documentsUsed ?? 0;
+  const limit = access?.documentLimit ?? null;
+  const isExempt = access.documentLimit === null;
+  const remaining = limit === null ? null : Math.max(0, limit - used);
+  const usagePercent = limit ? Math.min(100, Math.round((used / limit) * 100)) : 0;
 
   return (
-    <div className="max-w-4xl mx-auto p-8">
-      <h1 className="text-2xl font-bold mb-2">Plan & Billing</h1>
-      <p className="text-muted-foreground mb-8">
-        Manage your subscription and document usage.
-      </p>
+    <div className="max-w-3xl mx-auto p-6 sm:p-8">
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold mb-2">Access & usage</h1>
+        <p className="text-muted-foreground">
+          A temporary usage safeguard keeps the public TURATH demo available to everyone.
+        </p>
+      </div>
 
-      {/* Current usage */}
-      <div className="bg-card border border-border rounded-lg p-6 mb-8">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <p className="text-sm text-muted-foreground">Current Plan</p>
-            <p className="text-xl font-semibold">{PLAN_DETAILS[currentPlan as keyof typeof PLAN_DETAILS]?.name || "Free"}</p>
+      <div className="bg-card border border-border rounded-xl p-6 mb-6">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-primary/10 p-2 text-primary">
+              <ShieldCheck className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Current access</p>
+              <p className="text-xl font-semibold">{access?.planName ?? "Demo access"}</p>
+            </div>
           </div>
-          {currentPlan !== "free" && (
-            <button
-              onClick={handleManage}
-              className="text-sm text-amber-700 hover:underline"
-            >
-              Manage subscription →
-            </button>
+
+          {isExempt ? (
+            <div className="inline-flex items-center gap-2 rounded-full bg-green-500/10 px-3 py-1.5 text-sm font-medium text-green-700 dark:text-green-400">
+              <InfinityIcon className="h-4 w-4" />
+              Unlimited document processing
+            </div>
+          ) : (
+            <div className="text-left sm:text-right">
+              <p className="text-2xl font-semibold tabular-nums">{remaining ?? 0}</p>
+              <p className="text-xs text-muted-foreground">AI document uses remaining</p>
+            </div>
           )}
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex-1">
-            <div className="flex justify-between text-sm mb-1">
-              <span>Documents used</span>
-              <span>{myPlan?.documentsUsed || 0} / {myPlan?.documentLimit || 100}</span>
+
+        {!isExempt && limit !== null && (
+          <div className="mt-6">
+            <div className="flex justify-between text-sm mb-2">
+              <span>AI document processing</span>
+              <span className="tabular-nums">{used} of {limit} used</span>
             </div>
-            <div className="h-2 bg-muted rounded-full overflow-hidden">
+            <div className="h-2 bg-muted rounded-full overflow-hidden" aria-label={`${used} of ${limit} document uses consumed`}>
               <div
-                className="h-full bg-amber-600 rounded-full transition-all"
-                style={{ width: `${Math.min(100, ((myPlan?.documentsUsed || 0) / (myPlan?.documentLimit || 100)) * 100)}%` }}
+                className="h-full bg-primary rounded-full transition-all"
+                style={{ width: `${usagePercent}%` }}
               />
             </div>
           </div>
+        )}
+
+        <ul className="mt-6 grid gap-2 text-sm sm:grid-cols-2">
+          {(access?.features ?? []).map((feature) => (
+            <li key={feature} className="flex items-center gap-2">
+              <Check className="h-4 w-4 shrink-0 text-green-600" />
+              {feature}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {!isExempt && (
+        <div className="flex items-start gap-3 rounded-xl border border-border bg-muted/30 p-5">
+          <Mail className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+          <div>
+            <p className="font-medium">Need additional use?</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              This demo limit is not a purchase prompt. Email Adam and he can arrange additional access.
+            </p>
+            <a className="mt-2 inline-block text-sm font-medium text-primary hover:underline" href={`mailto:${CONTACT_EMAIL}`}>
+              {CONTACT_EMAIL}
+            </a>
+          </div>
         </div>
-      </div>
-
-      {/* Plan cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {(["free", "pro", "team"] as const).map((planId) => {
-          const plan = PLAN_DETAILS[planId];
-          const isCurrent = currentPlan === planId;
-          return (
-            <div
-              key={planId}
-              className={`border rounded-lg p-6 ${isCurrent ? "border-amber-600 bg-amber-50 dark:bg-amber-950/20" : "border-border"}`}
-            >
-              <h3 className="font-semibold text-lg">{plan.name}</h3>
-              <p className="text-2xl font-bold mt-2">
-                {plan.price}<span className="text-sm font-normal text-muted-foreground">{plan.period}</span>
-              </p>
-              <p className="text-sm text-muted-foreground mt-1">{plan.docs}</p>
-              <ul className="mt-4 space-y-2">
-                {(myPlan?.features || []).length > 0 && planId === currentPlan &&
-                  (myPlan?.features || []).map((f: string, i: number) => (
-                    <li key={i} className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-600" />
-                      {f}
-                    </li>
-                  ))
-                }
-              </ul>
-              <div className="mt-6">
-                {isCurrent ? (
-                  <span className="text-sm text-amber-700 font-medium">Current plan</span>
-                ) : planId === "free" ? null : (
-                  <button
-                    onClick={() => handleUpgrade(planId)}
-                    disabled={checkout.isPending}
-                    className="w-full py-2 px-4 bg-amber-700 text-white rounded-lg text-sm font-medium hover:bg-amber-800 disabled:opacity-50"
-                  >
-                    {checkout.isPending ? "Loading..." : "Upgrade"}
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <p className="text-xs text-muted-foreground mt-6">
-        Need more? Contact us at adamamin2027@gmail.com for Enterprise pricing.
-      </p>
+      )}
     </div>
   );
 }

@@ -82,6 +82,12 @@ export default function UploadPage({ projectId, project }: Props) {
   const transcribeDoc = trpc.documents.transcribe.useMutation();
   const createGroup = trpc.groups.create.useMutation();
   const transcribeWithContext = trpc.groups.transcribeWithContext.useMutation();
+  const { data: usage } = trpc.billing.getMyPlan.useQuery();
+  const documentLimit = usage?.documentLimit;
+  const isUsageExempt = documentLimit === null;
+  const remainingDocuments = typeof documentLimit === "number"
+    ? Math.max(0, documentLimit - (usage?.documentsUsed ?? 0))
+    : null;
 
   const handleFiles = useCallback((files: FileList | null) => {
     if (!files) return;
@@ -135,6 +141,15 @@ export default function UploadPage({ projectId, project }: Props) {
   const processQueue = async () => {
     const pending = queue.filter(q => q.status === "queued");
     if (pending.length === 0) return;
+
+    if (!isUsageExempt && remainingDocuments !== null && pending.length > remainingDocuments) {
+      toast.error(
+        `You can process ${remainingDocuments} more document${remainingDocuments === 1 ? "" : "s"} in the demo. ` +
+        "Remove files from this batch or email adamamin2027@gmail.com for additional use."
+      );
+      return;
+    }
+
     setIsProcessing(true);
 
     if (isMultiPage && pending.length > 1) {
@@ -175,16 +190,17 @@ export default function UploadPage({ projectId, project }: Props) {
             const item = pending[i];
             if (item) updateStatus(item.id, "transcribing");
             try {
-              await transcribeWithContext.mutateAsync({
+              const result = await transcribeWithContext.mutateAsync({
                 groupId: group.id,
                 projectId,
                 documentId: uploadedDocIds[i],
               });
+              if (!result.success) throw new Error(result.error || "Transcription failed");
+              if (item) updateStatus(item.id, "done");
             } catch (err) {
-              // Transcription timeout is common but server still processes it
-              // Don't mark as error
+              if (item) updateStatus(item.id, "error", err instanceof Error ? err.message : String(err));
+              toast.error(err instanceof Error ? err.message : "Transcription failed");
             }
-            if (item) updateStatus(item.id, "done");
           }
 
           toast.success(`Multi-page document "${title}" created with ${uploadedDocIds.length} pages`);
@@ -198,6 +214,7 @@ export default function UploadPage({ projectId, project }: Props) {
       utils.projects.stats.invalidate({ id: projectId });
       utils.documents.list.invalidate({ projectId });
       utils.documents.listPaginated.invalidate();
+      utils.billing.getMyPlan.invalidate();
       return;
     }
 
@@ -214,14 +231,8 @@ export default function UploadPage({ projectId, project }: Props) {
       });
       updateStatus(item.id, "transcribing");
       if (doc) {
-        // Fire transcription but don't block on it — it may take 30-60s per doc
-        // The server processes it regardless; we mark as done after triggering
-        try {
-          await transcribeDoc.mutateAsync({ documentId: doc.id, projectId });
-        } catch {
-          // Transcription timeout is common for large documents but the server
-          // still processes them. Don't mark as error — just continue.
-        }
+        const result = await transcribeDoc.mutateAsync({ documentId: doc.id, projectId });
+        if (!result.success) throw new Error(result.error || "Transcription failed");
       }
       updateStatus(item.id, "done");
     });
@@ -241,6 +252,7 @@ export default function UploadPage({ projectId, project }: Props) {
     setIsProcessing(false);
     utils.projects.stats.invalidate({ id: projectId });
     utils.documents.list.invalidate({ projectId });
+    utils.billing.getMyPlan.invalidate();
 
     if (failed === 0) {
       setShowSuccess(true);
@@ -284,6 +296,20 @@ export default function UploadPage({ projectId, project }: Props) {
           Add scanned document images. The AI will read and transcribe each one automatically.
         </p>
       </div>
+
+      {usage && !isUsageExempt && (
+        <div className="flex items-center justify-between gap-4 mb-6 p-4 bg-card border border-border rounded-xl">
+          <div>
+            <p className="text-sm font-medium">Demo document allowance</p>
+            <p className="text-xs text-muted-foreground">
+              Each transcription or AI verification uses one allowance.
+            </p>
+          </div>
+          <span className="shrink-0 text-sm font-semibold tabular-nums">
+            {remainingDocuments ?? 0} of {usage.documentLimit ?? 20} remaining
+          </span>
+        </div>
+      )}
 
       {/* Multi-page toggle */}
       <div className="flex items-center gap-3 mb-6 p-4 bg-card border border-border rounded-xl">
@@ -394,7 +420,12 @@ export default function UploadPage({ projectId, project }: Props) {
 
       {/* Primary action */}
       {queuedCount > 0 && !isProcessing && (
-        <Button onClick={processQueue} size="lg" className="gap-2 w-full sm:w-auto">
+        <Button
+          onClick={processQueue}
+          size="lg"
+          className="gap-2 w-full sm:w-auto"
+          disabled={!isUsageExempt && remainingDocuments === 0}
+        >
           <Upload className="w-4 h-4" />
           Upload and transcribe {queuedCount} file{queuedCount !== 1 ? "s" : ""}
         </Button>

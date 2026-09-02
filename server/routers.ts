@@ -95,6 +95,11 @@ import { runResearchAgent } from "./researchAgent";
 import { visualArchivesRouter } from "./visualArchives/router";
 import { getVisualProjectIds, getVisualProjectMode } from "./visualArchives/db";
 import { isVisualArchivesEnabled, isVisualArchivesPreviewUser } from "./visualArchives/config";
+import {
+  getPresentationUsageState,
+  PresentationUsageLimitError,
+  reservePresentationDocumentUsage,
+} from "./billing/presentationUsage";
 
 type ProjectRole = "owner" | "editor" | "viewer";
 
@@ -122,6 +127,24 @@ async function requireProjectEditor(projectId: number, userId: number): Promise<
     throw new TRPCError({ code: "FORBIDDEN", message: "Editor access is required" });
   }
   return role;
+}
+
+async function reserveDocumentProcessingUsage(
+  user: { id: number; email?: string | null },
+  count = 1,
+) {
+  try {
+    return await reservePresentationDocumentUsage({
+      userId: user.id,
+      email: user.email,
+      count,
+    });
+  } catch (error) {
+    if (error instanceof PresentationUsageLimitError) {
+      throw new TRPCError({ code: "FORBIDDEN", message: error.message });
+    }
+    throw error;
+  }
 }
 
 async function requireProjectDocuments(projectId: number, documentIds: number[]) {
@@ -858,6 +881,8 @@ const documentsRouter = router({
       const doc = await getDocumentById(input.documentId, input.projectId);
       if (!doc) throw new TRPCError({ code: "NOT_FOUND" });
 
+      await reserveDocumentProcessingUsage(ctx.user);
+
       // Mark as processing
       await updateDocumentStatus(input.documentId, input.projectId, "processing");
 
@@ -906,6 +931,7 @@ const documentsRouter = router({
       if (!doc) throw new TRPCError({ code: "NOT_FOUND" });
       const transcription = await getTranscriptionByDocumentId(input.documentId, input.projectId);
       if (!transcription) throw new TRPCError({ code: "NOT_FOUND", message: "No transcription found to verify" });
+      await reserveDocumentProcessingUsage(ctx.user);
       try {
         const { storageGet: storageGetDoc } = await import("./storage");
         const { url } = await storageGetDoc(doc.storagePath);
@@ -931,6 +957,8 @@ const documentsRouter = router({
       if (pendingDocs.length === 0) {
         return { queued: 0, message: "No pending documents." };
       }
+
+      await reserveDocumentProcessingUsage(ctx.user, pendingDocs.length);
 
       // Create a batch job record
       await createJob({
@@ -1037,6 +1065,8 @@ const documentsRouter = router({
       if (retryDocs.length === 0) {
         return { queued: 0, message: "No documents to retry." };
       }
+
+      await reserveDocumentProcessingUsage(ctx.user, retryDocs.length);
 
       // Process in background with concurrency limit
       const CONCURRENCY = 5;
@@ -2504,6 +2534,8 @@ const groupsRouter = router({
         return { processed: 0, total: pages.length, message: "All pages already transcribed." };
       }
 
+      await reserveDocumentProcessingUsage(ctx.user, pendingPages.length);
+
       // Define per-page fields (regenerated for each page) vs shared fields (set once from page 1)
       const PER_PAGE_FIELD_NAMES = new Set([
         "transcription", "full_arabic_transcription", "original_transcription",
@@ -2674,6 +2706,7 @@ const groupsRouter = router({
 
       // Get the target document's image
       const targetDoc = pages[targetPageIdx];
+      await reserveDocumentProcessingUsage(ctx.user);
       // Fetch image and convert to base64
       const { storageGet: storageGetTargetPage } = await import("./storage");
       const { url: targetPageUrl } = await storageGetTargetPage(targetDoc.storagePath);
@@ -3374,22 +3407,28 @@ const billingRouter = router({
   }),
 
   getMyPlan: protectedProcedure.query(async ({ ctx }) => {
-    const { PLANS, getDocumentLimit } = require("./billing/products");
-    const plan = (ctx.user as any).plan || "free";
-    const quotaUsed = (ctx.user as any).documentQuotaUsed || 0;
-    const limit = getDocumentLimit(plan);
+    const usage = getPresentationUsageState(ctx.user.email, ctx.user.documentQuotaUsed);
     return {
-      plan,
-      planName: PLANS[plan]?.name || "Free",
-      documentLimit: limit === Infinity ? null : limit,
-      documentsUsed: quotaUsed,
-      features: PLANS[plan]?.features || [],
+      plan: "free" as const,
+      planName: usage.isExempt ? "Presenter access" : "Demo access",
+      documentLimit: usage.limit,
+      documentsUsed: usage.used,
+      features: usage.isExempt
+        ? ["Unlimited AI document processing"]
+        : ["20 AI document-processing uses", "Search, Ask Archive, and exports included"],
     };
   }),
 
   createCheckout: protectedProcedure
     .input(z.object({ planId: z.enum(["pro", "team"]), origin: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const { isPricingEnabled } = require("./billing/stripe");
+      if (!isPricingEnabled()) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Paid plans are not available during the TURATH demo. Email adamamin2027@gmail.com for additional use.",
+        });
+      }
       const { createCheckoutSession } = require("./billing/stripe");
       const url = await createCheckoutSession({
         userId: ctx.user.id,
