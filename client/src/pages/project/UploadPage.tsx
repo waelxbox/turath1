@@ -139,7 +139,7 @@ export default function UploadPage({ projectId, project }: Props) {
 
     const remaining = planUsage?.isOwnerExempt ? null : (planUsage?.documentsRemaining ?? 0);
     if (remaining === 0) {
-      toast.error("This account has reached the 50-document free-tier limit. Paid upgrades are not available yet.");
+      toast.error("This account has reached the 20-document free-tier limit. Paid upgrades are not available yet.");
       return;
     }
 
@@ -310,7 +310,7 @@ export default function UploadPage({ projectId, project }: Props) {
         </p>
         {!planUsage?.isOwnerExempt && (
           <p className="mt-3 text-xs text-muted-foreground">
-            Free tier: <span className="font-medium text-foreground">{planUsage?.documentsRemaining ?? 0} of 50 documents remaining</span>. Paid upgrades are not available yet.
+            Free tier: <span className="font-medium text-foreground">{planUsage?.documentsRemaining ?? 0} of 20 documents remaining</span>. Paid upgrades are not available yet.
           </p>
         )}
       </div>

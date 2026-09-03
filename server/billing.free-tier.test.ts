@@ -5,14 +5,21 @@ import {
   FREE_DOCUMENT_LIMIT,
   PLANS,
   getDocumentLimit,
+  isUnlimitedOwnerEmail,
 } from "./billing/products";
 
 describe("free-tier safeguards", () => {
-  it("defines a 50-document free tier while paid checkout remains disabled", () => {
-    expect(FREE_DOCUMENT_LIMIT).toBe(50);
-    expect(getDocumentLimit("free")).toBe(50);
-    expect(PLANS.free.features).toContain("50 documents");
+  it("defines a 20-document free tier while paid checkout remains disabled", () => {
+    expect(FREE_DOCUMENT_LIMIT).toBe(20);
+    expect(getDocumentLimit("free")).toBe(20);
+    expect(PLANS.free.features).toContain("20 documents");
     expect(BILLING_LAUNCH_ENABLED).toBe(false);
+  });
+
+  it("only grants unlimited document access to Adam's normalized owner email", () => {
+    expect(isUnlimitedOwnerEmail(" ADAMAMIN2027@GMAIL.COM ")).toBe(true);
+    expect(isUnlimitedOwnerEmail("researcher@example.com")).toBe(false);
+    expect(isUnlimitedOwnerEmail(null)).toBe(false);
   });
 
   it("reserves a server-side document slot before storing an uploaded file and releases it on failure", () => {

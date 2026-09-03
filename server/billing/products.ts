@@ -2,14 +2,19 @@
 // launch configuration and webhook verification are completed.
 
 export const BILLING_LAUNCH_ENABLED = false;
-export const FREE_DOCUMENT_LIMIT = 50;
+export const FREE_DOCUMENT_LIMIT = 20;
+export const UNLIMITED_OWNER_EMAIL = "adamamin2027@gmail.com";
+
+export function isUnlimitedOwnerEmail(email?: string | null): boolean {
+  return email?.trim().toLowerCase() === UNLIMITED_OWNER_EMAIL;
+}
 
 export const PLANS = {
   free: {
     name: "Free",
     documentLimit: FREE_DOCUMENT_LIMIT,
     priceMonthly: 0,
-    features: ["50 documents", "All AI models", "Search & Ask Archive", "JSON/CSV export"],
+    features: ["20 documents", "All AI models", "Search & Ask Archive", "JSON/CSV export"],
   },
   pro: {
     name: "Pro",

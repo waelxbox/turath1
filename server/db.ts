@@ -25,7 +25,7 @@ import {
   mergeSuggestions,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
-import { FREE_DOCUMENT_LIMIT } from "./billing/products";
+import { FREE_DOCUMENT_LIMIT, isUnlimitedOwnerEmail } from "./billing/products";
 
 // ─── Database Connection ──────────────────────────────────────────────────────
 
@@ -120,13 +120,13 @@ export async function getDocumentQuotaStatus(userId: number): Promise<DocumentQu
   if (!db) throw new Error("Database unavailable while checking document usage");
 
   const [user] = await db
-    .select({ id: users.id, role: users.role, documentQuotaUsed: users.documentQuotaUsed })
+    .select({ id: users.id, email: users.email, documentQuotaUsed: users.documentQuotaUsed })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
   if (!user) throw new Error("User not found while checking document usage");
 
-  if (user.role === "admin") {
+  if (isUnlimitedOwnerEmail(user.email)) {
     return {
       allowed: true,
       quotaReserved: false,

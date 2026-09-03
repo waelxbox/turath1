@@ -1,6 +1,6 @@
 import { PGlite } from "@electric-sql/pglite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FREE_DOCUMENT_LIMIT } from "./billing/products";
+import { FREE_DOCUMENT_LIMIT, isUnlimitedOwnerEmail } from "./billing/products";
 
 describe("free-tier quota database boundary", () => {
   let database: PGlite | null = null;
@@ -15,11 +15,13 @@ describe("free-tier quota database boundary", () => {
     await database.exec(`
       CREATE TABLE users (
         id integer PRIMARY KEY,
-        role text NOT NULL DEFAULT 'user',
+        email text NOT NULL,
         document_quota_used integer NOT NULL DEFAULT 0
       );
-      INSERT INTO users (id, role, document_quota_used)
-      VALUES (1, 'user', ${used}), (2, 'admin', ${used});
+      INSERT INTO users (id, email, document_quota_used)
+      VALUES
+        (1, 'researcher@example.com', ${used}),
+        (2, 'adamamin2027@gmail.com', ${used});
     `);
     return database;
   }
@@ -32,6 +34,15 @@ describe("free-tier quota database boundary", () => {
         AND document_quota_used < ${FREE_DOCUMENT_LIMIT}
       RETURNING document_quota_used
     `);
+  }
+
+  async function reserveAccordingToPolicy(db: PGlite, userId: number) {
+    const account = await db.query<{ email: string }>(`SELECT email FROM users WHERE id = ${userId}`);
+    if (isUnlimitedOwnerEmail(account.rows[0]?.email)) {
+      return { isOwnerExempt: true, rows: [] as { document_quota_used: number }[] };
+    }
+    const result = await reserveOne(db, userId);
+    return { isOwnerExempt: false, rows: result.rows };
   }
 
   it("allows exactly one of two simultaneous reservations at 49 documents", async () => {
@@ -74,10 +85,11 @@ describe("free-tier quota database boundary", () => {
     expect(final.rows[0]?.document_quota_used).toBe(FREE_DOCUMENT_LIMIT - 1);
   });
 
-  it("keeps administrator accounts outside the capped reservation path", async () => {
+  it("keeps Adam's owner account outside the capped reservation path", async () => {
     const db = await createQuotaDatabase(FREE_DOCUMENT_LIMIT);
-    const admin = await db.query<{ role: string }>("SELECT role FROM users WHERE id = 2");
-    if (admin.rows[0]?.role !== "admin") await reserveOne(db, 2);
+    const reservation = await reserveAccordingToPolicy(db, 2);
+    expect(reservation.isOwnerExempt).toBe(true);
+    expect(reservation.rows).toHaveLength(0);
 
     const final = await db.query<{ document_quota_used: number }>(
       "SELECT document_quota_used FROM users WHERE id = 2",
