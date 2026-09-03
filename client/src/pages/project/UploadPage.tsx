@@ -82,6 +82,7 @@ export default function UploadPage({ projectId, project }: Props) {
   const transcribeDoc = trpc.documents.transcribe.useMutation();
   const createGroup = trpc.groups.create.useMutation();
   const transcribeWithContext = trpc.groups.transcribeWithContext.useMutation();
+  const { data: planUsage } = trpc.billing.getMyPlan.useQuery();
 
   const handleFiles = useCallback((files: FileList | null) => {
     if (!files) return;
@@ -135,14 +136,35 @@ export default function UploadPage({ projectId, project }: Props) {
   const processQueue = async () => {
     const pending = queue.filter(q => q.status === "queued");
     if (pending.length === 0) return;
+
+    const remaining = planUsage?.isOwnerExempt ? null : (planUsage?.documentsRemaining ?? 0);
+    if (remaining === 0) {
+      toast.error("This account has reached the 50-document free-tier limit. Paid upgrades are not available yet.");
+      return;
+    }
+
+    if (isMultiPage && remaining !== null && pending.length > remaining) {
+      toast.error(`This multi-page document has ${pending.length} pages, but only ${remaining} free-tier document slot${remaining === 1 ? "" : "s"} remain. Remove files or contact us for additional capacity.`);
+      return;
+    }
+
+    const permittedPending = remaining === null ? pending : pending.slice(0, remaining);
+    const limitedPending = remaining === null ? [] : pending.slice(remaining);
+    if (limitedPending.length > 0) {
+      limitedPending.forEach((item) => {
+        updateStatus(item.id, "error", "Free-tier document limit reached before this file could be uploaded.");
+      });
+      toast.warning(`Only ${permittedPending.length} of ${pending.length} selected files fit within the remaining free-tier allowance.`);
+    }
+    if (permittedPending.length === 0) return;
     setIsProcessing(true);
 
-    if (isMultiPage && pending.length > 1) {
+    if (isMultiPage && permittedPending.length > 1) {
       // Multi-page mode: upload all pages first, then create group, then transcribe with context
       const uploadedDocIds: number[] = [];
       
       // Upload all pages sequentially to maintain order
-      for (const item of pending) {
+      for (const item of permittedPending) {
         try {
           updateStatus(item.id, "uploading");
           const base64 = await readFileAsBase64(item.file);
@@ -172,7 +194,7 @@ export default function UploadPage({ projectId, project }: Props) {
 
           // Transcribe each page with context from previous pages
           for (let i = 0; i < uploadedDocIds.length; i++) {
-            const item = pending[i];
+            const item = permittedPending[i];
             if (item) updateStatus(item.id, "transcribing");
             try {
               await transcribeWithContext.mutateAsync({
@@ -202,7 +224,7 @@ export default function UploadPage({ projectId, project }: Props) {
     }
 
     // Standard single-page mode
-    const tasks = pending.map(item => async () => {
+    const tasks = permittedPending.map(item => async () => {
       updateStatus(item.id, "uploading");
       const base64 = await readFileAsBase64(item.file);
       const doc = await uploadDoc.mutateAsync({
@@ -231,7 +253,7 @@ export default function UploadPage({ projectId, project }: Props) {
     results.forEach((result, i) => {
       if (result.status === "rejected") {
         const err = result.reason;
-        updateStatus(pending[i].id, "error", err instanceof Error ? err.message : String(err));
+        updateStatus(permittedPending[i].id, "error", err instanceof Error ? err.message : String(err));
       }
     });
 
@@ -241,6 +263,7 @@ export default function UploadPage({ projectId, project }: Props) {
     setIsProcessing(false);
     utils.projects.stats.invalidate({ id: projectId });
     utils.documents.list.invalidate({ projectId });
+    utils.billing.getMyPlan.invalidate();
 
     if (failed === 0) {
       setShowSuccess(true);
@@ -283,6 +306,11 @@ export default function UploadPage({ projectId, project }: Props) {
         <p className="text-muted-foreground text-sm">
           Add scanned document images. The AI will read and transcribe each one automatically.
         </p>
+        {!planUsage?.isOwnerExempt && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            Free tier: <span className="font-medium text-foreground">{planUsage?.documentsRemaining ?? 0} of 50 documents remaining</span>. Paid upgrades are not available yet.
+          </p>
+        )}
       </div>
 
       {/* Multi-page toggle */}
@@ -394,9 +422,16 @@ export default function UploadPage({ projectId, project }: Props) {
 
       {/* Primary action */}
       {queuedCount > 0 && !isProcessing && (
-        <Button onClick={processQueue} size="lg" className="gap-2 w-full sm:w-auto">
+        <Button
+          onClick={processQueue}
+          size="lg"
+          className="gap-2 w-full sm:w-auto"
+          disabled={!planUsage?.isOwnerExempt && (planUsage?.documentsRemaining ?? 0) === 0}
+        >
           <Upload className="w-4 h-4" />
-          Upload and transcribe {queuedCount} file{queuedCount !== 1 ? "s" : ""}
+          {!planUsage?.isOwnerExempt && (planUsage?.documentsRemaining ?? 0) === 0
+            ? "Free-tier limit reached"
+            : `Upload and transcribe ${queuedCount} file${queuedCount !== 1 ? "s" : ""}`}
         </Button>
       )}
 

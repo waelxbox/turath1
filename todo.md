@@ -817,3 +817,5 @@
 - [x] Inventory, review, and selectively integrate Codex’s undeployed Visual Archives-only reliability changes without regressing document mode
 - [x] Fix Visual Archives review mutations so accept-all, per-field review, approval, and bulk actions visibly refresh, clear stale controls, and advance to the next actionable record
 - [x] Correct unsupported privacy-policy claims about storage provider/region, encryption, Gemini retention, deletion timing, and GDPR compliance
+- [ ] Enforce a 50-document free-tier cap server-side while keeping paid upgrades and Stripe checkout inactive
+- [ ] Reconcile Codex’s GitHub document-cap commit with the uncheckpointed local free-tier safeguard and validate the merged behavior

@@ -25,6 +25,7 @@ import {
   mergeSuggestions,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { FREE_DOCUMENT_LIMIT } from "./billing/products";
 
 // ─── Database Connection ──────────────────────────────────────────────────────
 
@@ -102,6 +103,107 @@ export async function getUserByOpenId(openId: string) {
   if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
   return result[0];
+}
+
+export type DocumentQuotaStatus = {
+  allowed: boolean;
+  quotaReserved: boolean;
+  plan: "free" | "owner";
+  documentLimit: number | null;
+  documentsUsed: number;
+  documentsRemaining: number | null;
+};
+
+/** Returns current free-tier status from the database, not a potentially stale session. */
+export async function getDocumentQuotaStatus(userId: number): Promise<DocumentQuotaStatus> {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable while checking document usage");
+
+  const [user] = await db
+    .select({ id: users.id, role: users.role, documentQuotaUsed: users.documentQuotaUsed })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!user) throw new Error("User not found while checking document usage");
+
+  if (user.role === "admin") {
+    return {
+      allowed: true,
+      quotaReserved: false,
+      plan: "owner",
+      documentLimit: null,
+      documentsUsed: user.documentQuotaUsed,
+      documentsRemaining: null,
+    };
+  }
+
+  // documentQuotaUsed was introduced before enforcement. Reconcile it with
+  // already-uploaded documents so a pre-existing free account cannot receive a
+  // fresh allowance merely because its historical counter was never updated.
+  const [existing] = await db
+    .select({ total: count() })
+    .from(documents)
+    .innerJoin(projects, eq(documents.projectId, projects.id))
+    .where(eq(projects.userId, userId));
+  const historicalDocumentCount = Number(existing?.total ?? 0);
+  const documentsUsed = Math.max(user.documentQuotaUsed, historicalDocumentCount);
+  if (documentsUsed > user.documentQuotaUsed) {
+    await db
+      .update(users)
+      .set({ documentQuotaUsed: documentsUsed, updatedAt: new Date() })
+      .where(and(eq(users.id, userId), lt(users.documentQuotaUsed, documentsUsed)));
+  }
+
+  return {
+    allowed: documentsUsed < FREE_DOCUMENT_LIMIT,
+    quotaReserved: false,
+    plan: "free",
+    documentLimit: FREE_DOCUMENT_LIMIT,
+    documentsUsed,
+    documentsRemaining: Math.max(0, FREE_DOCUMENT_LIMIT - documentsUsed),
+  };
+}
+
+/**
+ * Atomically reserves one document before any object-storage work occurs. The
+ * conditional update is the quota boundary, so concurrent uploads cannot
+ * exceed the free allowance.
+ */
+export async function reserveDocumentQuotaSlot(userId: number): Promise<DocumentQuotaStatus> {
+  const current = await getDocumentQuotaStatus(userId);
+  if (current.plan === "owner") return current;
+
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable while reserving document usage");
+  const [reserved] = await db
+    .update(users)
+    .set({ documentQuotaUsed: sql`${users.documentQuotaUsed} + 1`, updatedAt: new Date() })
+    .where(and(eq(users.id, userId), lt(users.documentQuotaUsed, FREE_DOCUMENT_LIMIT)))
+    .returning({ documentQuotaUsed: users.documentQuotaUsed });
+
+  if (!reserved) return getDocumentQuotaStatus(userId);
+
+  return {
+    allowed: true,
+    quotaReserved: true,
+    plan: "free",
+    documentLimit: FREE_DOCUMENT_LIMIT,
+    documentsUsed: reserved.documentQuotaUsed,
+    documentsRemaining: Math.max(0, FREE_DOCUMENT_LIMIT - reserved.documentQuotaUsed),
+  };
+}
+
+/** Releases a previously reserved slot when storage or document creation fails. */
+export async function releaseDocumentQuotaSlot(userId: number): Promise<void> {
+  const status = await getDocumentQuotaStatus(userId);
+  if (status.plan === "owner" || status.documentsUsed <= 0) return;
+
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable while releasing document usage");
+  await db
+    .update(users)
+    .set({ documentQuotaUsed: sql`GREATEST(${users.documentQuotaUsed} - 1, 0)`, updatedAt: new Date() })
+    .where(and(eq(users.id, userId), gt(users.documentQuotaUsed, 0)));
 }
 
 // ─── Projects ─────────────────────────────────────────────────────────────────

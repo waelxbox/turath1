@@ -1,12 +1,15 @@
-// TURATH Subscription Plans
-// These will be created in Stripe on first use via ensureProducts()
+// TURATH access plans. Paid checkout remains intentionally disabled until the
+// launch configuration and webhook verification are completed.
+
+export const BILLING_LAUNCH_ENABLED = false;
+export const FREE_DOCUMENT_LIMIT = 50;
 
 export const PLANS = {
   free: {
     name: "Free",
-    documentLimit: 100,
+    documentLimit: FREE_DOCUMENT_LIMIT,
     priceMonthly: 0,
-    features: ["100 documents", "All AI models", "Search & Ask Archive", "JSON/CSV export"],
+    features: ["50 documents", "All AI models", "Search & Ask Archive", "JSON/CSV export"],
   },
   pro: {
     name: "Pro",

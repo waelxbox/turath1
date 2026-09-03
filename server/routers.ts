@@ -72,6 +72,9 @@ import {
   getDocumentAssignmentById,
   getMergeSuggestionById,
   getEntitiesByIds,
+  getDocumentQuotaStatus,
+  releaseDocumentQuotaSlot,
+  reserveDocumentQuotaSlot,
 } from "./db";
 import crypto from "crypto";
 import { generateProjectConfig, validateConfig, refineConfig } from "./onboardingAgent";
@@ -825,24 +828,43 @@ const documentsRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Project must be active to upload documents." });
       }
 
-      const buffer = Buffer.from(input.fileBase64, "base64");
-      const key = `projects/${input.projectId}/documents/${Date.now()}-${input.filename}`;
-      await storagePut(key, buffer, input.mimeType ?? "image/jpeg");
+      // Charge the project owner's allowance so editors cannot bypass the
+      // project owner's usage cap. Owner/admin accounts remain exempt.
+      const quota = await reserveDocumentQuotaSlot(project.userId);
+      if (!quota.allowed) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: `This account has reached the ${quota.documentLimit}-document free-tier limit. Paid upgrades are not available yet.`,
+        });
+      }
 
-      await createDocument({
-        projectId: input.projectId,
-        filename: input.filename,
-        storagePath: key,
-        storageUrl: null,
-        mimeType: input.mimeType,
-        fileSizeBytes: input.fileSizeBytes ?? null,
-        status: "pending",
-      });
+      try {
+        const buffer = Buffer.from(input.fileBase64, "base64");
+        const key = `projects/${input.projectId}/documents/${Date.now()}-${input.filename}`;
+        await storagePut(key, buffer, input.mimeType ?? "image/jpeg");
+
+        await createDocument({
+          projectId: input.projectId,
+          filename: input.filename,
+          storagePath: key,
+          storageUrl: null,
+          mimeType: input.mimeType,
+          fileSizeBytes: input.fileSizeBytes ?? null,
+          status: "pending",
+        });
+      } catch (error) {
+        if (quota.quotaReserved) {
+          await releaseDocumentQuotaSlot(project.userId).catch((releaseError) => {
+            console.error("[Billing] Failed to release document quota after upload error", releaseError);
+          });
+        }
+        throw error;
+      }
 
       const docs = await getDocumentsByProjectId(input.projectId);
       // Log activity
       logActivity({ projectId: input.projectId, userId: ctx.user.id, action: "document_uploaded", metadata: { filename: input.filename } }).catch(() => {});
-      return withDocumentAccessUrl(docs[0]);
+      return { ...withDocumentAccessUrl(docs[0]), usage: quota };
     }),
 
   transcribe: protectedProcedure
@@ -3369,20 +3391,21 @@ const assignmentsRouter = router({
 
 const billingRouter = router({
   getPlans: publicProcedure.query(() => {
-    const { PLANS } = require("./billing/products");
-    return PLANS;
+    const { PLANS, BILLING_LAUNCH_ENABLED } = require("./billing/products");
+    return { plans: PLANS, paidUpgradesEnabled: BILLING_LAUNCH_ENABLED };
   }),
-
   getMyPlan: protectedProcedure.query(async ({ ctx }) => {
-    const { PLANS, getDocumentLimit } = require("./billing/products");
-    const plan = (ctx.user as any).plan || "free";
-    const quotaUsed = (ctx.user as any).documentQuotaUsed || 0;
-    const limit = getDocumentLimit(plan);
+    const { PLANS, BILLING_LAUNCH_ENABLED } = require("./billing/products");
+    const quota = await getDocumentQuotaStatus(ctx.user.id);
+    const plan = quota.plan === "owner" ? "free" : "free";
     return {
       plan,
-      planName: PLANS[plan]?.name || "Free",
-      documentLimit: limit === Infinity ? null : limit,
-      documentsUsed: quotaUsed,
+      planName: quota.plan === "owner" ? "Owner access" : PLANS.free.name,
+      documentLimit: quota.documentLimit,
+      documentsUsed: quota.documentsUsed,
+      documentsRemaining: quota.documentsRemaining,
+      isOwnerExempt: quota.plan === "owner",
+      paidUpgradesEnabled: BILLING_LAUNCH_ENABLED,
       features: PLANS[plan]?.features || [],
     };
   }),
@@ -3390,6 +3413,10 @@ const billingRouter = router({
   createCheckout: protectedProcedure
     .input(z.object({ planId: z.enum(["pro", "team"]), origin: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const { BILLING_LAUNCH_ENABLED } = require("./billing/products");
+      if (!BILLING_LAUNCH_ENABLED) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Paid upgrades are not available yet." });
+      }
       const { createCheckoutSession } = require("./billing/stripe");
       const url = await createCheckoutSession({
         userId: ctx.user.id,
@@ -3405,6 +3432,10 @@ const billingRouter = router({
   createPortal: protectedProcedure
     .input(z.object({ origin: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const { BILLING_LAUNCH_ENABLED } = require("./billing/products");
+      if (!BILLING_LAUNCH_ENABLED) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Paid upgrades are not available yet." });
+      }
       const customerId = (ctx.user as any).stripeCustomerId;
       if (!customerId) throw new TRPCError({ code: "BAD_REQUEST", message: "No active subscription" });
       const { createPortalSession } = require("./billing/stripe");
