@@ -3397,7 +3397,7 @@ const billingRouter = router({
   getMyPlan: protectedProcedure.query(async ({ ctx }) => {
     const { PLANS, BILLING_LAUNCH_ENABLED } = require("./billing/products");
     const quota = await getDocumentQuotaStatus(ctx.user.id);
-    const plan = quota.plan === "owner" ? "free" : "free";
+    const plan = "free" as const;
     return {
       plan,
       planName: quota.plan === "owner" ? "Owner access" : PLANS.free.name,

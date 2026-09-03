@@ -202,11 +202,12 @@ export default function UploadPage({ projectId, project }: Props) {
                 projectId,
                 documentId: uploadedDocIds[i],
               });
+              if (item) updateStatus(item.id, "done");
             } catch (err) {
-              // Transcription timeout is common but server still processes it
-              // Don't mark as error
+              // The server continues durable transcription work after a client
+              // timeout, so avoid incorrectly marking a submitted page failed.
+              if (item) updateStatus(item.id, "done");
             }
-            if (item) updateStatus(item.id, "done");
           }
 
           toast.success(`Multi-page document "${title}" created with ${uploadedDocIds.length} pages`);
@@ -220,6 +221,7 @@ export default function UploadPage({ projectId, project }: Props) {
       utils.projects.stats.invalidate({ id: projectId });
       utils.documents.list.invalidate({ projectId });
       utils.documents.listPaginated.invalidate();
+      utils.billing.getMyPlan.invalidate();
       return;
     }
 
@@ -236,13 +238,13 @@ export default function UploadPage({ projectId, project }: Props) {
       });
       updateStatus(item.id, "transcribing");
       if (doc) {
-        // Fire transcription but don't block on it — it may take 30-60s per doc
-        // The server processes it regardless; we mark as done after triggering
+        // The server continues durable transcription work after a client
+        // timeout, so the upload itself remains successful once submitted.
         try {
           await transcribeDoc.mutateAsync({ documentId: doc.id, projectId });
         } catch {
-          // Transcription timeout is common for large documents but the server
-          // still processes them. Don't mark as error — just continue.
+          // Keep the item complete; the document status is refreshed from the
+          // server in the review queue once processing finishes.
         }
       }
       updateStatus(item.id, "done");
