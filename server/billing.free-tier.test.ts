@@ -36,4 +36,13 @@ describe("free-tier safeguards", () => {
     expect(billingBlock).toContain("if (!BILLING_LAUNCH_ENABLED)");
     expect(billingBlock).toContain("Paid upgrades are not available yet.");
   });
+
+  it("charges project-owner capacity and blocks an oversized multi-page group before upload", () => {
+    const routerSource = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
+    const uploadSource = readFileSync(new URL("../client/src/pages/project/UploadPage.tsx", import.meta.url), "utf8");
+
+    expect(routerSource).toContain("reserveDocumentQuotaSlot(project.userId)");
+    expect(uploadSource).toContain("isMultiPage && remaining !== null && pending.length > remaining");
+    expect(uploadSource).toContain("This multi-page document has ${pending.length} pages");
+  });
 });
