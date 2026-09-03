@@ -52,4 +52,13 @@ describe("free-tier safeguards", () => {
     expect(uploadSource).toContain("isMultiPage && remaining !== null && pending.length > remaining");
     expect(uploadSource).toContain("This multi-page document has ${pending.length} pages");
   });
+
+  it("directs capped users to Adam for additional usage", () => {
+    const uploadSource = readFileSync(new URL("../client/src/pages/project/UploadPage.tsx", import.meta.url), "utf8");
+    const billingSource = readFileSync(new URL("../client/src/pages/BillingPage.tsx", import.meta.url), "utf8");
+
+    expect(uploadSource).toContain("Email adamamin2027@gmail.com for additional usage.");
+    expect(uploadSource).toContain("mailto:adamamin2027@gmail.com");
+    expect(billingSource).toContain("Email {CONTACT_EMAIL} for additional usage.");
+  });
 });

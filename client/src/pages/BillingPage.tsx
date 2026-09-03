@@ -82,7 +82,7 @@ export default function BillingPage() {
           <div>
             <p className="font-medium">Need additional capacity?</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Paid upgrades are not available yet. For research or institutional access, contact Adam directly.
+              Email {CONTACT_EMAIL} for additional usage.
             </p>
             <a className="mt-2 inline-block text-sm font-medium text-primary hover:underline" href={`mailto:${CONTACT_EMAIL}`}>
               {CONTACT_EMAIL}

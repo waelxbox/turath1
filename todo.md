@@ -821,3 +821,4 @@
 - [x] Reconcile Codex’s GitHub document-cap commit with the uncheckpointed local free-tier safeguard and validate the merged behavior
 - [x] Resolve the mysql2 and qs production dependency advisories discovered during pre-publish validation
 - [x] Reduce the free upload allowance to 20 documents for non-admin users while keeping Adam’s account unlimited
+- [x] Add adamamin2027@gmail.com as the contact for additional document usage in limit messaging
