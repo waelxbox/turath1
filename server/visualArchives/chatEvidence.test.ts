@@ -12,6 +12,7 @@ describe("Visual Archive answer evidence validation", () => {
   });
 
   it("fails closed when the model omits citations or invents a record number", () => {
+    expect(validateEvidenceLinkedAnswer("Stone is visible. [Record 1]\n\nThis is the oldest building in Egypt.", [1]).insufficientEvidence).toBe(true);
     expect(validateEvidenceLinkedAnswer("The image shows a courtyard.", [1]).insufficientEvidence).toBe(true);
     expect(validateEvidenceLinkedAnswer("The image shows a courtyard. [Record 99]", [1]).insufficientEvidence).toBe(true);
   });

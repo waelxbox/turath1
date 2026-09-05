@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import { nextReviewRecord } from "@shared/visualReviewQueue";
 
 type VisualProject = {
   id: number;
@@ -699,12 +700,14 @@ function VisualSearchPage({ projectId, canEdit }: { projectId: number; canEdit: 
   const activeProjectIdRef = useRef(projectId);
   const [draftQuery, setDraftQuery] = useState("");
   const [query, setQuery] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [searchOffset, setSearchOffset] = useState(0);
   const [facets, setFacets] = useState<Partial<Record<(typeof DISCOVERY_FACETS)[number], string[]>>>({});
   const [includeDrafts, setIncludeDrafts] = useState(false);
   const [referenceName, setReferenceName] = useState<string | null>(null);
   const [referenceResults, setReferenceResults] = useState<Array<{ asset: { id: string; thumbnailUrl: string | null; filename: string }; record: { id: string; title: string; recordType: string } | null; score: number; classification: string; explanation: string }> | null>(null);
-  const search = trpc.visualArchives.searchReviewedCatalog.useQuery({ projectId, query, facets, includeDrafts, offset: searchOffset, limit: 48 });
+  const search = trpc.visualArchives.searchReviewedCatalog.useQuery({ projectId, query, facets, includeDrafts, offset: searchOffset, limit: 48, dateFrom: /^\d{1,4}$/.test(dateFrom) && +dateFrom > 0 ? +dateFrom : undefined, dateTo: /^\d{1,4}$/.test(dateTo) && +dateTo > 0 ? +dateTo : undefined });
   const availability = trpc.visualArchives.availability.useQuery();
   const findSimilar = trpc.visualArchives.findSimilarToUploadedImage.useMutation({
     onSuccess: (result, variables) => {
@@ -720,6 +723,8 @@ function VisualSearchPage({ projectId, canEdit }: { projectId: number; canEdit: 
     activeProjectIdRef.current = projectId;
     setDraftQuery("");
     setQuery("");
+    setDateFrom("");
+    setDateTo("");
     setSearchOffset(0);
     setFacets({});
     setIncludeDrafts(false);
@@ -754,11 +759,13 @@ function VisualSearchPage({ projectId, canEdit }: { projectId: number; canEdit: 
     });
     setSearchOffset(0);
   };
-  const clearFilters = () => { setFacets({}); setDraftQuery(""); setQuery(""); setSearchOffset(0); };
+  const clearFilters = () => { setFacets({}); setDraftQuery(""); setQuery(""); setDateFrom(""); setDateTo(""); setSearchOffset(0); };
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <VisualPageHeading eyebrow="Discovery" title="Explore approved catalog evidence" description="Search titles and reviewed metadata, or compare a temporary reference image with this archive. AI drafts and unreviewed identifications stay out of results by default." actions={canEdit ? <label className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-sm"><input type="checkbox" checked={includeDrafts} onChange={event => { setIncludeDrafts(event.target.checked); setReferenceResults(null); setSearchOffset(0); }} /> Include draft records</label> : undefined} />
       <form className="rounded-lg border border-border bg-card p-3 sm:flex sm:gap-2" onSubmit={event => { event.preventDefault(); setSearchOffset(0); setQuery(draftQuery.trim()); }}><Input value={draftQuery} onChange={event => setDraftQuery(event.target.value)} placeholder="Search places, subjects, materials, titles…" aria-label="Search approved visual catalog" /><Button type="submit" className="mt-2 w-full sm:mt-0 sm:w-auto"><Search className="mr-2 h-4 w-4" />Search</Button></form>
+      <div className="flex flex-wrap items-end gap-3"><label className="text-sm">From year<Input type="number" min={1} max={9999} value={dateFrom} onChange={event => { setDateFrom(event.target.value); setSearchOffset(0); }} placeholder="1935" /></label><label className="text-sm">To year<Input type="number" min={1} max={9999} value={dateTo} onChange={event => { setDateTo(event.target.value); setSearchOffset(0); }} placeholder="1955" /></label>{(dateFrom || dateTo) && <Button variant="ghost" onClick={clearFilters}>Clear filters</Button>}<p className="text-xs text-muted-foreground">Ranked keyword matches · date filters use reviewed dates; undated records are excluded.</p></div>
+      {search.isError && <div role="alert" className="rounded-lg border border-destructive p-4 text-sm">Search could not load: {search.error.message}<Button variant="outline" className="ml-3" onClick={() => void search.refetch()}>Retry</Button></div>}
       <section className="rounded-lg border border-border bg-card p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-medium">Search by reference image</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Compare a local JPEG or PNG against project fingerprints. The reference is processed in memory and never saved. Results are visual signals, not catalog facts.</p></div><div className="shrink-0"><input ref={referenceInputRef} type="file" accept="image/jpeg,image/png" className="hidden" onChange={event => void searchReference(event.target.files?.[0])} /><Button variant="outline" onClick={() => referenceInputRef.current?.click()} disabled={findSimilar.isPending}>{findSimilar.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ImagePlus className="mr-2 h-4 w-4" />}{findSimilar.isPending ? "Comparing…" : "Choose reference image"}</Button></div></div>{referenceName && <p className="mt-3 text-xs text-muted-foreground">Reference: <span className="font-medium text-foreground">{referenceName}</span> · {includeDrafts ? "approved and draft records" : "approved records only"}</p>}{referenceResults && <div className="mt-4 border-t border-border pt-4"><div className="mb-3 flex items-center justify-between"><p className="text-sm font-medium">Visual matches</p><Button size="sm" variant="ghost" className="h-7 px-0 text-xs" onClick={() => { setReferenceResults(null); setReferenceName(null); if (referenceInputRef.current) referenceInputRef.current.value = ""; }}>Clear</Button></div>{referenceResults.length ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{referenceResults.map(item => <Link key={item.asset.id} href={item.record ? `/records/${item.record.id}` : "/assets"} className="group overflow-hidden rounded-md border border-border hover:border-primary/60"><div className="aspect-square bg-slate-100 dark:bg-slate-900">{item.asset.thumbnailUrl ? <img src={item.asset.thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <div className="flex h-full items-center justify-center"><Images className="h-5 w-5 text-muted-foreground" /></div>}</div><div className="p-2"><p className="truncate text-xs font-medium group-hover:text-primary">{item.record?.title ?? item.asset.filename}</p><p className="mt-1 text-[11px] text-muted-foreground">{Math.round(item.score * 100)}% · {item.classification}</p></div></Link>)}</div> : <p className="py-6 text-sm text-muted-foreground">No close visual matches were found in this project scope.</p>}</div>}</section>
       {!availability.data?.memoryEnabled && <div className="flex flex-col gap-2 rounded-lg border border-dashed border-border bg-muted/25 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"><div><p className="font-medium">Semantic visual memory is not enabled</p><p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">Text-vector and hybrid semantic results are intentionally unavailable until the dedicated Visual Archives migration is applied and the feature is explicitly enabled. No semantic results are being simulated.</p></div><Badge variant="outline" className="w-fit rounded-full">Unavailable</Badge></div>}
       <div className="grid gap-8 lg:grid-cols-[230px_1fr]">
@@ -850,7 +857,8 @@ function VisualAskArchivePage({ projectId }: { projectId: number }) {
     const history = messages.slice(-8).map(message => ({ role: message.role, content: message.content.slice(0, 2000) }));
     setMessages(current => [...current, { role: "user", content } satisfies VisualChatMessage].slice(-24));
     setQuestion("");
-    ask.mutate({ projectId, question: content, history });
+    const lastAnswer = [...messages].reverse().find(message => message.role === "assistant" && message.sources?.length);
+    ask.mutate({ projectId, question: content, history, contextRecordIds: lastAnswer?.sources?.map(source => source.recordId).slice(0, 12) ?? [] });
   };
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -991,6 +999,7 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
       utils.visualArchives.listRecordsPage.invalidate(),
       utils.visualArchives.searchReviewedCatalog.invalidate(),
       utils.visualArchives.stats.invalidate({ projectId }),
+      utils.visualArchives.listRecordIds.invalidate({ projectId }),
     ]);
     if (refreshes.some(result => result.status === "rejected")) {
       toast.error("Saved, but the review queue could not refresh. Reload before continuing.");
@@ -1021,9 +1030,7 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
       return;
     }
     const nextStatus = status ?? (record.status === "approved" ? "needs_review" : record.status);
-    const nextActionableRecordId = (nextStatus === "approved" || nextStatus === "archived")
-      ? reviewSequence.find(item => item.id !== record.id)?.id
-      : undefined;
+    const sequenceBeforeSave = reviewSequence;
     void runLockedOperation(nextStatus === "approved" ? "Approving record" : nextStatus === "archived" ? "Archiving record" : "Saving changes", async () => {
       const updated = await update.mutateAsync({
         projectId,
@@ -1035,12 +1042,23 @@ function RecordEditor({ projectId, canEdit }: { projectId: number; canEdit: bool
         changeSummary: nextStatus === "approved" ? "Record approved" : nextStatus === "archived" ? "Record rejected from active review" : "Catalog fields updated",
       });
       updateCachedRecord(updated);
-      toast.success(nextStatus === "approved" ? "Record approved" : nextStatus === "archived" ? "Record archived" : "Changes saved");
+      if (nextStatus !== "approved" && nextStatus !== "archived") toast.success("Changes saved");
       await refreshRecordLists();
       if (nextStatus === "approved" || nextStatus === "archived") {
+        const queueInput = { projectId, recordType: "image" as const, status: "needs_review" as const, limit: 500 };
+        utils.visualArchives.listRecordIds.setData(queueInput, current => current?.filter(item => item.id !== record.id));
+        let remaining: typeof reviewSequence;
+        try {
+          remaining = await utils.visualArchives.listRecordIds.fetch(queueInput);
+        } catch {
+          setReviewOutcome(null);
+          toast.error("Record saved. Could not load the next image; return to the catalog to continue.");
+          return;
+        }
+        const nextActionableRecordId = nextReviewRecord(sequenceBeforeSave, record.id, remaining);
         setReviewOutcome({ kind: nextStatus, nextRecordId: nextActionableRecordId });
+        toast.success(nextStatus === "approved" ? "Record approved" : "Record archived");
         if (advanceAfterCompletion && nextActionableRecordId) {
-          toast.success(nextStatus === "approved" ? "Approved. Opening the next record." : "Archived. Opening the next record.");
           navigate(`/records/${nextActionableRecordId}`);
         }
       }

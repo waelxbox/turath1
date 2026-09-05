@@ -88,7 +88,7 @@ vi.mock("./visualArchives/db", () => ({
   listVisualAssetsPage,
   listVraRecords,
   listVraRecordsPage,
-  listVraRelations: vi.fn(),
+  listVraRelations: vi.fn().mockResolvedValue([]),
   rejectVraSuggestionFields,
   unlinkImageRecordsFromWork,
   updateVisualAsset,
@@ -108,6 +108,7 @@ vi.mock("./_core/llm", () => ({ invokeLLM }));
 
 import { visualArchivesRouter } from "./visualArchives/router";
 import { VraRevisionConflictError } from "./visualArchives/recordConcurrency";
+import { listVraRelations } from "./visualArchives/db";
 
 function caller(userId = 7, email = "adamamin2027@gmail.com") {
   return visualArchivesRouter.createCaller({
@@ -124,6 +125,7 @@ describe("Visual Archives router boundaries", () => {
     getVisualProjectMode.mockResolvedValue({ projectId: 12, archiveMode: "visual_vra" });
     getVisualAssetsByIds.mockResolvedValue([]);
     listVraRecords.mockResolvedValue([]);
+    vi.mocked(listVraRelations).mockResolvedValue([]);
     listVraRecordsPage.mockResolvedValue({ items: [], total: 0, nextCursor: null });
     listVisualAssetsPage.mockResolvedValue({ items: [], total: 0, nextCursor: null });
     listVisualAssets.mockResolvedValue([]);
@@ -303,6 +305,37 @@ describe("Visual Archives router boundaries", () => {
     expect(result.answer).toContain("No approved catalog records");
     expect(result.insufficientEvidence).toBe(true);
     expect(invokeLLM).not.toHaveBeenCalled();
+  });
+
+  it("uses approved follow-up relationships and excludes unknown context IDs", async () => {
+    const imageId = "123e4567-e89b-12d3-a456-426614174011";
+    const workId = "123e4567-e89b-12d3-a456-426614174012";
+    const hiddenId = "123e4567-e89b-12d3-a456-426614174013";
+    listVraRecords.mockResolvedValue([
+      { id: imageId, title: "Facade", recordType: "image", reviewedJson: { description: "stone" }, assetId: null },
+      { id: workId, title: "Related monument", recordType: "work", reviewedJson: { locations: ["Cairo"] }, assetId: null },
+    ]);
+    vi.mocked(listVraRelations).mockResolvedValue([
+      { sourceRecordId: workId, targetRecordId: imageId, relationType: "hasImage" },
+      { sourceRecordId: workId, targetRecordId: hiddenId, relationType: "hasImage" },
+    ] as any);
+    invokeLLM.mockResolvedValue({ choices: [{ message: { content: "The image is linked to the monument. [Record 1] [Record 2]" } }] });
+    const result = await caller().askArchive({ projectId: 12, question: "Compare those", contextRecordIds: [imageId, hiddenId] });
+    expect(result.sources.map(source => source.recordId)).toEqual([imageId, workId]);
+    expect(listVraRecords).toHaveBeenCalledWith({ projectId: 12, status: "approved" });
+    expect(listVraRelations).toHaveBeenCalledWith(12);
+    expect(JSON.stringify(invokeLLM.mock.calls[0][0])).toContain("hasImage");
+    expect(JSON.stringify(invokeLLM.mock.calls[0][0])).not.toContain(hiddenId);
+  });
+
+  it("applies date ranges to reviewed metadata and rejects reversed filters", async () => {
+    listVraRecords.mockResolvedValue([
+      { id: "a", title: "Cinema", reviewedJson: { dates: ["1940"] }, assetId: null },
+      { id: "b", title: "Cinema", reviewedJson: { dates: ["1970"] }, assetId: null },
+    ]);
+    const result = await caller().searchReviewedCatalog({ projectId: 12, query: "cinema", dateFrom: 1935, dateTo: 1955 });
+    expect(result.items.map(item => item.id)).toEqual(["a"]);
+    await expect(caller().searchReviewedCatalog({ projectId: 12, dateFrom: 1955, dateTo: 1935 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
   it("returns an insufficient-evidence response rather than making an unsupported visual archive inference", async () => {
