@@ -11,6 +11,9 @@ import Onboarding from "./pages/Onboarding";
 import ProjectWorkspace from "./pages/ProjectWorkspace";
 import ValidationReviewPortal from "./pages/ValidationReviewPortal";
 import BillingPage from "./pages/BillingPage";
+import { lazy, Suspense } from "react";
+
+const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 
 function Router() {
   return (
@@ -18,6 +21,7 @@ function Router() {
       <Route path="/" component={Home} />
       <Route path="/privacy" component={PrivacyPolicy} />
       <Route path="/dashboard" component={Dashboard} />
+      <Route path="/admin"><Suspense fallback={<div className="p-12 text-center" role="status">Loading administration…</div>}><AdminDashboard /></Suspense></Route>
       <Route path="/settings/billing" component={BillingPage} />
       <Route path="/projects/:id/onboarding" component={Onboarding} />
       {/* Sandboxed Review Portal — no auth, no nav */}

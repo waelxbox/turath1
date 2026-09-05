@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import GuidedTour, { useTourState } from "@/components/GuidedTour";
+import { isPlatformOwner } from "@shared/admin";
 
 /** Theme toggle for the dashboard header */
 function DashboardThemeToggle() {
@@ -243,6 +244,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-2 md:gap-3">
             <span className="text-sm text-muted-foreground hidden md:inline">{user?.name ?? user?.email}</span>
             <DashboardThemeToggle />
+            {isPlatformOwner(user?.email) && <Button variant="outline" size="sm" onClick={() => navigate("/admin")}>Admin</Button>}
             <Button variant="outline" size="sm" onClick={() => navigate("/logout")} className="bg-transparent">
               Sign out
             </Button>
