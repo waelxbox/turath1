@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { adminRouter } from "./admin/router";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -3454,6 +3455,7 @@ const platformRouter = router({
 });
 
 export const appRouter = router({
+  admin: adminRouter,
   system: systemRouter,
   auth: authRouter,
   projects: projectsRouter,
