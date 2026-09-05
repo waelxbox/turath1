@@ -15,11 +15,11 @@
 - Dates use four-digit years in reviewed `dates` values; complex historic/uncertain date expressions are not fully modeled.
 - Search and chat still read the project's approved catalog into memory. Database-ranked retrieval is needed for larger archives.
 - Device-local conversation storage remains unchanged. Account-scoped durable conversations are separate work.
-- Verify live approval/next navigation, year filters, search results, and conversational follow-ups in a private preview before deploying. No live UI or provider call was exercised in this iteration.
+- The authenticated live sandbox preview cannot complete Google OAuth because its temporary callback URI is not registered. Responsive search/chat checks therefore use the production client bundle with local-only intercepted authentication and synthetic Visual Archives API data. Real private-record approval and Gemini follow-up smoke tests remain appropriate after publishing to an authorized TURATH domain.
 
 ## Verification
 
-- TypeScript: `tsc --noEmit` passed.
-- 201 tests across 23 suites passed, including document review, billing, and tenant isolation.
-- Credential/live-database suites `google-oauth.test.ts` and `members.test.ts` excluded, as in the preceding dashboard verification.
-- `git diff --check` passed.
+- Independent focused validation: 56 Visual Archives tests across 9 suites passed.
+- Independent full validation: 217 tests across 25 suites passed, including document review, billing, authorization, and tenant isolation.
+- TypeScript, production build, `git diff --check`, and the production dependency audit passed; no known production dependency vulnerabilities were reported.
+- `scripts/visual-review-search-chat-ui-qa.mjs` passed desktop (1440px) and mobile (390px) search/chat checks with no horizontal overflow or browser page errors, using synthetic local-only data.

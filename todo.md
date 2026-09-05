@@ -824,3 +824,4 @@
 - [x] Add adamamin2027@gmail.com as the contact for additional document usage in limit messaging
 - [x] Review and selectively integrate Codex administrator dashboard commit b6430ae with strict owner-only authorization and independent validation
 - [ ] Add an administrator error-triage view with explainable confidence/risk signals, rule-based anomaly detection, and manual flag/resolve workflows for potentially incorrect transcriptions, metadata, stalled jobs, duplicate records, and suspicious usage; never present model confidence as factual certainty
+- [x] Review and selectively integrate `codex/visual-review-search-chat`, preserving document processing and keeping true embedding search explicitly unimplemented
