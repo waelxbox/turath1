@@ -234,9 +234,9 @@ function Overview({ rates }: { rates: CostRates }) {
           note={`${number(t.newUsers30)} joined in the last 30 days`}
         />
         <Metric
-          name="Signed in · last 30 days"
+          name="Users signed in · last 30 days"
           value={number(t.signedIn30)}
-          note={`${number(t.signedIn7)} in the last 7 days; sign-ins, not daily activity`}
+          note={`${number(t.signedIn7)} in the last 7 days; based on each account's latest sign-in`}
         />
         <Metric
           name="Projects"
@@ -835,8 +835,13 @@ export default function AdminDashboard() {
     body = (
       <div className="p-12 text-center">
         <h1 className="text-xl font-semibold">Sign in to continue</h1>
-        <Button className="mt-4" asChild>
-          <a href={getLoginUrl()}>Sign in</a>
+        <Button
+          className="mt-4"
+          onClick={() => {
+            window.location.href = getLoginUrl();
+          }}
+        >
+          Sign in
         </Button>
       </div>
     );

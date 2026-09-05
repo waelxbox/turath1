@@ -1,5 +1,6 @@
 import { sql, type SQL } from "drizzle-orm";
 import { FREE_DOCUMENT_LIMIT } from "../billing/products";
+import { PLATFORM_OWNER_EMAIL } from "../../shared/admin";
 
 // Aggregate each child table before joining, so multiple documents, members and
 // jobs never multiply each other's counts. Detail requests scope first.
@@ -90,7 +91,7 @@ export const overviewQuery = sql`with ${projectMetrics()}
     (select count(*)::float8 from users where "createdAt" >= now() - interval '30 days') "newUsers30",
     (select count(*)::float8 from users where "lastSignedIn" >= now() - interval '30 days') "signedIn30",
     (select count(*)::float8 from users where "lastSignedIn" >= now() - interval '7 days') "signedIn7",
-    (select count(*)::float8 from users where "documentQuotaUsed" >= ${FREE_DOCUMENT_LIMIT} and lower(trim(coalesce(email, ''))) <> 'adamamin2027@gmail.com') "cappedUsers"
+    (select count(*)::float8 from users where "documentQuotaUsed" >= ${FREE_DOCUMENT_LIMIT} and lower(trim(coalesce(email, ''))) <> ${PLATFORM_OWNER_EMAIL}) "cappedUsers"
   from metrics`;
 
 export const trendQuery = sql`
@@ -112,7 +113,7 @@ export function userFilter(search: string, cappedOnly: boolean): SQL {
   // Literal substring search; wildcard characters supplied by users stay literal.
   const term = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
   return sql`(u.name ilike ${term} or u.email ilike ${term} or u.id::text = ${search} or ${search} = '')
-    and (${!cappedOnly} or (u."documentQuotaUsed" >= ${FREE_DOCUMENT_LIMIT} and lower(trim(coalesce(u.email, ''))) <> 'adamamin2027@gmail.com'))`;
+    and (${!cappedOnly} or (u."documentQuotaUsed" >= ${FREE_DOCUMENT_LIMIT} and lower(trim(coalesce(u.email, ''))) <> ${PLATFORM_OWNER_EMAIL}))`;
 }
 
 export function usersQuery(

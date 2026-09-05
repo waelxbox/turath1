@@ -97,7 +97,7 @@ For UI checks using synthetic data only:
 
 ```sh
 pnpm exec vite --host 127.0.0.1 --port 5183
-# In another terminal; uses installed Chrome in a separate headless profile:
+# In another terminal; uses installed Chromium/Chrome in a separate headless profile:
 node scripts/admin-dashboard-ui-qa.mjs
 ```
 
@@ -107,12 +107,10 @@ test runtime is required. The script verifies desktop/mobile layout, cost
 inputs, pagination, member expansion, empty/error/retry, and denied/anonymous
 states without credentials or a real TURATH database.
 
-Verification completed for this change: TypeScript passed; production client
-and server builds passed; 193 tests across 22 suites passed, including 13 admin
-tests. The two environment-dependent suites (`google-oauth.test.ts` and
-`members.test.ts`) were excluded from the local regression run because they need
-live credentials/database configuration. The UI smoke test passed against the
-production bundle with synthetic API responses on desktop and 390px mobile.
+Independent verification after integration: TypeScript passed; production client
+and server builds passed; 209 tests across 71 suites passed, including 13 admin
+tests, with no suites excluded. The UI smoke test passed against a local-only
+Vite preview with synthetic API responses on desktop and 390px mobile.
 Use `ADMIN_QA_BASE` to point the UI script at a different local preview port.
 The existing build still reports analytics environment, font-import ordering,
 and large-bundle warnings. Nothing was deployed or changed in the live database.

@@ -1,6 +1,8 @@
 /** The dashboard has its own allowlist; general admin roles do not grant access. */
+export const PLATFORM_OWNER_EMAIL = "adamamin2027@gmail.com";
+
 export function isPlatformOwner(email?: string | null): boolean {
-  return email?.trim().toLowerCase() === "adamamin2027@gmail.com";
+  return email?.trim().toLowerCase() === PLATFORM_OWNER_EMAIL;
 }
 
 export type CostRates = {

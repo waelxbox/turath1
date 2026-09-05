@@ -822,3 +822,4 @@
 - [x] Resolve the mysql2 and qs production dependency advisories discovered during pre-publish validation
 - [x] Reduce the free upload allowance to 20 documents for non-admin users while keeping Adam’s account unlimited
 - [x] Add adamamin2027@gmail.com as the contact for additional document usage in limit messaging
+- [x] Review and selectively integrate Codex administrator dashboard commit b6430ae with strict owner-only authorization and independent validation

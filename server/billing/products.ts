@@ -1,13 +1,12 @@
 // TURATH access plans. Paid checkout remains intentionally disabled until the
 // launch configuration and webhook verification are completed.
 
+import { PLATFORM_OWNER_EMAIL, isPlatformOwner } from "../../shared/admin";
+
 export const BILLING_LAUNCH_ENABLED = false;
 export const FREE_DOCUMENT_LIMIT = 20;
-export const UNLIMITED_OWNER_EMAIL = "adamamin2027@gmail.com";
-
-export function isUnlimitedOwnerEmail(email?: string | null): boolean {
-  return email?.trim().toLowerCase() === UNLIMITED_OWNER_EMAIL;
-}
+export const UNLIMITED_OWNER_EMAIL = PLATFORM_OWNER_EMAIL;
+export const isUnlimitedOwnerEmail = isPlatformOwner;
 
 export const PLANS = {
   free: {

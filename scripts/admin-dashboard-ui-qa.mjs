@@ -4,13 +4,20 @@ const { chromium } = await import(
   process.env.ADMIN_QA_PLAYWRIGHT || "playwright"
 );
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 
 const base = process.env.ADMIN_QA_BASE || "http://127.0.0.1:5183";
 assert.ok(["127.0.0.1", "localhost"].includes(new URL(base).hostname), "QA must target a local server");
 const output = process.env.ADMIN_QA_OUTPUT || "/tmp/turath-admin-qa";
 await mkdir(output, { recursive: true });
-const browser = await chromium.launch({ channel: "chrome", headless: true });
+const chromiumPath =
+  process.env.ADMIN_QA_CHROMIUM ||
+  (existsSync("/usr/bin/chromium") ? "/usr/bin/chromium" : undefined);
+const browser = await chromium.launch({
+  ...(chromiumPath ? { executablePath: chromiumPath } : { channel: "chrome" }),
+  headless: true,
+});
 const context = await browser.newContext({
   viewport: { width: 1440, height: 1000 },
 });

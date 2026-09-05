@@ -4,9 +4,11 @@ import {
   BILLING_LAUNCH_ENABLED,
   FREE_DOCUMENT_LIMIT,
   PLANS,
+  UNLIMITED_OWNER_EMAIL,
   getDocumentLimit,
   isUnlimitedOwnerEmail,
 } from "./billing/products";
+import { PLATFORM_OWNER_EMAIL } from "../shared/admin";
 
 describe("free-tier safeguards", () => {
   it("defines a 20-document free tier while paid checkout remains disabled", () => {
@@ -17,6 +19,7 @@ describe("free-tier safeguards", () => {
   });
 
   it("only grants unlimited document access to Adam's normalized owner email", () => {
+    expect(UNLIMITED_OWNER_EMAIL).toBe(PLATFORM_OWNER_EMAIL);
     expect(isUnlimitedOwnerEmail(" ADAMAMIN2027@GMAIL.COM ")).toBe(true);
     expect(isUnlimitedOwnerEmail("researcher@example.com")).toBe(false);
     expect(isUnlimitedOwnerEmail(null)).toBe(false);
