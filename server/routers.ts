@@ -18,6 +18,7 @@ import {
   getDocumentsByProjectId,
   getDocumentById,
   updateDocumentStatus,
+  claimDocumentForTranscription,
   createTranscription,
   getTranscriptionByDocumentId,
   updateReviewedJson,
@@ -103,6 +104,11 @@ import { isVisualArchivesEnabled, isVisualArchivesPreviewUser } from "./visualAr
 type ProjectRole = "owner" | "editor" | "viewer";
 
 const STORAGE_FETCH_TIMEOUT_MS = 30_000;
+const SINGLE_TRANSCRIPTION_RETRY_DELAY_MS = process.env.NODE_ENV === "test" ? 0 : 2_000;
+
+export function isRetryableTranscriptionError(message: string): boolean {
+  return /timeout|timed out|aborted|fetch failed|econnreset|429|resource_exhausted|unavailable|\b50[0234]\b/i.test(message);
+}
 
 async function fetchStorageObject(url: string): Promise<Buffer> {
   const response = await fetch(url, {
@@ -844,7 +850,7 @@ const documentsRouter = router({
         const key = `projects/${input.projectId}/documents/${Date.now()}-${input.filename}`;
         await storagePut(key, buffer, input.mimeType ?? "image/jpeg");
 
-        await createDocument({
+        const createdDocument = await createDocument({
           projectId: input.projectId,
           filename: input.filename,
           storagePath: key,
@@ -853,6 +859,12 @@ const documentsRouter = router({
           fileSizeBytes: input.fileSizeBytes ?? null,
           status: "pending",
         });
+
+        // Return the row created by this request. Re-querying the project's
+        // newest document races under parallel uploads and can return another
+        // request's document ID.
+        logActivity({ projectId: input.projectId, userId: ctx.user.id, action: "document_uploaded", metadata: { filename: input.filename } }).catch(() => {});
+        return { ...withDocumentAccessUrl(createdDocument), usage: quota };
       } catch (error) {
         if (quota.quotaReserved) {
           await releaseDocumentQuotaSlot(project.userId).catch((releaseError) => {
@@ -862,10 +874,6 @@ const documentsRouter = router({
         throw error;
       }
 
-      const docs = await getDocumentsByProjectId(input.projectId);
-      // Log activity
-      logActivity({ projectId: input.projectId, userId: ctx.user.id, action: "document_uploaded", metadata: { filename: input.filename } }).catch(() => {});
-      return { ...withDocumentAccessUrl(docs[0]), usage: quota };
     }),
 
   transcribe: protectedProcedure
@@ -881,8 +889,28 @@ const documentsRouter = router({
       const doc = await getDocumentById(input.documentId, input.projectId);
       if (!doc) throw new TRPCError({ code: "NOT_FOUND" });
 
-      // Mark as processing
-      await updateDocumentStatus(input.documentId, input.projectId, "processing");
+      const claimed = await claimDocumentForTranscription(input.documentId, input.projectId);
+      if (!claimed) {
+        throw new TRPCError({ code: "CONFLICT", message: "This document is already being transcribed." });
+      }
+
+      const job = await createJob({
+        projectId: input.projectId,
+        documentId: input.documentId,
+        type: "transcribe",
+        status: "running",
+        progress: 0,
+        totalItems: 1,
+        completedItems: 0,
+        metadata: { source: "single_document" },
+      }).catch((error) => {
+        console.error("[Transcription] Failed to create single-document job telemetry", {
+          documentId: input.documentId,
+          projectId: input.projectId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      });
 
       try {
         // Fetch image from storage
@@ -890,7 +918,16 @@ const documentsRouter = router({
         const { url } = await storageGetDoc(doc.storagePath);
         const base64 = (await fetchStorageObject(url)).toString("base64");
 
-        const result = await processDocument(project, base64, doc.mimeType ?? "image/jpeg", doc.filename);
+        let result = await processDocument(project, base64, doc.mimeType ?? "image/jpeg", doc.filename);
+        if (result.error && isRetryableTranscriptionError(result.error)) {
+          console.warn("[Transcription] Retrying transient single-document failure", {
+            documentId: input.documentId,
+            projectId: input.projectId,
+            message: result.error,
+          });
+          await new Promise((resolve) => setTimeout(resolve, SINGLE_TRANSCRIPTION_RETRY_DELAY_MS));
+          result = await processDocument(project, base64, doc.mimeType ?? "image/jpeg", doc.filename);
+        }
 
         if (result.error) {
           await updateDocumentStatus(input.documentId, input.projectId, "error", result.error);
@@ -906,12 +943,25 @@ const documentsRouter = router({
         });
 
         await updateDocumentStatus(input.documentId, input.projectId, "needs_review");
+        if (job) {
+          updateJob(job.id, { status: "completed", progress: 100, completedItems: 1, errorMessage: null })
+            .catch((error) => console.error("[Transcription] Failed to complete job telemetry", error));
+        }
         // Log activity
         logActivity({ projectId: input.projectId, userId: ctx.user.id, action: "document_transcribed", metadata: { documentId: input.documentId } }).catch(() => {});
         return { success: true };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         await updateDocumentStatus(input.documentId, input.projectId, "error", msg);
+        if (job) {
+          updateJob(job.id, { status: "failed", errorMessage: msg })
+            .catch((error) => console.error("[Transcription] Failed to record job failure", error));
+        }
+        console.error("[Transcription] Single-document processing failed", {
+          documentId: input.documentId,
+          projectId: input.projectId,
+          message: msg,
+        });
         return { success: false, error: msg };
       }
     }),

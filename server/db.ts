@@ -461,15 +461,36 @@ export async function getDocumentById(id: number, projectId: number) {
   return result[0];
 }
 
-export async function updateDocumentStatus(id: number, projectId: number, status: Document["status"], errorMessage?: string) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+export function buildDocumentStatusUpdate(status: Document["status"], errorMessage?: string): Partial<InsertDocument> {
   const update: Partial<InsertDocument> = { status };
   if (["needs_review", "reviewed", "error"].includes(status)) update.processedAt = new Date();
   if (errorMessage !== undefined) update.errorMessage = errorMessage;
+  else if (status !== "error") update.errorMessage = null;
+  return update;
+}
+
+export async function updateDocumentStatus(id: number, projectId: number, status: Document["status"], errorMessage?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const update = buildDocumentStatusUpdate(status, errorMessage);
   await db.update(documents)
     .set(update)
     .where(and(eq(documents.id, id), eq(documents.projectId, projectId)));
+}
+
+/** Atomically prevent two requests from transcribing the same document at once. */
+export async function claimDocumentForTranscription(id: number, projectId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const claimed = await db.update(documents)
+    .set({ status: "processing", errorMessage: null })
+    .where(and(
+      eq(documents.id, id),
+      eq(documents.projectId, projectId),
+      sql`${documents.status} <> 'processing'`,
+    ))
+    .returning({ id: documents.id });
+  return claimed.length === 1;
 }
 
 /** Delete a document and all related records (transcriptions, embeddings, entity links) */

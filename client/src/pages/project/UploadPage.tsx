@@ -238,16 +238,22 @@ export default function UploadPage({ projectId, project }: Props) {
       });
       updateStatus(item.id, "transcribing");
       if (doc) {
-        // The server continues durable transcription work after a client
-        // timeout, so the upload itself remains successful once submitted.
         try {
-          await transcribeDoc.mutateAsync({ documentId: doc.id, projectId });
-        } catch {
-          // Keep the item complete; the document status is refreshed from the
-          // server in the review queue once processing finishes.
+          const outcome = await transcribeDoc.mutateAsync({ documentId: doc.id, projectId });
+          if (!outcome.success) {
+            throw new Error(outcome.error || "Transcription failed");
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (/timeout|timed out|aborted|gateway|504/i.test(message)) {
+            updateStatus(item.id, "transcribing", "The server is still processing this document.");
+            return "processing" as const;
+          }
+          throw error;
         }
       }
       updateStatus(item.id, "done");
+      return "done" as const;
     });
 
     const results = await runWithConcurrency(tasks, 10);
@@ -259,7 +265,8 @@ export default function UploadPage({ projectId, project }: Props) {
       }
     });
 
-    const succeeded = results.filter(r => r.status === "fulfilled").length;
+    const succeeded = results.filter(r => r.status === "fulfilled" && r.value === "done").length;
+    const stillProcessing = results.filter(r => r.status === "fulfilled" && r.value === "processing").length;
     const failed = results.filter(r => r.status === "rejected").length;
 
     setIsProcessing(false);
@@ -267,11 +274,13 @@ export default function UploadPage({ projectId, project }: Props) {
     utils.documents.list.invalidate({ projectId });
     utils.billing.getMyPlan.invalidate();
 
-    if (failed === 0) {
+    if (failed === 0 && stillProcessing === 0) {
       setShowSuccess(true);
       toast.success(`${succeeded} document${succeeded !== 1 ? "s" : ""} uploaded and transcribed`);
+    } else if (failed === 0) {
+      toast.info(`${succeeded} completed; ${stillProcessing} still processing on the server`);
     } else {
-      toast.warning(`${succeeded} succeeded, ${failed} failed`);
+      toast.warning(`${succeeded} completed, ${stillProcessing} still processing, ${failed} failed`);
     }
   };
 

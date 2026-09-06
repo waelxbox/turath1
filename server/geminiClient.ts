@@ -12,7 +12,9 @@
 import { ENV } from "./_core/env";
 import type { InvokeParams, InvokeResult } from "./_core/llm";
 
-const GEMINI_REQUEST_TIMEOUT_MS = 120_000;
+// Dense archival pages frequently need more than two minutes with Gemini 3.1
+// Pro. Keep the request bounded, but avoid a TURATH-imposed premature abort.
+export const GEMINI_REQUEST_TIMEOUT_MS = 300_000;
 
 // Known Gemini model IDs — kept in sync with the frontend dropdown
 // Uses the OpenAI-compatible endpoint: https://generativelanguage.googleapis.com/v1beta/openai/
