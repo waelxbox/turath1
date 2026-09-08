@@ -186,6 +186,34 @@ describe("billing launch", () => {
     await sync([next]);
     expect((await quota()).documentsUsed).toBe(1);
   });
+  it("reconciles a paid renewal against Stripe test-clock time", async () => {
+    const futureStart = Math.floor(Date.now() / 1000) + 2_592_000;
+    const futureEnd = futureStart + 2_592_000;
+    const future = subscription({
+      test_clock: "clock_test",
+      current_period_start: futureStart,
+      current_period_end: futureEnd,
+    });
+    await run((tx: any) =>
+      syncCustomerInTransaction(tx, "cus_a", {
+        subscriptions: {
+          list: async () => ({ data: [future], has_more: false }),
+        },
+        testHelpers: {
+          testClocks: {
+            retrieve: async () => ({ frozen_time: futureStart + 60 }),
+          },
+        },
+      } as any)
+    );
+    const account = (
+      await db.query<any>(
+        "SELECT plan,period_key,period_start,period_end FROM billing_accounts WHERE user_id=1"
+      )
+    ).rows[0];
+    expect(account.plan).toBe("pro");
+    expect(account.period_key).toBe(`sub_a:${futureStart}`);
+  });
   it("does not grant capacity for unpaid, unknown-price or invalid subscriptions", async () => {
     expect(
       paidEntitlement(subscription({ latest_invoice: { status: "open" } }))

@@ -39,7 +39,10 @@ const base = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({
   headless: true,
   executablePath:
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    process.env.BILLING_QA_CHROME ||
+    (process.platform === "darwin"
+      ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+      : "/usr/bin/chromium"),
 });
 const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
 let mode = "free",

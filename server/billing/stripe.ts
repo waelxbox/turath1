@@ -241,6 +241,27 @@ export function paidEntitlement(sub: Stripe.Subscription, now = Date.now()) {
   };
 }
 
+async function reconciliationNow(
+  stripe: Stripe,
+  subscriptions: Stripe.Subscription[]
+) {
+  const clockIds = new Set(
+    subscriptions
+      .map(sub =>
+        typeof sub.test_clock === "string"
+          ? sub.test_clock
+          : sub.test_clock?.id
+      )
+      .filter((id): id is string => Boolean(id))
+  );
+  if (clockIds.size === 0) return Date.now();
+  if (clockIds.size > 1)
+    throw new Error("Multiple Stripe test clocks require operator review");
+  const clockId = Array.from(clockIds)[0];
+  const clock = await stripe.testHelpers.testClocks.retrieve(clockId);
+  return clock.frozen_time * 1000;
+}
+
 export async function syncCustomerInTransaction(
   tx: BillingExecutor,
   customerId: string,
@@ -267,8 +288,9 @@ export async function syncCustomerInTransaction(
   });
   if (subscriptions.has_more)
     throw new Error("Too many subscriptions to reconcile safely");
+  const effectiveNow = await reconciliationNow(stripe, subscriptions.data);
   const entitlements = subscriptions.data.flatMap(sub => {
-    const paid = paidEntitlement(sub);
+    const paid = paidEntitlement(sub, effectiveNow);
     return paid ? [paid] : [];
   });
   if (entitlements.length > 1)
@@ -297,7 +319,7 @@ export async function syncCustomerInTransaction(
       previousSub &&
       ["active", "past_due"].includes(previousSub.status) &&
       prior.period_end &&
-      new Date(prior.period_end).getTime() > Date.now()
+      new Date(prior.period_end).getTime() > effectiveNow
     ) {
       await tx.execute(
         sql`UPDATE billing_accounts SET subscription_status=${previousSub.status},synced_at=now() WHERE user_id=${user.id}`

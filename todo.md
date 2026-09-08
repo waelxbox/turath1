@@ -826,3 +826,12 @@
 - [ ] Add an administrator error-triage view with explainable confidence/risk signals, rule-based anomaly detection, and manual flag/resolve workflows for potentially incorrect transcriptions, metadata, stalled jobs, duplicate records, and suspicious usage; never present model confidence as factual certainty
 - [x] Review and selectively integrate `codex/visual-review-search-chat`, preserving document processing and keeping true embedding search explicitly unimplemented
 - [x] Diagnose and fix the high initial transcription failure rate reported on September 6, including exact upload identity, duplicate suppression, transient retry, status clearing, honest client feedback, and error telemetry
+
+## Pricing Launch Review
+- [x] Review and selectively integrate `codex/pricing-launch` according to `docs/pricing-launch.md` without regressing document or Visual Archives workflows
+- [x] Preserve the 20 lifetime free-upload allowance for non-owner accounts and Adam’s unlimited exemption across checkout, renewal, cancellation, and portal flows
+- [x] Audit and safely apply migration `0014`, then configure three Stripe test-mode prices, a verified webhook endpoint, and the customer portal
+- [x] Verify test-mode checkout, webhook idempotency, subscription renewal entitlements, cancellation behavior, portal access, quota accounting, and failure recovery
+- [x] Run focused billing tests, full regressions, TypeScript, production build, dependency audit, responsive pricing QA, and save a publish-ready checkpoint with explicit live-mode gates
+- [ ] Before accepting real payments: claim/activate the Stripe account, complete merchant identity/KYC, and obtain qualified review of taxes, refunds, billing terms, and account ownership
+- [ ] Create matching live-mode prices, portal configuration, and `https://turath.app/api/stripe/webhook`; replace all test resources together, rerun billing preflight, publish, and complete one controlled live-mode payment/refund smoke test before setting `TURATH_PRICING_ENABLED=true`

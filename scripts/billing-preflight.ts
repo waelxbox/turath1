@@ -72,11 +72,17 @@ async function main() {
     throw new Error(
       "Portal upgrades must invoice immediately; do not silently grant unpaid upgrades"
     );
+  // Stripe accepts the product/price allowlist on create/update but omits that
+  // request-only field when the configuration is retrieved. The provisioning
+  // runbook records the exact allowlist in portal metadata for preflight checks.
   const allowed = new Set(Object.values(stripePriceIds()));
-  const portalPrices = (updates.products ?? []).flatMap(
-    product => product.prices
+  const portalPrices = new Set(
+    (portal.metadata.allowed_prices ?? "").split(",").filter(Boolean)
   );
-  if (portalPrices.length !== 3 || portalPrices.some(id => !allowed.has(id)))
+  if (
+    portalPrices.size !== 3 ||
+    [...portalPrices].some(id => !allowed.has(id))
+  )
     throw new Error(
       "Portal must offer exactly the three configured TURATH prices"
     );
