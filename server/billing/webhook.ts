@@ -1,99 +1,55 @@
 import express from "express";
-import Stripe from "stripe";
-import { getDb } from "../db";
-import { users } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { getStripe, syncCustomer } from "./stripe";
 
 export function registerStripeWebhook(app: express.Application) {
-  // MUST be registered BEFORE express.json() middleware
   app.post(
     "/api/stripe/webhook",
-    express.raw({ type: "application/json" }),
+    express.raw({ type: "application/json", limit: "1mb" }),
     async (req, res) => {
-      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || process.env.Stripe_Secret_Key || "", {
-        apiVersion: "2024-12-18.acacia" as any,
-      });
-
-      const sig = req.headers["stripe-signature"] as string;
-      const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-
-      let event: Stripe.Event;
-
+      const secret = process.env.STRIPE_WEBHOOK_SECRET;
+      if (!secret)
+        return res.status(503).json({ error: "Webhook not configured" });
+      let event;
       try {
-        if (webhookSecret) {
-          event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
-        } else {
-          // In dev without webhook secret, parse directly
-          event = JSON.parse(req.body.toString()) as Stripe.Event;
-        }
-      } catch (err: any) {
-        console.error("[Stripe Webhook] Signature verification failed:", err.message);
-        return res.status(400).send(`Webhook Error: ${err.message}`);
+        const signature = req.headers["stripe-signature"];
+        if (typeof signature !== "string")
+          return res.status(400).json({ error: "Missing signature" });
+        event = getStripe().webhooks.constructEvent(
+          req.body,
+          signature,
+          secret
+        );
+      } catch {
+        return res.status(400).json({ error: "Invalid webhook signature" });
       }
-
-      // Handle test events
-      if (event.id.startsWith("evt_test_")) {
-        console.log("[Stripe Webhook] Test event detected");
-        return res.json({ verified: true });
-      }
-
-      const db = await getDb();
-      if (!db) return res.status(500).json({ error: "DB not available" });
-
+      const handled = [
+        "checkout.session.completed",
+        "checkout.session.async_payment_succeeded",
+        "customer.subscription.created",
+        "customer.subscription.updated",
+        "customer.subscription.deleted",
+        "invoice.paid",
+        "invoice.payment_failed",
+        "invoice.payment_action_required",
+      ];
+      if (!handled.includes(event.type)) return res.json({ received: true });
       try {
-        switch (event.type) {
-          case "checkout.session.completed": {
-            const session = event.data.object as Stripe.Checkout.Session;
-            const userId = parseInt(session.metadata?.user_id || session.client_reference_id || "0");
-            const planId = session.metadata?.plan_id || "pro";
-            const customerId = session.customer as string;
-
-            if (userId) {
-              await db.update(users).set({
-                stripeCustomerId: customerId,
-                plan: planId as any,
-              }).where(eq(users.id, userId));
-              console.log(`[Stripe] User ${userId} upgraded to ${planId}`);
-            }
-            break;
-          }
-
-          case "customer.subscription.updated": {
-            const subscription = event.data.object as Stripe.Subscription;
-            const customerId = subscription.customer as string;
-
-            if (subscription.status === "active") {
-              // Plan stays active
-            } else if (subscription.status === "canceled" || subscription.status === "unpaid") {
-              // Downgrade to free
-              const [user] = await db.select().from(users).where(eq(users.stripeCustomerId, customerId));
-              if (user) {
-                await db.update(users).set({ plan: "free" }).where(eq(users.id, user.id));
-                console.log(`[Stripe] User ${user.id} downgraded to free (subscription ${subscription.status})`);
-              }
-            }
-            break;
-          }
-
-          case "customer.subscription.deleted": {
-            const subscription = event.data.object as Stripe.Subscription;
-            const customerId = subscription.customer as string;
-            const [user] = await db.select().from(users).where(eq(users.stripeCustomerId, customerId));
-            if (user) {
-              await db.update(users).set({ plan: "free" }).where(eq(users.id, user.id));
-              console.log(`[Stripe] User ${user.id} subscription deleted, downgraded to free`);
-            }
-            break;
-          }
-
-          default:
-            console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`);
-        }
-      } catch (err) {
-        console.error("[Stripe Webhook] Error processing event:", err);
+        const object = event.data.object as {
+          customer?: string | { id: string } | null;
+        };
+        const customerId =
+          typeof object.customer === "string"
+            ? object.customer
+            : object.customer?.id;
+        if (customerId) await syncCustomer(customerId);
+        return res.json({ received: true });
+      } catch {
+        console.error("[Stripe] Reconciliation failed; provider should retry", {
+          eventId: event.id,
+          type: event.type,
+        });
+        return res.status(500).json({ error: "Reconciliation failed" });
       }
-
-      res.json({ received: true });
     }
   );
 }

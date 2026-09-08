@@ -13,6 +13,8 @@ import {
   foreignKey,
   serial,
   uuid,
+  primaryKey,
+  check,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -69,10 +71,37 @@ export const users = pgTable("users", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
-});
+}, t => [uniqueIndex("users_stripe_customer_unique").on(t.stripeCustomerId).where(sql`${t.stripeCustomerId} IS NOT NULL`)]);
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+
+// Billing tables are server-only (RLS has no client policies).
+export const billingAccounts = pgTable("billing_accounts", {
+  userId: integer("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  subscriptionId: text("subscription_id"),
+  plan: text("plan").default("free").notNull(),
+  periodStart: timestamp("period_start", { withTimezone: true }),
+  periodEnd: timestamp("period_end", { withTimezone: true }),
+  periodKey: text("period_key"),
+  cancelAtPeriodEnd: boolean("cancel_at_period_end").default(false).notNull(),
+  subscriptionStatus: text("subscription_status"),
+  checkoutId: text("checkout_id"),
+  checkoutPlan: text("checkout_plan"),
+  syncedAt: timestamp("synced_at", { withTimezone: true }),
+}, t => [check("billing_accounts_plan_check", sql`${t.plan} IN ('free','pro','team','enterprise')`)]).enableRLS();
+export const billingUsage = pgTable("billing_usage", {
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  periodKey: text("period_key").notNull(),
+  used: integer("used").default(0).notNull(),
+}, t => [primaryKey({ columns: [t.userId, t.periodKey] }), check("billing_usage_used_check", sql`${t.used} >= 0`)]).enableRLS();
+export const billingReservations = pgTable("billing_reservations", {
+  id: uuid("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  periodKey: text("period_key"),
+  released: boolean("released").default(false).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, t => [index("billing_reservations_user_idx").on(t.userId)]).enableRLS();
 
 // ─── Projects ─────────────────────────────────────────────────────────────────
 
