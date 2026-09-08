@@ -244,6 +244,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-2 md:gap-3">
             <span className="text-sm text-muted-foreground hidden md:inline">{user?.name ?? user?.email}</span>
             <DashboardThemeToggle />
+            <Button variant="outline" size="sm" onClick={() => navigate("/settings/billing")}>Plans & billing</Button>
             {isPlatformOwner(user?.email) && <Button variant="outline" size="sm" onClick={() => navigate("/admin")}>Admin</Button>}
             <Button variant="outline" size="sm" onClick={() => navigate("/logout")} className="bg-transparent">
               Sign out

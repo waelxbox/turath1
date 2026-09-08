@@ -82,7 +82,7 @@ export default function UploadPage({ projectId, project }: Props) {
   const transcribeDoc = trpc.documents.transcribe.useMutation();
   const createGroup = trpc.groups.create.useMutation();
   const transcribeWithContext = trpc.groups.transcribeWithContext.useMutation();
-  const { data: planUsage } = trpc.billing.getMyPlan.useQuery();
+  const { data: planUsage } = trpc.billing.getProjectQuota.useQuery({ projectId });
 
   const handleFiles = useCallback((files: FileList | null) => {
     if (!files) return;
@@ -139,12 +139,12 @@ export default function UploadPage({ projectId, project }: Props) {
 
     const remaining = planUsage?.isOwnerExempt ? null : (planUsage?.documentsRemaining ?? 0);
     if (remaining === 0) {
-      toast.error("This account has reached the 20-document free-tier limit. Email adamamin2027@gmail.com for additional usage.");
+      toast.error("The project owner's document allowance is full. Open Billing to upgrade. Email adamamin2027@gmail.com for additional usage.");
       return;
     }
 
     if (isMultiPage && remaining !== null && pending.length > remaining) {
-      toast.error(`This multi-page document has ${pending.length} pages, but only ${remaining} free-tier document slot${remaining === 1 ? "" : "s"} remain. Remove files or contact us for additional capacity.`);
+      toast.error(`This multi-page document has ${pending.length} pages, but only ${remaining} document slot${remaining === 1 ? "" : "s"} remain. Remove files or upgrade for additional capacity.`);
       return;
     }
 
@@ -154,7 +154,7 @@ export default function UploadPage({ projectId, project }: Props) {
       limitedPending.forEach((item) => {
         updateStatus(item.id, "error", "Free-tier document limit reached before this file could be uploaded.");
       });
-      toast.warning(`Only ${permittedPending.length} of ${pending.length} selected files fit within the remaining free-tier allowance.`);
+      toast.warning(`Only ${permittedPending.length} of ${pending.length} selected files fit within the remaining allowance.`);
     }
     if (permittedPending.length === 0) return;
     setIsProcessing(true);
@@ -222,6 +222,7 @@ export default function UploadPage({ projectId, project }: Props) {
       utils.documents.list.invalidate({ projectId });
       utils.documents.listPaginated.invalidate();
       utils.billing.getMyPlan.invalidate();
+      utils.billing.getProjectQuota.invalidate({ projectId });
       return;
     }
 
@@ -273,6 +274,7 @@ export default function UploadPage({ projectId, project }: Props) {
     utils.projects.stats.invalidate({ id: projectId });
     utils.documents.list.invalidate({ projectId });
     utils.billing.getMyPlan.invalidate();
+    utils.billing.getProjectQuota.invalidate({ projectId });
 
     if (failed === 0 && stillProcessing === 0) {
       setShowSuccess(true);
@@ -319,7 +321,7 @@ export default function UploadPage({ projectId, project }: Props) {
         </p>
         {!planUsage?.isOwnerExempt && (
           <p className="mt-3 text-xs text-muted-foreground">
-            Free tier: <span className="font-medium text-foreground">{planUsage?.documentsRemaining ?? 0} of 20 documents remaining</span>. Email <a className="font-medium text-primary hover:underline" href="mailto:adamamin2027@gmail.com">adamamin2027@gmail.com</a> for additional usage.
+            Project-owner allowance: <span className="font-medium text-foreground">{planUsage?.documentsRemaining ?? 0} of {planUsage?.documentLimit ?? 20} documents remaining</span> ({planUsage?.plan === "free" ? "lifetime free" : "billing month"}). <a href="/settings/billing" className="font-medium text-primary hover:underline">Plans & billing</a>. Contact <a className="text-primary hover:underline" href="mailto:adamamin2027@gmail.com">adamamin2027@gmail.com</a> for help.
           </p>
         )}
       </div>

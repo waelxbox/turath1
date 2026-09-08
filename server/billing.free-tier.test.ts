@@ -11,11 +11,13 @@ import {
 import { PLATFORM_OWNER_EMAIL } from "../shared/admin";
 
 describe("free-tier safeguards", () => {
-  it("defines a 20-document free tier while paid checkout remains disabled", () => {
+  it("defines a 20-document lifetime free tier alongside approved monthly prices", () => {
     expect(FREE_DOCUMENT_LIMIT).toBe(20);
     expect(getDocumentLimit("free")).toBe(20);
     expect(PLANS.free.features).toContain("20 documents");
-    expect(BILLING_LAUNCH_ENABLED).toBe(false);
+    expect(BILLING_LAUNCH_ENABLED).toBe(true);
+    expect([PLANS.pro.documentLimit, PLANS.team.documentLimit, PLANS.enterprise.documentLimit]).toEqual([100,300,1000]);
+    expect([PLANS.pro.priceMonthly, PLANS.team.priceMonthly, PLANS.enterprise.priceMonthly]).toEqual([2000,5000,10000]);
   });
 
   it("only grants unlimited document access to Adam's normalized owner email", () => {
@@ -34,17 +36,17 @@ describe("free-tier safeguards", () => {
     expect(uploadBlock.indexOf("reserveDocumentQuotaSlot")).toBeGreaterThan(-1);
     expect(uploadBlock.indexOf("reserveDocumentQuotaSlot")).toBeLessThan(uploadBlock.indexOf("storagePut"));
     expect(uploadBlock).toContain("releaseDocumentQuotaSlot");
-    expect(uploadBlock).toContain("document free-tier limit");
-    expect(uploadBlock).toContain("Paid upgrades are not available yet.");
+    expect(uploadBlock).toContain("lifetime free-tier");
+    expect(uploadBlock).toContain("quota.reservationId");
   });
 
-  it("keeps paid checkout behind an explicit disabled launch gate", () => {
+  it("keeps checkout behind runtime configuration checks", () => {
     const source = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
     const billingStart = source.indexOf("const billingRouter = router");
     const billingBlock = source.slice(billingStart);
 
-    expect(billingBlock).toContain("if (!BILLING_LAUNCH_ENABLED)");
-    expect(billingBlock).toContain("Paid upgrades are not available yet.");
+    expect(billingBlock).toContain("if (!isPricingEnabled())");
+    expect(billingBlock).toContain("Paid checkout is not configured yet.");
   });
 
   it("charges project-owner capacity and blocks an oversized multi-page group before upload", () => {

@@ -841,7 +841,7 @@ const documentsRouter = router({
       if (!quota.allowed) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: `This account has reached the ${quota.documentLimit}-document free-tier limit. Paid upgrades are not available yet.`,
+          message: `The project owner has reached the ${quota.documentLimit}-document ${quota.plan === "free" ? "lifetime free-tier" : "billing-month"} limit. Open Billing to upgrade or manage the subscription.`,
         });
       }
 
@@ -867,7 +867,7 @@ const documentsRouter = router({
         return { ...withDocumentAccessUrl(createdDocument), usage: quota };
       } catch (error) {
         if (quota.quotaReserved) {
-          await releaseDocumentQuotaSlot(project.userId).catch((releaseError) => {
+          await releaseDocumentQuotaSlot(project.userId, quota.reservationId).catch((releaseError) => {
             console.error("[Billing] Failed to release document quota after upload error", releaseError);
           });
         }
@@ -3441,58 +3441,48 @@ const assignmentsRouter = router({
 // ─── Billing Router ──────────────────────────────────────────────────────────
 
 const billingRouter = router({
-  getPlans: publicProcedure.query(() => {
-    const { PLANS, BILLING_LAUNCH_ENABLED } = require("./billing/products");
-    return { plans: PLANS, paidUpgradesEnabled: BILLING_LAUNCH_ENABLED };
+  getPlans: publicProcedure.query(async () => {
+    const { PLANS } = await import("./billing/products");
+    const { isPricingEnabled } = await import("./billing/stripe");
+    return { plans: PLANS, paidUpgradesEnabled: isPricingEnabled() };
   }),
   getMyPlan: protectedProcedure.query(async ({ ctx }) => {
-    const { PLANS, BILLING_LAUNCH_ENABLED } = require("./billing/products");
+    const { PLANS } = await import("./billing/products");
+    const { isPricingEnabled, billingCustomerId } = await import("./billing/stripe");
     const quota = await getDocumentQuotaStatus(ctx.user.id);
-    const plan = "free" as const;
+    const plan = quota.plan === "owner" ? "free" : quota.plan;
     return {
-      plan,
-      planName: quota.plan === "owner" ? "Owner access" : PLANS.free.name,
-      documentLimit: quota.documentLimit,
-      documentsUsed: quota.documentsUsed,
-      documentsRemaining: quota.documentsRemaining,
-      isOwnerExempt: quota.plan === "owner",
-      paidUpgradesEnabled: BILLING_LAUNCH_ENABLED,
-      features: PLANS[plan]?.features || [],
+      ...quota, plan, planName: quota.plan === "owner" ? "Owner access" : PLANS[plan].name,
+      isOwnerExempt: quota.plan === "owner", paidUpgradesEnabled: isPricingEnabled(),
+      hasBillingAccount: Boolean(await billingCustomerId(ctx.user.id)), features: PLANS[plan].features,
     };
   }),
-
+  getProjectQuota: protectedProcedure.input(z.object({ projectId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const project = await getProjectById(input.projectId, ctx.user.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      const quota = await getDocumentQuotaStatus(project.userId);
+      return { ...quota, isOwnerExempt: quota.plan === "owner" };
+    }),
   createCheckout: protectedProcedure
-    .input(z.object({ planId: z.enum(["pro", "team"]), origin: z.string() }))
+    .input(z.object({ planId: z.enum(["pro", "team", "enterprise"]) }))
     .mutation(async ({ ctx, input }) => {
-      const { BILLING_LAUNCH_ENABLED } = require("./billing/products");
-      if (!BILLING_LAUNCH_ENABLED) {
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Paid upgrades are not available yet." });
+      const { isPricingEnabled, createCheckoutSession } = await import("./billing/stripe");
+      if (!isPricingEnabled()) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Paid checkout is not configured yet. Please contact support." });
+      try {
+        return { url: await createCheckoutSession({ userId: ctx.user.id, userEmail: ctx.user.email || "", userName: ctx.user.name || "", planId: input.planId }) };
+      } catch (error) {
+        console.error("[Billing] Checkout failed", error instanceof Error ? error.name : "unknown");
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Could not start checkout. If you already subscribed, use Manage subscription. Otherwise contact support; no new payment was confirmed here." });
       }
-      const { createCheckoutSession } = require("./billing/stripe");
-      const url = await createCheckoutSession({
-        userId: ctx.user.id,
-        userEmail: ctx.user.email || "",
-        userName: ctx.user.name || "",
-        planId: input.planId,
-        stripeCustomerId: (ctx.user as any).stripeCustomerId,
-        origin: input.origin,
-      });
-      return { url };
     }),
-
-  createPortal: protectedProcedure
-    .input(z.object({ origin: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      const { BILLING_LAUNCH_ENABLED } = require("./billing/products");
-      if (!BILLING_LAUNCH_ENABLED) {
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Paid upgrades are not available yet." });
-      }
-      const customerId = (ctx.user as any).stripeCustomerId;
-      if (!customerId) throw new TRPCError({ code: "BAD_REQUEST", message: "No active subscription" });
-      const { createPortalSession } = require("./billing/stripe");
-      const url = await createPortalSession(customerId, input.origin);
-      return { url };
-    }),
+  createPortal: protectedProcedure.mutation(async ({ ctx }) => {
+    const { billingCustomerId, createPortalSession } = await import("./billing/stripe");
+    const customerId = await billingCustomerId(ctx.user.id);
+    if (!customerId) throw new TRPCError({ code: "BAD_REQUEST", message: "No billing account yet" });
+    try { return { url: await createPortalSession(customerId) }; }
+    catch { throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Billing management is unavailable. Contact adamamin2027@gmail.com for help." }); }
+  }),
 });
 
 
